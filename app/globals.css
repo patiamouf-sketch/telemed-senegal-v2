@@ -1,0 +1,55 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply text-[#1E293B] antialiased selection:bg-blue-100 selection:text-blue-900 min-h-screen relative;
+    background-color: #FAFCFF;
+    background-image: 
+      radial-gradient(at 15% 10%, rgba(224, 242, 254, 0.75) 0px, transparent 55%),
+      radial-gradient(at 85% 15%, rgba(252, 231, 243, 0.6) 0px, transparent 50%),
+      radial-gradient(at 50% 60%, rgba(239, 246, 255, 0.8) 0px, transparent 65%),
+      radial-gradient(at 90% 85%, rgba(204, 251, 241, 0.45) 0px, transparent 50%),
+      radial-gradient(at 10% 90%, rgba(243, 232, 255, 0.45) 0px, transparent 50%);
+    background-attachment: fixed;
+    background-size: cover;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply tracking-tight text-[#0F172A];
+  }
+}
+
+/* Glassmorphism smooth animations */
+@keyframes softFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-fade-in {
+  animation: softFadeIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Ultra-smooth luxury scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.3);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(59, 130, 246, 0.5);
+}
