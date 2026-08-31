@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import confetti from 'canvas-confetti';
+import { LocalQRCode } from '../ui/LocalQRCode';
 
 interface PrescriptionDrawerProps {
   doctor: DoctorProfile;
@@ -522,13 +523,7 @@ export function PrescriptionDrawer({
                     </div>
 
                     <div className="p-1 bg-white rounded-lg border border-slate-200 shadow-sm flex-shrink-0">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={`https://api.qrserver.com/v1/create-qr-code/?size=80x80&data=${encodeURIComponent(sealedPrescription.verificationUrl)}&color=0c4a6e&bgcolor=ffffff&qzone=1`}
-                        alt="QR Code Vérification"
-                        width={64}
-                        height={64}
-                      />
+                      <LocalQRCode value={sealedPrescription.verificationUrl} size={64} />
                     </div>
                   </div>
                 ) : (

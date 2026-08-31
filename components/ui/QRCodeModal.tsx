@@ -6,6 +6,8 @@ import { GlassButton } from './GlassButton';
 import { Badge } from './Badge';
 import { X, QrCode, Copy, Check, Download, ExternalLink, Stethoscope, ShieldCheck } from 'lucide-react';
 
+import { LocalQRCode } from './LocalQRCode';
+
 interface QRCodeModalProps {
   doctorName: string;
   speciality: string;
@@ -31,9 +33,6 @@ export function QRCodeModal({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  // High quality QR code SVG pattern
-  const qrSvgUrl = `https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=${encodeURIComponent(url)}&color=0c4a6e&bgcolor=ffffff&qzone=2`;
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-md">
       <GlassCard className="relative w-full max-w-md bg-white/95 backdrop-blur-2xl border-white/90 p-6 sm:p-8 text-center shadow-2xl space-y-5">
@@ -46,7 +45,7 @@ export function QRCodeModal({
 
         {/* Header */}
         <div className="space-y-1.5">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-[18px] bg-gradient-to-tr from-medical-600 to-sky-400 text-white shadow-lg shadow-sky-500/25 mb-1">
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-[18px] bg-gradient-to-tr from-[#3B82F6] to-sky-400 text-white shadow-lg shadow-sky-500/25 mb-1">
             <QrCode className="w-6 h-6" />
           </div>
           <Badge variant="sky" size="sm">
@@ -58,22 +57,15 @@ export function QRCodeModal({
           </p>
         </div>
 
-        {/* QR Code Container */}
+        {/* QR Code Container (100% Local) */}
         <div className="p-5 rounded-[24px] bg-gradient-to-b from-sky-50 to-white border border-sky-100/90 shadow-inner flex flex-col items-center justify-center">
-          <div className="p-3 bg-white rounded-[20px] shadow-md border border-slate-100 mb-3">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={qrSvgUrl}
-              alt={`QR Code pour ${doctorName}`}
-              width={200}
-              height={200}
-              className="rounded-[12px]"
-            />
+          <div className="p-3 bg-white rounded-[20px] shadow-md border border-slate-100 mb-3 flex items-center justify-center">
+            <LocalQRCode value={url} size={200} />
           </div>
 
           <div className="text-center space-y-0.5">
             <strong className="text-sm font-bold text-slate-900 block">{doctorName}</strong>
-            <span className="text-xs text-medical-700 font-semibold block">{speciality}</span>
+            <span className="text-xs text-[#3B82F6] font-semibold block">{speciality}</span>
             <span className="text-[11px] text-slate-400 font-mono">ONMS: {onmsNumber}</span>
           </div>
         </div>
@@ -94,18 +86,10 @@ export function QRCodeModal({
 
         {/* Action Buttons */}
         <div className="pt-2 flex items-center justify-center gap-3">
-          <a
-            href={qrSvgUrl}
-            target="_blank"
-            download={`qrcode-${slug}.png`}
-            rel="noopener noreferrer"
-            className="w-full"
-          >
-            <GlassButton variant="secondary" size="md" className="w-full text-xs">
-              <Download className="w-4 h-4" />
-              Télécharger l'image HD
-            </GlassButton>
-          </a>
+          <GlassButton variant="secondary" size="md" onClick={handleCopy} className="w-full text-xs">
+            <Copy className="w-4 h-4" />
+            {copied ? 'Lien copié dans le presse-papier !' : 'Copier le lien patient'}
+          </GlassButton>
         </div>
       </GlassCard>
     </div>

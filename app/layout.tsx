@@ -1,6 +1,21 @@
 import type { Metadata } from 'next';
+import { Inter, Poppins } from 'next/font/google';
 import './globals.css';
 import { AuthProvider } from '@/lib/context/AuthContext';
+
+// Chargement sécurisé local Next.js (Zéro CDN, Zéro appel externe, Zéro redirection)
+const inter = Inter({
+  subsets: ['latin'],
+  display: 'swap',
+  variable: '--font-inter',
+});
+
+const poppins = Poppins({
+  weight: ['400', '500', '600', '700', '800'],
+  subsets: ['latin'],
+  display: 'swap',
+  variable: '--font-poppins',
+});
 
 export const metadata: Metadata = {
   title: 'TéléMed Sénégal V2 • Thiam Global Business',
@@ -13,16 +28,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="fr" className="scroll-smooth">
-      <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Poppins:wght@400;500;600;700;800&display=swap"
-          rel="stylesheet"
-        />
-      </head>
-      <body className="font-['Inter',sans-serif] min-h-screen text-[#1E293B]">
+    <html lang="fr" className={`scroll-smooth ${inter.variable} ${poppins.variable}`}>
+      <body className={`${inter.className} min-h-screen text-[#1E293B]`}>
         <AuthProvider>
           {children}
         </AuthProvider>
