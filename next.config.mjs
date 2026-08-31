@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  poweredByHeader: false, // Supprime l'en-tête X-Powered-By pour masquer la technologie
+  poweredByHeader: false,
   async headers() {
     return [
       {
