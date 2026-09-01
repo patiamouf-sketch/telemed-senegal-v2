@@ -113,22 +113,77 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const cleanEmail = email.trim().toLowerCase();
 
+      // Création du profil Admin par défaut si nécessaire
+      const defaultAdminProfile: DoctorProfile = {
+        id: 'admin-thiam-1',
+        fullName: 'Dr. Elhadji Pathé THIAM',
+        email: 'pati.amouf@gmail.com',
+        phone: '+221 78 106 92 98',
+        speciality: 'Direction Médicale • Pharmacien & Informaticien',
+        onmsNumber: 'ONMS-DIR-001',
+        clinicName: 'Direction Générale THIAM GLOBAL BUSINESS',
+        city: 'Dakar',
+        consultationFee: 15000,
+        slug: 'dr-elhadji-pathe-thiam',
+        status: 'active',
+        role: 'doctor',
+        licenseExpiresAt: '2099-12-31T23:59:59.000Z',
+        createdAt: new Date().toISOString(),
+      };
+
       if (isFirebaseConfigured && auth) {
-        const cred = await signInWithEmailAndPassword(auth, cleanEmail, password);
-        const profile = await getDoctorById(cred.user.uid) || await getDoctorById(cleanEmail);
-        setUser({ uid: cred.user.uid, email: cleanEmail });
-        setDoctorProfile(profile);
-        setLoading(false);
-        return profile;
+        let credUser: User | null = null;
+        try {
+          const cred = await signInWithEmailAndPassword(auth, cleanEmail, password);
+          credUser = cred.user;
+        } catch (firebaseErr: any) {
+          // Si c'est l'email admin et que le compte n'existe pas encore dans Firebase Auth, on le crée automatiquement
+          if (cleanEmail === ADMIN_EMAIL && (
+            firebaseErr.code === 'auth/user-not-found' ||
+            firebaseErr.code === 'auth/invalid-credential' ||
+            firebaseErr.code === 'auth/invalid-login-credentials'
+          )) {
+            try {
+              const newCred = await createUserWithEmailAndPassword(auth, cleanEmail, password);
+              credUser = newCred.user;
+            } catch (createErr) {
+              // Si déjà créé mais mauvais mot de passe
+              throw firebaseErr;
+            }
+          } else {
+            throw firebaseErr;
+          }
+        }
+
+        if (credUser) {
+          let profile = await getDoctorById(credUser.uid) || await getDoctorById(cleanEmail);
+          if (!profile && cleanEmail === ADMIN_EMAIL) {
+            profile = defaultAdminProfile;
+            await createDoctorProfile(profile).catch(() => {});
+          }
+
+          const currentUser = { uid: credUser.uid, email: cleanEmail, displayName: profile?.fullName || 'Dr. Elhadji Pathé THIAM' };
+          setUser(currentUser);
+          setDoctorProfile(profile || (cleanEmail === ADMIN_EMAIL ? defaultAdminProfile : null));
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('telemed_session_v2', JSON.stringify({ user: currentUser, profile: profile || defaultAdminProfile }));
+          }
+          setLoading(false);
+          return profile || defaultAdminProfile;
+        }
       }
 
+      // Fallback local
       const doctors = getLocalDoctors();
       let matched = doctors.find(d => d.email.toLowerCase() === cleanEmail);
+      if (!matched && cleanEmail === ADMIN_EMAIL) {
+        matched = defaultAdminProfile;
+      }
 
       const currentUser = {
-        uid: matched?.id || `user-${Date.now()}`,
+        uid: matched?.id || (cleanEmail === ADMIN_EMAIL ? 'admin-thiam-1' : `user-${Date.now()}`),
         email: matched?.email || cleanEmail,
-        displayName: matched?.fullName || 'Docteur',
+        displayName: matched?.fullName || (cleanEmail === ADMIN_EMAIL ? 'Dr. Elhadji Pathé THIAM' : 'Docteur'),
       };
 
       setUser(currentUser);
