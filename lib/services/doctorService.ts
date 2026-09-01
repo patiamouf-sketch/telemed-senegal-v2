@@ -79,6 +79,32 @@ export async function createDoctorProfile(
 }
 
 export async function getDoctorById(id: string): Promise<DoctorProfile | null> {
+  const cleanId = id.toLowerCase().trim();
+
+  // 1. Essai API Serverless Cloud (Partagé en direct entre Super-Admin et Médecin)
+  if (typeof window !== 'undefined') {
+    try {
+      const res = await fetch('/api/consultation/sync?type=doctors');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.doctors && Array.isArray(data.doctors)) {
+          const match = data.doctors.find((d: DoctorProfile) =>
+            d.id?.toLowerCase() === cleanId || d.email?.toLowerCase() === cleanId
+          );
+          if (match) {
+            const local = getLocalDoctors();
+            const idx = local.findIndex(l => l.id === match.id);
+            if (idx >= 0) local[idx] = match;
+            else local.push(match);
+            saveLocalDoctors(local);
+            return match;
+          }
+        }
+      }
+    } catch (e) {}
+  }
+
+  // 2. Essai Firestore
   if (isFirebaseConfigured && db) {
     try {
       const snap = await getDoc(doc(db, 'doctors', id));
@@ -86,16 +112,33 @@ export async function getDoctorById(id: string): Promise<DoctorProfile | null> {
         return snap.data() as DoctorProfile;
       }
     } catch (e) {
-      console.warn('Firebase getDoctorById failed, using local storage:', e);
+      console.warn('Firebase getDoctorById notice:', e);
     }
   }
 
+  // 3. Fallback Local Storage
   const doctors = getLocalDoctors();
-  return doctors.find(d => d.id === id || d.email === id) || null;
+  return doctors.find(d => d.id?.toLowerCase() === cleanId || d.email?.toLowerCase() === cleanId) || null;
 }
 
 export async function getDoctorBySlug(slug: string): Promise<DoctorProfile | null> {
   const normalizedSlug = slug.toLowerCase().trim();
+
+  // 1. Essai API Serverless Cloud
+  if (typeof window !== 'undefined') {
+    try {
+      const res = await fetch('/api/consultation/sync?type=doctors');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.doctors && Array.isArray(data.doctors)) {
+          const match = data.doctors.find((d: DoctorProfile) => d.slug?.toLowerCase().trim() === normalizedSlug);
+          if (match) return match;
+        }
+      }
+    } catch (e) {}
+  }
+
+  // 2. Essai Firestore
   if (isFirebaseConfigured && db) {
     try {
       const q = query(collection(db, 'doctors'), where('slug', '==', normalizedSlug));
@@ -104,10 +147,11 @@ export async function getDoctorBySlug(slug: string): Promise<DoctorProfile | nul
         return snap.docs[0].data() as DoctorProfile;
       }
     } catch (e) {
-      console.warn('Firebase getDoctorBySlug failed, using local storage:', e);
+      console.warn('Firebase getDoctorBySlug notice:', e);
     }
   }
 
+  // 3. Fallback Local Storage
   const doctors = getLocalDoctors();
   return doctors.find(d => d.slug.toLowerCase() === normalizedSlug) || null;
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/lib/context/AuthContext';
 import { GlassCard } from '../ui/GlassCard';
 import { GlassButton } from '../ui/GlassButton';
@@ -13,6 +13,15 @@ export function PendingApprovalView() {
   const { doctorProfile, refreshProfile, logout } = useAuth();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSimulatingApprove, setIsSimulatingApprove] = useState(false);
+
+  // Écouteur en temps réel automatique : vérifie toutes les 3 secondes si le Super-Admin a validé le compte
+  useEffect(() => {
+    refreshProfile();
+    const interval = setInterval(async () => {
+      await refreshProfile();
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [refreshProfile]);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -48,10 +57,10 @@ export function PendingApprovalView() {
               Statut : En cours d'examen
             </Badge>
             <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0F172A] tracking-tight">
-              En attente de validation par le Dr Thiam
+              En attente de validation médicale
             </h1>
             <p className="text-xs sm:text-sm text-slate-600 max-w-lg mx-auto leading-relaxed">
-              Bienvenue, <span className="font-bold text-[#0F172A]">{doctorProfile?.fullName}</span>. Votre dossier d'inscription a été transmis à la direction médicale de <strong>Thiam Global Business</strong> pour vérification de conformité auprès de l'Ordre National des Médecins du Sénégal (ONMS).
+              Bienvenue, <span className="font-bold text-[#0F172A]">{doctorProfile?.fullName}</span>. Votre dossier d'inscription a été transmis à la direction médicale de <strong>TELEMED SENEGAL</strong> pour vérification de conformité et activation de votre licence.
             </p>
           </div>
 
@@ -59,7 +68,7 @@ export function PendingApprovalView() {
           <div className="bg-white rounded-[24px] border border-slate-100 p-5 text-left space-y-3 text-xs sm:text-sm shadow-sm">
             <h3 className="font-bold text-[#0F172A] text-xs uppercase tracking-wider mb-2 flex items-center gap-1.5">
               <ShieldCheck className="w-4 h-4 text-[#3B82F6]" />
-              Récapitulatif de votre dossier médical
+              Récapitulatif de votre dossier praticien
             </h3>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-slate-700">
@@ -69,7 +78,7 @@ export function PendingApprovalView() {
               </div>
               <div className="flex items-center gap-2 font-mono">
                 <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
-                <span>N° ONMS : <strong>{doctorProfile?.onmsNumber}</strong></span>
+                <span>N° ONMS : <strong>{doctorProfile?.onmsNumber || 'En cours'}</strong></span>
               </div>
               <div className="flex items-center gap-2 font-mono">
                 <CreditCard className="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
@@ -77,7 +86,7 @@ export function PendingApprovalView() {
               </div>
               <div className="flex items-center gap-2">
                 <Phone className="w-3.5 h-3.5 text-sky-600 flex-shrink-0" />
-                <span>Wave / OM : <strong>{doctorProfile?.phone}</strong></span>
+                <span>Téléphone : <strong>{doctorProfile?.phone}</strong></span>
               </div>
             </div>
           </div>
@@ -87,11 +96,11 @@ export function PendingApprovalView() {
             <div className="grid grid-cols-3 gap-2 text-center text-[11px]">
               <div className="p-3 rounded-full bg-emerald-50 text-emerald-800 font-bold border border-emerald-100">
                 <CheckCircle2 className="w-4 h-4 mx-auto mb-1 text-emerald-600" />
-                1. Formulaire Reçu
+                1. Demande Reçue
               </div>
               <div className="p-3 rounded-full bg-amber-50 text-amber-900 font-bold border border-amber-200 animate-pulse">
                 <Clock className="w-4 h-4 mx-auto mb-1 text-amber-600" />
-                2. Audit ONMS & NIN
+                2. Examen Direction
               </div>
               <div className="p-3 rounded-full bg-slate-50 text-slate-400 font-medium border border-slate-100">
                 <Sparkles className="w-4 h-4 mx-auto mb-1 text-slate-300" />
@@ -107,9 +116,9 @@ export function PendingApprovalView() {
               size="md"
               onClick={handleRefresh}
               isLoading={isRefreshing}
-              className="w-full sm:w-auto"
+              className="w-full sm:w-auto text-xs"
             >
-              <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
               Actualiser le statut
             </GlassButton>
 
@@ -119,9 +128,9 @@ export function PendingApprovalView() {
               rel="noopener noreferrer"
               className="w-full sm:w-auto"
             >
-              <GlassButton variant="secondary" size="md" className="w-full">
-                <MessageSquare className="w-4 h-4 text-emerald-600" />
-                WhatsApp Dr Thiam
+              <GlassButton variant="secondary" size="md" className="w-full text-xs">
+                <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
+                WhatsApp Direction
               </GlassButton>
             </a>
 
@@ -129,7 +138,7 @@ export function PendingApprovalView() {
               variant="secondary"
               size="md"
               onClick={() => logout()}
-              className="w-full sm:w-auto text-slate-600"
+              className="w-full sm:w-auto text-slate-600 text-xs"
             >
               Déconnexion
             </GlassButton>
@@ -139,8 +148,8 @@ export function PendingApprovalView() {
           <div className="pt-4 border-t border-dashed border-amber-200">
             <div className="p-4 rounded-[24px] bg-amber-50/70 border border-amber-200 text-left flex items-center justify-between gap-3 text-xs">
               <div>
-                <span className="font-bold text-amber-900 block">⚡ Mode Démo : Valider immédiatement</span>
-                <span className="text-[11px] text-amber-700">Simule la validation en 1 clic par le Super-Admin avec +90j de licence.</span>
+                <span className="font-bold text-amber-900 block">⚡ Mode Test : Valider immédiatement</span>
+                <span className="text-[11px] text-amber-700">Simule la validation par le Super-Admin avec +90j de licence.</span>
               </div>
               <GlassButton
                 size="sm"
