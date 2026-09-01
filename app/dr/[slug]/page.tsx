@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import { getDoctorBySlug, addPatientToQueue, getPatientById, sendConsultationMessage } from '@/lib/services/doctorService';
 import { DoctorProfile, PatientQueueItem, ServiceType, ChatMessage } from '@/lib/types/doctor';
+import { isDoctorLicenseValid } from '@/lib/utils/license';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { GlassButton } from '@/components/ui/GlassButton';
 import { Badge } from '@/components/ui/Badge';
@@ -213,16 +214,18 @@ export default function PatientRoomPage() {
     );
   }
 
-  if (!doctor || doctor.status !== 'active') {
+  const licenseCheck = isDoctorLicenseValid(doctor);
+
+  if (!doctor || !licenseCheck.isValid) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4 font-sans">
         <GlassCard className="p-8 text-center bg-white/90 max-w-md space-y-4 shadow-soft-float">
           <div className="w-12 h-12 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center mx-auto">
             <Clock className="w-6 h-6" />
           </div>
-          <h2 className="text-xl font-bold text-[#0F172A]">Cabinet Médical Indisponible</h2>
+          <h2 className="text-xl font-bold text-[#0F172A]">Cabinet Médical Temporairement Indisponible</h2>
           <p className="text-xs text-slate-500">
-            Ce praticien n'est pas disponible pour le moment ou est en cours de validation par la direction médicale.
+            {licenseCheck.message || 'Ce praticien n\'est pas disponible pour le moment ou est en cours de validation par la direction médicale.'}
           </p>
           <Link href="/">
             <GlassButton variant="primary" size="sm">

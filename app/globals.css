@@ -53,3 +53,28 @@
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(59, 130, 246, 0.5);
 }
+
+/* Styles d'impression officielle pour ordonnance PDF */
+@media print {
+  body {
+    background: #FFFFFF !important;
+    color: #000000 !important;
+  }
+  
+  nav,
+  button,
+  .no-print,
+  [role="dialog"] > div > div:first-child:not(.printable-doc),
+  .demo-switcher {
+    display: none !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+
+  @page {
+    size: A4 portrait;
+    margin: 15mm 15mm 15mm 15mm;
+  }
+}

@@ -22,6 +22,7 @@ import {
   Activity
 } from 'lucide-react';
 import Link from 'next/link';
+import { LocalQRCode } from '@/components/ui/LocalQRCode';
 
 export default function VerifyHashPage() {
   const params = useParams();
@@ -231,7 +232,7 @@ export default function VerifyHashPage() {
             </div>
           )}
 
-          {/* Official Stamp & Signature */}
+          {/* Official Stamp & QR Code */}
           <div className="pt-5 border-t-2 border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <div className="w-20 h-20 rounded-full border-2 border-dashed border-emerald-600 flex flex-col items-center justify-center text-center p-1 text-emerald-800 transform -rotate-6 shadow-sm">
@@ -243,13 +244,19 @@ export default function VerifyHashPage() {
               <div className="text-xs text-slate-500">
                 <span className="font-bold text-slate-900 block">{prescription.doctorName}</span>
                 <span className="text-[10px] block">Signature & Cachet Numérique ONMS</span>
+                <span className="font-mono text-[9px] text-emerald-800 block">NIN Médecin : {prescription.doctorId}</span>
               </div>
             </div>
 
-            <div className="text-right text-xs">
-              <span className="text-[10px] text-slate-400 block">Plateforme Agréée</span>
-              <strong className="text-slate-800">TéléMed Sénégal V2</strong>
-              <p className="text-[10px] text-slate-400">Thiam Global Business</p>
+            <div className="flex items-center gap-3 text-right">
+              <div>
+                <span className="text-[10px] text-slate-400 block font-semibold">Vérification Instantanée</span>
+                <strong className="text-xs text-slate-800 font-bold block">TéléMed Sénégal V2</strong>
+                <span className="text-[9px] font-mono text-slate-500 block">Sceau SHA-256</span>
+              </div>
+              <div className="p-1.5 bg-white rounded-xl border border-slate-200 shadow-sm flex-shrink-0">
+                <LocalQRCode value={prescription.verificationUrl || `https://telemed.sn/verify/${prescription.hash}`} size={64} />
+              </div>
             </div>
           </div>
         </div>

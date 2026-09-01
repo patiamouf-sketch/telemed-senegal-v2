@@ -20,12 +20,7 @@ import {
   MessageSquare,
   FileText,
   Send,
-  Sparkles,
   ShieldCheck,
-  Clock,
-  CheckCircle2,
-  Paperclip,
-  Image as ImageIcon,
   Play,
   Pause,
   ExternalLink,
@@ -37,9 +32,13 @@ import {
   Lock,
   Maximize2,
   Minimize2,
-  AlertCircle
+  AlertCircle,
+  CheckCircle2,
+  Image as ImageIcon,
+  AlertTriangle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { isDoctorLicenseValid } from '@/lib/utils/license';
 import confetti from 'canvas-confetti';
 import Link from 'next/link';
 
@@ -64,10 +63,17 @@ export default function DedicatedConsultationPage() {
   const [showPrescriptionDrawer, setShowPrescriptionDrawer] = useState(false);
   const [latestPrescription, setLatestPrescription] = useState<OfficialPrescription | undefined>(undefined);
 
-  // Voice note simulation state
+  // Voice note simulation / MediaRecorder state
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
   const [voiceSeconds, setVoiceSeconds] = useState(0);
   const [playingVoiceId, setPlayingVoiceId] = useState<string | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const currentAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Video stream ref
+  const localVideoRef = useRef<HTMLVideoElement>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
 
   // Image preview state
   const [previewImage, setPreviewImage] = useState<string | null>(null);
@@ -90,6 +96,50 @@ export default function DedicatedConsultationPage() {
     }
     loadData();
   }, [id, doctorProfile]);
+
+  const activeDoc = doctor || doctorProfile || {
+    id: 'doc-active-1',
+    fullName: 'Dr. Ibrahima Sow',
+    speciality: 'Cardiologie & Médecine Interne',
+    onmsNumber: 'SN-ONMS-4829',
+    clinicName: 'Cabinet Médical Al-Madina',
+    city: 'Dakar',
+    phone: '+221 77 654 32 10',
+    slug: 'dr-sow',
+    status: 'active' as const,
+    consultationFee: 7000,
+    avisMedicalFee: 3000,
+    visioConsultationFee: 7000,
+    createdAt: new Date().toISOString(),
+    availableForTeleconsult: true,
+    email: 'dr.sow@telemed.sn',
+    nin: '1988120400341'
+  };
+
+  const licenseCheck = isDoctorLicenseValid(activeDoc);
+
+  // Camera stream for Visio
+  useEffect(() => {
+    if (patient?.serviceType === 'visio_consultation' && typeof navigator !== 'undefined' && navigator.mediaDevices) {
+      navigator.mediaDevices
+        .getUserMedia({ video: true, audio: true })
+        .then(stream => {
+          mediaStreamRef.current = stream;
+          if (localVideoRef.current) {
+            localVideoRef.current.srcObject = stream;
+          }
+        })
+        .catch(err => {
+          console.warn('Camera stream fallback mode:', err);
+        });
+
+      return () => {
+        if (mediaStreamRef.current) {
+          mediaStreamRef.current.getTracks().forEach(track => track.stop());
+        }
+      };
+    }
+  }, [patient?.serviceType]);
 
   // Timer for Visio
   useEffect(() => {
@@ -115,6 +165,32 @@ export default function DedicatedConsultationPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // Toggle Video
+  const toggleVideo = () => {
+    if (mediaStreamRef.current) {
+      const vTrack = mediaStreamRef.current.getVideoTracks()[0];
+      if (vTrack) {
+        vTrack.enabled = !vTrack.enabled;
+        setIsVideoOff(!vTrack.enabled);
+        return;
+      }
+    }
+    setIsVideoOff(!isVideoOff);
+  };
+
+  // Toggle Audio
+  const toggleAudio = () => {
+    if (mediaStreamRef.current) {
+      const aTrack = mediaStreamRef.current.getAudioTracks()[0];
+      if (aTrack) {
+        aTrack.enabled = !aTrack.enabled;
+        setIsVideoMuted(!aTrack.enabled);
+        return;
+      }
+    }
+    setIsVideoMuted(!isVideoMuted);
+  };
+
   // Send Text Message
   const handleSendMessage = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -130,23 +206,106 @@ export default function DedicatedConsultationPage() {
     setInputText('');
   };
 
-  // Send Voice Note
-  const handleToggleVoiceRecording = async () => {
+  // Real Voice Note Recording
+  const startVoiceRecording = async () => {
     if (!patient || patient.isReadOnly) return;
-    if (isRecordingVoice) {
-      const recordedDuration = Math.max(1, voiceSeconds);
-      setIsRecordingVoice(false);
+    audioChunksRef.current = [];
+    try {
+      if (typeof navigator !== 'undefined' && navigator.mediaDevices) {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+          ? 'audio/webm;codecs=opus'
+          : MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')
+          ? 'audio/ogg;codecs=opus'
+          : 'audio/webm';
 
-      const msg = await sendConsultationMessage(patient.id, {
-        sender: 'doctor',
-        type: 'voice',
-        text: `Note vocale médicale (${recordedDuration}s)`,
-        audioDuration: recordedDuration,
-      });
+        const recorder = new MediaRecorder(stream, { mimeType });
+        mediaRecorderRef.current = recorder;
 
-      setMessages(prev => [...prev, msg]);
-    } else {
+        recorder.ondataavailable = e => {
+          if (e.data.size > 0) audioChunksRef.current.push(e.data);
+        };
+
+        recorder.onstop = async () => {
+          const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
+          stream.getTracks().forEach(t => t.stop());
+
+          const reader = new FileReader();
+          reader.onload = async () => {
+            const dataUrl = reader.result as string;
+            const recordedSecs = Math.max(1, voiceSeconds);
+
+            const msg = await sendConsultationMessage(patient.id, {
+              sender: 'doctor',
+              type: 'voice',
+              text: `Note vocale médicale (${recordedSecs}s)`,
+              audioUrl: dataUrl,
+              audioDuration: recordedSecs,
+            });
+
+            setMessages(prev => [...prev, msg]);
+          };
+          reader.readAsDataURL(audioBlob);
+        };
+
+        recorder.start(200);
+        setIsRecordingVoice(true);
+      } else {
+        setIsRecordingVoice(true);
+      }
+    } catch (err) {
+      console.warn('Microphone error:', err);
       setIsRecordingVoice(true);
+    }
+  };
+
+  const stopVoiceRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      mediaRecorderRef.current.stop();
+      setIsRecordingVoice(false);
+    } else {
+      const duration = Math.max(1, voiceSeconds);
+      setIsRecordingVoice(false);
+      if (patient) {
+        sendConsultationMessage(patient.id, {
+          sender: 'doctor',
+          type: 'voice',
+          text: `Note vocale médicale (${duration}s)`,
+          audioDuration: duration,
+        }).then(msg => setMessages(prev => [...prev, msg]));
+      }
+    }
+  };
+
+  const handleToggleVoiceRecording = () => {
+    if (isRecordingVoice) {
+      stopVoiceRecording();
+    } else {
+      startVoiceRecording();
+    }
+  };
+
+  // Play audio
+  const handlePlayVoice = (msgId: string, audioUrl?: string) => {
+    if (playingVoiceId === msgId) {
+      currentAudioRef.current?.pause();
+      setPlayingVoiceId(null);
+      return;
+    }
+
+    if (currentAudioRef.current) {
+      currentAudioRef.current.pause();
+    }
+
+    if (audioUrl) {
+      const audio = new Audio(audioUrl);
+      currentAudioRef.current = audio;
+      audio.onended = () => setPlayingVoiceId(null);
+      audio.play().catch(e => console.warn('Audio play error:', e));
+      setPlayingVoiceId(msgId);
+    } else {
+      setPlayingVoiceId(msgId);
+      setTimeout(() => setPlayingVoiceId(null), 3000);
     }
   };
 
@@ -229,25 +388,6 @@ export default function DedicatedConsultationPage() {
     );
   }
 
-  const activeDoc = doctor || doctorProfile || {
-    id: 'doc-active-1',
-    fullName: 'Dr. Ibrahima Sow',
-    speciality: 'Cardiologie & Médecine Interne',
-    onmsNumber: 'SN-ONMS-4829',
-    clinicName: 'Cabinet Médical Al-Madina',
-    city: 'Dakar',
-    phone: '+221 77 654 32 10',
-    slug: 'dr-sow',
-    status: 'active' as const,
-    consultationFee: 7000,
-    avisMedicalFee: 3000,
-    visioConsultationFee: 7000,
-    createdAt: new Date().toISOString(),
-    availableForTeleconsult: true,
-    email: 'dr.sow@telemed.sn',
-    nin: '1988120400341'
-  };
-
   return (
     <div className="min-h-screen py-4 px-3 sm:px-6 lg:px-8 font-sans flex flex-col justify-between">
       <div className="max-w-6xl mx-auto w-full space-y-4 flex-1 flex flex-col">
@@ -297,7 +437,13 @@ export default function DedicatedConsultationPage() {
               <GlassButton
                 variant="primary"
                 size="sm"
-                onClick={() => setShowPrescriptionDrawer(true)}
+                onClick={() => {
+                  if (!licenseCheck.isValid) {
+                    alert(licenseCheck.message || 'Votre licence médicale a expiré.');
+                    return;
+                  }
+                  setShowPrescriptionDrawer(true);
+                }}
                 className="text-xs shadow-pill font-bold"
               >
                 <FileText className="w-4 h-4" />
@@ -338,9 +484,9 @@ export default function DedicatedConsultationPage() {
           </div>
         )}
 
-        {/* Main Work Area (Split/Superposed Layout) */}
+        {/* Main Work Area */}
         <div className="flex-1 flex flex-col md:flex-row gap-4 relative overflow-hidden min-h-[560px]">
-          {/* Floating Picture-in-Picture Video for Visio */}
+          {/* Picture-in-Picture Video for Visio */}
           {patient.serviceType === 'visio_consultation' && (
             <motion.div
               layout
@@ -380,12 +526,17 @@ export default function DedicatedConsultationPage() {
 
                   {/* Picture-in-Picture Doctor Local Screen */}
                   <div className="absolute bottom-2.5 right-2.5 w-28 h-20 rounded-[18px] bg-slate-800 border border-white/20 shadow-xl flex flex-col items-center justify-center overflow-hidden">
-                    {isVideoOff ? (
-                      <span className="text-[9px] text-slate-400">Caméra Off</span>
-                    ) : (
+                    <video
+                      ref={localVideoRef}
+                      autoPlay
+                      playsInline
+                      muted
+                      className={`w-full h-full object-cover ${isVideoOff ? 'hidden' : 'block'}`}
+                    />
+                    {isVideoOff && (
                       <div className="w-full h-full bg-gradient-to-b from-sky-900/60 to-slate-900 flex flex-col items-center justify-center text-white">
                         <Stethoscope className="w-4 h-4 text-sky-400 mb-0.5" />
-                        <span className="text-[9px] font-bold">Vous</span>
+                        <span className="text-[9px] font-bold">Caméra Off</span>
                       </div>
                     )}
                   </div>
@@ -396,7 +547,7 @@ export default function DedicatedConsultationPage() {
               {!patient.isReadOnly && (
                 <div className="pt-2 flex items-center justify-center gap-2.5">
                   <button
-                    onClick={() => setIsVideoMuted(!isVideoMuted)}
+                    onClick={toggleAudio}
                     className={`p-2.5 rounded-full transition-all ${
                       isVideoMuted ? 'bg-rose-500 text-white' : 'bg-white/15 hover:bg-white/25 text-white'
                     }`}
@@ -406,7 +557,7 @@ export default function DedicatedConsultationPage() {
                   </button>
 
                   <button
-                    onClick={() => setIsVideoOff(!isVideoOff)}
+                    onClick={toggleVideo}
                     className={`p-2.5 rounded-full transition-all ${
                       isVideoOff ? 'bg-rose-500 text-white' : 'bg-white/15 hover:bg-white/25 text-white'
                     }`}
@@ -524,18 +675,27 @@ export default function DedicatedConsultationPage() {
                         <div className="flex items-center gap-3 p-1">
                           <button
                             type="button"
-                            onClick={() => setPlayingVoiceId(playingVoiceId === msg.id ? null : msg.id)}
-                            className={`p-2 rounded-full ${
+                            onClick={() => handlePlayVoice(msg.id, msg.audioUrl)}
+                            className={`p-2 rounded-full transition-transform active:scale-95 ${
                               msg.sender === 'doctor' ? 'bg-white/20 text-white' : 'bg-[#3B82F6] text-white'
                             }`}
                           >
                             {playingVoiceId === msg.id ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
                           </button>
-                          <div>
-                            <span className="font-bold text-xs block">
-                              Note Vocale ({msg.audioDuration || 12}s)
-                            </span>
-                            <span className="text-[10px] opacity-80">Lecture disponible</span>
+                          <div className="flex-1">
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-bold text-xs">
+                                Note Vocale ({msg.audioDuration || 10}s)
+                              </span>
+                              {playingVoiceId === msg.id && (
+                                <span className="flex items-center gap-0.5">
+                                  <span className="w-1 h-3 bg-white animate-pulse rounded-full" />
+                                  <span className="w-1 h-4 bg-white animate-pulse delay-75 rounded-full" />
+                                  <span className="w-1 h-2 bg-white animate-pulse delay-150 rounded-full" />
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-[10px] opacity-80 block">Format WebM/OGG Sécurisé</span>
                           </div>
                         </div>
                       )}
@@ -586,7 +746,7 @@ export default function DedicatedConsultationPage() {
                   onClick={handleToggleVoiceRecording}
                   className={`p-2.5 rounded-full transition-all ${
                     isRecordingVoice
-                      ? 'bg-rose-500 text-white animate-pulse shadow-lg'
+                      ? 'bg-rose-500 text-white animate-pulse shadow-lg ring-4 ring-rose-500/20'
                       : 'text-slate-400 hover:text-[#3B82F6] hover:bg-blue-50'
                   }`}
                   title={isRecordingVoice ? 'Arrêter et envoyer' : 'Enregistrer une note vocale'}
@@ -600,9 +760,13 @@ export default function DedicatedConsultationPage() {
                       <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping" />
                       Enregistrement vocal ({voiceSeconds}s)...
                     </span>
-                    <span className="text-[11px] underline cursor-pointer" onClick={handleToggleVoiceRecording}>
+                    <button
+                      type="button"
+                      className="text-[11px] font-extrabold underline cursor-pointer bg-rose-600 text-white px-3 py-1 rounded-full hover:bg-rose-700 transition-colors"
+                      onClick={handleToggleVoiceRecording}
+                    >
                       Envoyer
-                    </span>
+                    </button>
                   </div>
                 ) : (
                   <form onSubmit={handleSendMessage} className="flex-1 flex items-center gap-2">

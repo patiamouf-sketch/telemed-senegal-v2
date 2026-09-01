@@ -226,6 +226,7 @@ export async function sendConsultationMessage(
     type?: 'text' | 'image' | 'voice' | 'prescription';
     text?: string;
     imageUrl?: string;
+    audioUrl?: string;
     audioDuration?: number;
     prescriptionData?: OfficialPrescription;
     isPrescription?: boolean;
@@ -234,9 +235,10 @@ export async function sendConsultationMessage(
   const newMsg: ChatMessage = {
     id: `msg-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
     sender: message.sender,
-    type: message.type || (message.imageUrl ? 'image' : message.audioDuration ? 'voice' : message.prescriptionData ? 'prescription' : 'text'),
+    type: message.type || (message.imageUrl ? 'image' : (message.audioUrl || message.audioDuration) ? 'voice' : message.prescriptionData ? 'prescription' : 'text'),
     text: message.text,
     imageUrl: message.imageUrl,
+    audioUrl: message.audioUrl,
     audioDuration: message.audioDuration,
     prescriptionData: message.prescriptionData,
     timestamp: new Date().toISOString(),

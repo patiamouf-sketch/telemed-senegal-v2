@@ -5,6 +5,7 @@ import { DoctorProfile, PatientQueueItem } from '@/lib/types/doctor';
 import { OfficialPrescription, PrescriptionItem } from '@/lib/types/prescription';
 import { searchDrugs, DrugEntry } from '@/lib/data/dciDatabase';
 import { generatePrescriptionHash } from '@/lib/utils/cryptoSeal';
+import { isDoctorLicenseValid } from '@/lib/utils/license';
 import { GlassCard } from '../ui/GlassCard';
 import { GlassButton } from '../ui/GlassButton';
 import { Badge } from '../ui/Badge';
@@ -105,6 +106,13 @@ export function PrescriptionDrawer({
 
   // Signer et Clôturer (SHA-256: [NIN_Patient + ID_Medecin + Date + Liste_Medocs])
   const handleSignAndClose = async () => {
+    // Vérification de sécurité de la licence médicale
+    const licenseCheck = isDoctorLicenseValid(doctor);
+    if (!licenseCheck.isValid) {
+      alert(`Action bloquée par la sécurité : ${licenseCheck.message}`);
+      return;
+    }
+
     if (items.length === 0) {
       alert('Veuillez ajouter au moins un médicament avant de signer l’ordonnance.');
       return;

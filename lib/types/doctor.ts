@@ -40,6 +40,7 @@ export interface ChatMessage {
   type?: MessageType;
   text?: string;
   imageUrl?: string;
+  audioUrl?: string; // URL ou dataURI audio WebM/OGG
   audioDuration?: number; // en secondes pour les notes vocales
   prescriptionData?: OfficialPrescription;
   timestamp: string;

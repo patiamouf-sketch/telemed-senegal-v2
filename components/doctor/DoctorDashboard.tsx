@@ -42,6 +42,7 @@ import {
 import { PatientQueueItem } from '@/lib/types/doctor';
 import { differenceInDays } from 'date-fns';
 import { playMedicalChime } from '@/lib/utils/soundAlert';
+import { isDoctorLicenseValid } from '@/lib/utils/license';
 import Link from 'next/link';
 import confetti from 'canvas-confetti';
 
@@ -113,10 +114,7 @@ export function DoctorDashboard() {
   };
 
   // License calculation
-  const licenseExpiry = doctorProfile?.licenseExpiresAt
-    ? new Date(doctorProfile.licenseExpiresAt)
-    : new Date(Date.now() + 45 * 86400000);
-  const daysRemaining = Math.max(0, differenceInDays(licenseExpiry, new Date()));
+  const licenseCheck = isDoctorLicenseValid(doctorProfile);
 
   // Save updated services & pricing
   const handleSaveServices = async (e: React.FormEvent) => {
@@ -193,10 +191,17 @@ export function DoctorDashboard() {
             </Badge>
 
             {/* Discrete License Badge */}
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200/60 text-emerald-800 text-xs font-semibold shadow-sm">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span>Licence : Active (J-{daysRemaining})</span>
-            </div>
+            {licenseCheck.isValid ? (
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200/60 text-emerald-800 text-xs font-semibold shadow-sm">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span>Licence : Active (J-{licenseCheck.daysRemaining})</span>
+              </div>
+            ) : (
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-50 border border-rose-200 text-rose-800 text-xs font-bold shadow-sm">
+                <span className="w-2 h-2 rounded-full bg-rose-500" />
+                <span>Licence : Expirée (Renouvellement Requis)</span>
+              </div>
+            )}
           </div>
 
           <p className="text-xs sm:text-sm text-slate-500">
@@ -225,11 +230,31 @@ export function DoctorDashboard() {
         </div>
       </div>
 
+      {/* License Expiration Banner if Expired */}
+      {!licenseCheck.isValid && (
+        <div className="p-4 rounded-[24px] bg-rose-50 border-2 border-rose-200 text-rose-900 text-xs flex flex-col sm:flex-row items-center justify-between gap-3 shadow-md">
+          <div className="space-y-0.5">
+            <span className="font-extrabold text-sm block">⚠️ Sécurité Médicale : Licence d'exercice échue</span>
+            <p className="text-rose-700 leading-relaxed">{licenseCheck.message}</p>
+          </div>
+          <a
+            href="https://wa.me/221770000000?text=Bonjour%20Dr%20Thiam,%20je%20souhaite%20renouveler%20ma%20licence%20TeleMed"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex-shrink-0"
+          >
+            <GlassButton size="sm" variant="danger" className="text-xs">
+              Contacter Dr Thiam (+90j)
+            </GlassButton>
+          </a>
+        </div>
+      )}
+
       {/* Floating Glassmorphic Payment Banner */}
       {newPaymentAlert && (
         <GlassCard
           variant="floating"
-          className="p-4 sm:p-5 bg-white/90 backdrop-blur-2xl border border-blue-200/70 shadow-2xl flex flex-col sm:flex-row items-center justify-between gap-4 animate-fade-in"
+          className="p-4 sm:p-5 bg-white/95 backdrop-blur-2xl border border-blue-200/90 shadow-2xl flex flex-col sm:flex-row items-center justify-between gap-4 animate-fade-in"
         >
           <div className="flex items-center gap-3.5">
             <div className="w-12 h-12 rounded-full bg-blue-50 text-[#3B82F6] flex items-center justify-center shadow-md flex-shrink-0 animate-pulse">
@@ -242,8 +267,11 @@ export function DoctorDashboard() {
                 </Badge>
                 <span className="text-xs font-medium text-slate-500">{newPaymentAlert.gender === 'F' ? 'Femme' : 'Homme'} • {newPaymentAlert.age} ans</span>
               </div>
-              <p className="text-sm font-bold text-[#0F172A] mt-0.5">
-                {newPaymentAlert.patientName} a déclaré un virement de <span className="text-[#3B82F6] font-extrabold">{newPaymentAlert.amountPaid.toLocaleString('fr-FR')} FCFA</span> ({newPaymentAlert.paymentMethod.toUpperCase()})
+              <p className="text-sm font-bold text-[#0F172A] mt-1">
+                Paiement déclaré par <span className="text-[#3B82F6] font-extrabold">{newPaymentAlert.patientName}</span>, NIN: <span className="font-mono text-slate-900 font-extrabold">{newPaymentAlert.patientNin}</span>
+              </p>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Montant : <strong className="text-[#0F172A]">{newPaymentAlert.amountPaid.toLocaleString('fr-FR')} FCFA</strong> via <strong>{newPaymentAlert.paymentMethod.toUpperCase()}</strong> • {newPaymentAlert.serviceType === 'visio_consultation' ? 'Visio HD' : 'Avis Médical'}
               </p>
             </div>
           </div>
@@ -252,7 +280,7 @@ export function DoctorDashboard() {
             <GlassButton
               variant="success"
               size="md"
-              className="w-full sm:w-auto"
+              className="w-full sm:w-auto shadow-pill-emerald font-bold"
               onClick={() => handleConfirmPayment(newPaymentAlert.id)}
             >
               <CheckCircle2 className="w-4 h-4" />
