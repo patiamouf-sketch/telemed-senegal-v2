@@ -216,26 +216,50 @@ export default function VerifyPrescriptionAliasPage() {
           {/* Official Stamp & QR Code */}
           <div className="pt-5 border-t-2 border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              {isOnmsRegistered ? (
-                <div className="w-20 h-20 rounded-full border-2 border-dashed border-emerald-600 flex flex-col items-center justify-center text-center p-1 text-emerald-800 transform -rotate-6 shadow-sm">
-                  <span className="text-[8px] font-extrabold uppercase">Ordre des Médecins</span>
-                  <Stethoscope className="w-3.5 h-3.5 text-emerald-600 my-0.5" />
-                  <span className="text-[8px] font-bold">ONMS {prescription.doctorOnms}</span>
-                  <span className="text-[7px] text-emerald-600 font-extrabold">CERTIFIÉ CONFORME</span>
+              {prescription.doctorSignatureStampUrl ? (
+                <div className="flex items-center gap-3">
+                  <div className="h-20 max-w-[170px] p-1 bg-white rounded-xl border border-slate-200/90 shadow-sm flex items-center justify-center">
+                    <img
+                      src={prescription.doctorSignatureStampUrl}
+                      alt="Cachet & Signature Praticien"
+                      className="max-h-16 max-w-full object-contain"
+                    />
+                  </div>
+                  <div className="text-xs text-slate-500">
+                    <span className="font-bold text-slate-900 block">{prescription.doctorName}</span>
+                    <span className="text-[10px] text-emerald-700 font-semibold block">Cachet & Signature Authentifiés</span>
+                    {prescription.doctorOnms && (
+                      <span className="text-[9px] font-mono text-slate-400 block">ONMS : {prescription.doctorOnms}</span>
+                    )}
+                  </div>
+                </div>
+              ) : isOnmsRegistered ? (
+                <div className="flex items-center gap-3">
+                  <div className="w-20 h-20 rounded-full border-2 border-dashed border-emerald-600 flex flex-col items-center justify-center text-center p-1 text-emerald-800 transform -rotate-6 shadow-sm">
+                    <span className="text-[8px] font-extrabold uppercase">Ordre des Médecins</span>
+                    <Stethoscope className="w-3.5 h-3.5 text-emerald-600 my-0.5" />
+                    <span className="text-[8px] font-bold">ONMS {prescription.doctorOnms}</span>
+                    <span className="text-[7px] text-emerald-600 font-extrabold">CERTIFIÉ CONFORME</span>
+                  </div>
+                  <div className="text-xs text-slate-500">
+                    <span className="font-bold text-slate-900 block">{prescription.doctorName}</span>
+                    <span className="text-[10px] block italic">Signature & Cachet Numérique ONMS</span>
+                  </div>
                 </div>
               ) : (
-                <div className="w-20 h-20 rounded-full border-2 border-dashed border-blue-600 flex flex-col items-center justify-center text-center p-1 text-blue-900 transform -rotate-6 shadow-sm">
-                  <span className="text-[8px] font-extrabold uppercase">TELEMED SENEGAL</span>
-                  <Stethoscope className="w-3.5 h-3.5 text-blue-600 my-0.5" />
-                  <span className="text-[7px] font-bold uppercase">SERVICE MÉDICAL</span>
-                  <span className="text-[7px] text-blue-600 font-extrabold">AUTHENTIFIÉ</span>
+                <div className="flex items-center gap-3">
+                  <div className="w-20 h-20 rounded-full border-2 border-dashed border-blue-600 flex flex-col items-center justify-center text-center p-1 text-blue-900 transform -rotate-6 shadow-sm">
+                    <span className="text-[8px] font-extrabold uppercase">TELEMED SENEGAL</span>
+                    <Stethoscope className="w-3.5 h-3.5 text-blue-600 my-0.5" />
+                    <span className="text-[7px] font-bold uppercase">SERVICE MÉDICAL</span>
+                    <span className="text-[7px] text-blue-600 font-extrabold">AUTHENTIFIÉ</span>
+                  </div>
+                  <div className="text-xs text-slate-500">
+                    <span className="font-bold text-slate-900 block">{prescription.doctorName}</span>
+                    <span className="text-[10px] block italic">Praticien Diplômé d'État • Cachet Officiel</span>
+                  </div>
                 </div>
               )}
-
-              <div className="text-xs text-slate-500">
-                <span className="font-bold text-slate-900 block">{prescription.doctorName}</span>
-                <span className="text-[10px] block italic">Signature & Cachet Numérique de Téléconsultation</span>
-              </div>
             </div>
 
             <div className="flex items-center gap-3 text-right">

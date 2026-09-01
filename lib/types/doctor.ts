@@ -9,7 +9,8 @@ export interface DoctorProfile {
   fullName: string;
   email: string;
   speciality: string;
-  onmsNumber: string; // Numéro Ordre National des Médecins du Sénégal
+  onmsStatus?: 'registered' | 'unregistered'; // Inscrit ou Non encore inscrit à l'ONMS
+  onmsNumber?: string; // Numéro Ordre National des Médecins du Sénégal (optionnel si non inscrit)
   nin: string;        // Numéro d'Identification Nationale du médecin
   phone: string;      // Numéro principal
   waveNumber?: string; // Numéro Wave
@@ -25,8 +26,10 @@ export interface DoctorProfile {
   avisMedicalFee: number; // Prix Avis Médical (Messagerie/Audio), ex: 3000 FCFA
   visioConsultationFee: number; // Prix Visio Consultation (Vidéo), ex: 7000 FCFA
   bio?: string;
-  avatarUrl?: string;
-  signatureStampUrl?: string;
+  avatarUrl?: string; // Photo de profil HD
+  signatureStampUrl?: string; // Cachet + Signature numérisés
+  verificationDocumentUrl?: string; // Photo de la Carte ONMS ou Photo de la CNI / Passeport
+  verificationDocumentType?: 'onms_card' | 'id_card'; // Type de pièce justificative
   availableForTeleconsult: boolean;
   rating?: number;
   consultationsCount?: number;

@@ -210,6 +210,7 @@ export function PrescriptionDrawer({
       doctorClinic: doctor.clinicName,
       doctorPhone: doctor.phone,
       doctorCity: doctor.city,
+      doctorSignatureStampUrl: doctor.signatureStampUrl,
       patientId: patient.id,
       patientName: patient.patientName,
       patientPhone: patient.patientPhone,
@@ -661,18 +662,43 @@ export function PrescriptionDrawer({
               {/* Stamp, Signature & Discreet QR Code */}
               <div className="pt-4 border-t-2 border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-4">
                 {/* Official Stamp & Signature */}
-                <div className="flex items-center gap-3">
-                  <div className="w-20 h-20 rounded-full border-2 border-dashed border-emerald-600 flex flex-col items-center justify-center text-center p-1 text-emerald-800 transform -rotate-6 shadow-sm">
-                    <span className="text-[8px] font-extrabold uppercase">Ordre des Médecins</span>
-                    <Stethoscope className="w-3.5 h-3.5 text-emerald-600 my-0.5" />
-                    <span className="text-[8px] font-bold">ONMS {doctor.onmsNumber}</span>
-                    <span className="text-[7px] text-emerald-600 font-extrabold">CERTIFIÉ CONFORME</span>
+                {doctor.signatureStampUrl ? (
+                  <div className="flex items-center gap-3">
+                    <div className="h-20 max-w-[170px] p-1 bg-white rounded-xl border border-slate-200/90 shadow-sm flex items-center justify-center">
+                      <img
+                        src={doctor.signatureStampUrl}
+                        alt="Cachet et Signature Praticien"
+                        className="max-h-16 max-w-full object-contain"
+                      />
+                    </div>
+                    <div className="text-[11px] text-slate-500">
+                      <span className="font-bold text-slate-900 block">{doctor.fullName}</span>
+                      <span className="text-[10px] text-emerald-700 font-semibold block">Cachet & Signature Authentifiés</span>
+                      {doctor.onmsNumber && (
+                        <span className="text-[9px] font-mono text-slate-400 block">ONMS : {doctor.onmsNumber}</span>
+                      )}
+                    </div>
                   </div>
-                  <div className="text-[11px] text-slate-500">
-                    <span className="font-bold text-slate-900 block">{doctor.fullName}</span>
-                    <span className="text-[10px] text-slate-400 block italic">Signature & Cachet Numérique ONMS</span>
+                ) : (
+                  <div className="flex items-center gap-3">
+                    <div className="w-20 h-20 rounded-full border-2 border-dashed border-emerald-600 flex flex-col items-center justify-center text-center p-1 text-emerald-800 transform -rotate-6 shadow-sm">
+                      <span className="text-[8px] font-extrabold uppercase">
+                        {doctor.onmsNumber ? 'Ordre des Médecins' : 'Praticien Diplômé'}
+                      </span>
+                      <Stethoscope className="w-3.5 h-3.5 text-emerald-600 my-0.5" />
+                      <span className="text-[8px] font-bold">
+                        {doctor.onmsNumber ? `ONMS ${doctor.onmsNumber}` : 'DIPLÔMÉ D’ÉTAT'}
+                      </span>
+                      <span className="text-[7px] text-emerald-600 font-extrabold">CERTIFIÉ CONFORME</span>
+                    </div>
+                    <div className="text-[11px] text-slate-500">
+                      <span className="font-bold text-slate-900 block">{doctor.fullName}</span>
+                      <span className="text-[10px] text-slate-400 block italic">
+                        {doctor.onmsNumber ? 'Signature & Cachet Numérique ONMS' : 'Signature & Cachet Certifié'}
+                      </span>
+                    </div>
                   </div>
-                </div>
+                )}
 
                 {/* QR Code */}
                 {sealedPrescription ? (

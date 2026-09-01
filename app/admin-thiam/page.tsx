@@ -23,6 +23,7 @@ import {
   Pill,
   Plus,
   Check,
+  Eye,
   X
 } from 'lucide-react';
 import { getAllDoctors, approveDoctor, rejectDoctor, renewDoctorLicense, getAdminStats } from '@/lib/services/adminService';
@@ -44,6 +45,7 @@ export default function AdminThiamPage() {
 
   // Modal d'approbation d'un médicament
   const [selectedMedToApprove, setSelectedMedToApprove] = useState<PendingMedication | null>(null);
+  const [inspectingDoc, setInspectingDoc] = useState<DoctorProfile | null>(null);
   const [approveDci, setApproveDci] = useState('');
   const [approveBrand, setApproveBrand] = useState('');
   const [approveCategory, setApproveCategory] = useState('Médicament Général');
@@ -330,10 +332,25 @@ export default function AdminThiamPage() {
                     <div className="p-4 rounded-[24px] bg-white border border-slate-100 text-xs space-y-2.5 shadow-sm">
                       <div className="flex items-center justify-between">
                         <span className="text-slate-500 flex items-center gap-1.5">
-                          <ShieldCheck className="w-3.5 h-3.5 text-[#3B82F6]" /> N° ONMS :
+                          <ShieldCheck className="w-3.5 h-3.5 text-[#3B82F6]" /> Situation Ordinale :
                         </span>
-                        <strong className="font-mono text-[#0F172A] font-bold bg-slate-50 px-2 py-0.5 rounded-md border border-slate-200">
-                          {doc.onmsNumber}
+                        {doc.onmsNumber ? (
+                          <strong className="font-mono text-[#0F172A] font-bold bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200">
+                            ONMS : {doc.onmsNumber}
+                          </strong>
+                        ) : (
+                          <span className="text-amber-800 font-bold bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200 text-[11px]">
+                            Non inscrit à l'Ordre
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-500 flex items-center gap-1.5">
+                          <CreditCard className="w-3.5 h-3.5 text-indigo-600" /> NIN :
+                        </span>
+                        <strong className="font-mono text-[#0F172A] font-bold">
+                          {doc.nin || 'Non renseigné'}
                         </strong>
                       </div>
 
@@ -354,6 +371,21 @@ export default function AdminThiamPage() {
                           {doc.clinicName || 'Cabinet'} ({doc.city || 'Sénégal'})
                         </span>
                       </div>
+
+                      {doc.verificationDocumentUrl && (
+                        <div className="pt-2 border-t border-slate-100">
+                          <button
+                            type="button"
+                            onClick={() => setInspectingDoc(doc)}
+                            className="w-full py-2 px-3 rounded-[14px] bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs flex items-center justify-center gap-2 transition-colors"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                            <span>
+                              Inspecter le justificatif ({doc.verificationDocumentType === 'id_card' ? 'Pièce d’Identité CNI' : 'Carte ONMS'})
+                            </span>
+                          </button>
+                        </div>
+                      )}
                     </div>
 
                     <div className="pt-2 flex items-center justify-end gap-2.5">
@@ -671,6 +703,100 @@ export default function AdminThiamPage() {
                 </GlassButton>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* MODAL INSPECTION PIECE JUSTIFICATIVE PRATICIEN */}
+      {inspectingDoc && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md overflow-y-auto">
+          <div className="relative w-full max-w-2xl bg-white rounded-[32px] p-6 sm:p-8 shadow-2xl space-y-5">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
+                  <ShieldCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-[#0F172A]">
+                    Justificatif : {inspectingDoc.fullName}
+                  </h3>
+                  <span className="text-[11px] text-slate-500">
+                    {inspectingDoc.verificationDocumentType === 'id_card'
+                      ? 'Pièce d’Identité Officielle (CNI / Passeport)'
+                      : 'Carte d’Inscription Ordre des Médecins (ONMS)'}
+                  </span>
+                </div>
+              </div>
+              <button
+                onClick={() => setInspectingDoc(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 rounded-full"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Document Image Display */}
+            <div className="rounded-[20px] overflow-hidden border border-slate-200 bg-slate-950 flex items-center justify-center min-h-[280px] max-h-[480px]">
+              {inspectingDoc.verificationDocumentUrl ? (
+                <img
+                  src={inspectingDoc.verificationDocumentUrl}
+                  alt="Justificatif Médical"
+                  className="w-full h-auto max-h-[480px] object-contain"
+                />
+              ) : (
+                <div className="p-8 text-center text-slate-400 text-xs">
+                  Aucun fichier image disponible.
+                </div>
+              )}
+            </div>
+
+            {/* Doctor Info Summary */}
+            <div className="p-4 rounded-[20px] bg-slate-50 border border-slate-100 text-xs grid grid-cols-2 gap-3">
+              <div>
+                <span className="text-slate-400 block text-[10px] uppercase font-bold">Spécialité</span>
+                <span className="font-bold text-[#0F172A]">{inspectingDoc.speciality}</span>
+              </div>
+              <div>
+                <span className="text-slate-400 block text-[10px] uppercase font-bold">Situation Ordinale</span>
+                <span className="font-bold text-[#0F172A]">
+                  {inspectingDoc.onmsNumber ? `Inscrit ONMS (${inspectingDoc.onmsNumber})` : 'Non inscrit ONMS'}
+                </span>
+              </div>
+              <div>
+                <span className="text-slate-400 block text-[10px] uppercase font-bold">NIN</span>
+                <span className="font-bold text-[#0F172A] font-mono">{inspectingDoc.nin}</span>
+              </div>
+              <div>
+                <span className="text-slate-400 block text-[10px] uppercase font-bold">Téléphone Wave / OM</span>
+                <span className="font-bold text-emerald-700 font-mono">{inspectingDoc.phone}</span>
+              </div>
+            </div>
+
+            <div className="pt-2 flex items-center justify-end gap-2.5">
+              <GlassButton
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => setInspectingDoc(null)}
+              >
+                Fermer
+              </GlassButton>
+
+              {inspectingDoc.status === 'pending' && (
+                <GlassButton
+                  type="button"
+                  variant="success"
+                  size="sm"
+                  onClick={() => {
+                    handleApproveDoctor(inspectingDoc.id, inspectingDoc.fullName);
+                    setInspectingDoc(null);
+                  }}
+                  className="shadow-pill-emerald"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  Approuver le Praticien (+90j)
+                </GlassButton>
+              )}
+            </div>
           </div>
         </div>
       )}

@@ -30,8 +30,11 @@ import {
   Plus,
   Archive,
   Calendar,
-  Lock
+  Lock,
+  Sliders,
+  User
 } from 'lucide-react';
+import { DoctorProfileModal } from './DoctorProfileModal';
 import {
   getDoctorQueue,
   addPatientToQueue,
@@ -55,6 +58,7 @@ export function DoctorDashboard() {
   const [activeTab, setActiveTab] = useState<'queue' | 'archive'>('queue');
   const [activeConsultation, setActiveConsultation] = useState<PatientQueueItem | null>(null);
   const [showQRModal, setShowQRModal] = useState(false);
+  const [showProfileModal, setShowProfileModal] = useState(false);
   const [origin, setOrigin] = useState('');
   const [newPaymentAlert, setNewPaymentAlert] = useState<PatientQueueItem | null>(null);
 
@@ -178,36 +182,72 @@ export function DoctorDashboard() {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-8 font-sans">
       {/* Top Header with Breathable Layout & Discrete License Badge */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-sky-100/60 pb-5">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2.5 flex-wrap">
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0F172A] tracking-tight">
-              {doctorProfile?.fullName || 'Dr. Ibrahima Sow'}
-            </h1>
-            <Badge variant="blue" size="sm">
-              ONMS : {doctorProfile?.onmsNumber || 'SN-ONMS-4829'}
-            </Badge>
-
-            {/* Discrete License Badge */}
-            {licenseCheck.isValid ? (
-              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200/60 text-emerald-800 text-xs font-semibold shadow-sm">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                <span>Licence : Active (J-{licenseCheck.daysRemaining})</span>
-              </div>
-            ) : (
-              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-50 border border-rose-200 text-rose-800 text-xs font-bold shadow-sm">
-                <span className="w-2 h-2 rounded-full bg-rose-500" />
-                <span>Licence : Expirée (Renouvellement Requis)</span>
-              </div>
-            )}
+        <div className="flex items-center gap-4">
+          {/* Avatar cliquable */}
+          <div
+            onClick={() => setShowProfileModal(true)}
+            className="relative cursor-pointer group flex-shrink-0"
+            title="Modifier mon profil et mon cachet"
+          >
+            <div className="w-14 h-14 rounded-full overflow-hidden border-2 border-[#3B82F6] bg-blue-50 flex items-center justify-center shadow-md group-hover:scale-105 transition-transform">
+              {doctorProfile?.avatarUrl ? (
+                <img src={doctorProfile.avatarUrl} alt={doctorProfile.fullName} className="w-full h-full object-cover" />
+              ) : (
+                <User className="w-7 h-7 text-[#3B82F6]" />
+              )}
+            </div>
+            <div className="absolute -bottom-0.5 -right-0.5 p-1 bg-[#3B82F6] text-white rounded-full shadow-sm">
+              <Sliders className="w-2.5 h-2.5" />
+            </div>
           </div>
 
-          <p className="text-xs sm:text-sm text-slate-500">
-            {doctorProfile?.speciality || 'Cardiologie & Médecine Interne'} • {doctorProfile?.clinicName || 'Cabinet Privé'} ({doctorProfile?.city || 'Dakar'})
-          </p>
+          <div className="space-y-1">
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0F172A] tracking-tight">
+                {doctorProfile?.fullName || 'Dr. Ibrahima Sow'}
+              </h1>
+              {doctorProfile?.onmsNumber ? (
+                <Badge variant="blue" size="sm">
+                  ONMS : {doctorProfile.onmsNumber}
+                </Badge>
+              ) : (
+                <Badge variant="amber" size="sm">
+                  Praticien Diplômé d'État
+                </Badge>
+              )}
+
+              {/* Discrete License Badge */}
+              {licenseCheck.isValid ? (
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200/60 text-emerald-800 text-xs font-semibold shadow-sm">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  <span>Licence : Active (J-{licenseCheck.daysRemaining})</span>
+                </div>
+              ) : (
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-50 border border-rose-200 text-rose-800 text-xs font-bold shadow-sm">
+                  <span className="w-2 h-2 rounded-full bg-rose-500" />
+                  <span>Licence : Expirée (Renouvellement Requis)</span>
+                </div>
+              )}
+            </div>
+
+            <p className="text-xs sm:text-sm text-slate-500">
+              {doctorProfile?.speciality || 'Médecine Générale'} • {doctorProfile?.clinicName || 'Cabinet Privé'} ({doctorProfile?.city || 'Sénégal'})
+            </p>
+          </div>
         </div>
 
         {/* Header Actions */}
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <GlassButton
+            variant="glass"
+            size="sm"
+            onClick={() => setShowProfileModal(true)}
+            className="text-slate-800 bg-white/80 hover:bg-white"
+          >
+            <Sliders className="w-4 h-4 text-[#3B82F6]" />
+            <span>Mon Profil & Cachet</span>
+          </GlassButton>
+
           <GlassButton
             variant="glass"
             size="sm"
@@ -739,6 +779,14 @@ export function DoctorDashboard() {
           slug={doctorSlug}
           url={patientLink}
           onClose={() => setShowQRModal(false)}
+        />
+      )}
+
+      {/* Doctor Profile & Stamp Modal */}
+      {showProfileModal && (
+        <DoctorProfileModal
+          isOpen={showProfileModal}
+          onClose={() => setShowProfileModal(false)}
         />
       )}
 
