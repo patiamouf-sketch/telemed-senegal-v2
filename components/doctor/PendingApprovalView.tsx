@@ -14,19 +14,19 @@ export function PendingApprovalView() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSimulatingApprove, setIsSimulatingApprove] = useState(false);
 
-  // Écouteur en temps réel automatique : vérifie toutes les 3 secondes si le Super-Admin a validé le compte
+  // Écouteur en temps réel automatique : vérifie toutes les 2 secondes si le Super-Admin a validé le compte
   useEffect(() => {
     refreshProfile();
     const interval = setInterval(async () => {
       await refreshProfile();
-    }, 3000);
+    }, 2000);
     return () => clearInterval(interval);
   }, [refreshProfile]);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
     await refreshProfile();
-    setTimeout(() => setIsRefreshing(false), 600);
+    setTimeout(() => setIsRefreshing(false), 500);
   };
 
   const handleSimulateApproval = async () => {

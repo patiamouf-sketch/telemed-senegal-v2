@@ -8,7 +8,7 @@ import { addDays } from 'date-fns';
  * Récupère tous les médecins enregistrés (Firestore + API Serverless Cloud + LocalStorage)
  */
 export async function getAllDoctors(): Promise<DoctorProfile[]> {
-  const doctorMap = new Map<string, DoctorProfile>();
+  const emailMap = new Map<string, DoctorProfile>();
 
   // 1. PRIORITÉ ABSOLUE N°1 : FIRESTORE DATABASE
   if (isFirebaseConfigured && db) {
@@ -16,23 +16,24 @@ export async function getAllDoctors(): Promise<DoctorProfile[]> {
       const snap = await getDocs(collection(db, 'doctors'));
       snap.docs.forEach(docSnap => {
         const data = docSnap.data() as DoctorProfile;
-        if (data.id) doctorMap.set(data.id, data);
-        if (data.email) doctorMap.set(data.email.toLowerCase(), data);
+        const key = data.email ? data.email.toLowerCase().trim() : data.id;
+        if (key) emailMap.set(key, data);
       });
     } catch (e) {
       console.warn('Firebase getAllDoctors notice:', e);
     }
   }
 
-  // 2. PRIORITÉ N°2 : Local Storage
+  // 2. PRIORITÉ N°2 : Local Storage (n'ajoute que si absent de Firestore)
   const local = getLocalDoctors();
   local.forEach(d => {
-    if (d.id && !doctorMap.has(d.id)) {
-      doctorMap.set(d.id, d);
+    const key = d.email ? d.email.toLowerCase().trim() : d.id;
+    if (key && !emailMap.has(key)) {
+      emailMap.set(key, d);
     }
   });
 
-  // 3. PRIORITÉ N°3 : API Serverless
+  // 3. PRIORITÉ N°3 : API Serverless Cloud
   if (typeof window !== 'undefined') {
     try {
       const res = await fetch('/api/consultation/sync?type=doctors');
@@ -40,14 +41,17 @@ export async function getAllDoctors(): Promise<DoctorProfile[]> {
         const data = await res.json();
         if (data.doctors && Array.isArray(data.doctors)) {
           data.doctors.forEach((d: DoctorProfile) => {
-            if (d.id && !doctorMap.has(d.id)) doctorMap.set(d.id, d);
+            const key = d.email ? d.email.toLowerCase().trim() : d.id;
+            if (key && !emailMap.has(key)) {
+              emailMap.set(key, d);
+            }
           });
         }
       }
     } catch (e) {}
   }
 
-  const combined = Array.from(new Set(doctorMap.values()));
+  const combined = Array.from(emailMap.values());
   saveLocalDoctors(combined);
   return combined;
 }
@@ -65,40 +69,43 @@ export async function approveDoctor(doctorId: string): Promise<DoctorProfile | n
     rejectionReason: undefined,
   };
 
+  const allDocs = await getAllDoctors();
+  const clean = doctorId.trim();
+  const lower = clean.toLowerCase();
+  const target = allDocs.find(d => d.id === clean || d.email?.toLowerCase() === lower);
+  const targetId = target?.id || clean;
+  const targetEmail = target?.email?.toLowerCase().trim() || (lower.includes('@') ? lower : '');
+
   // 1. Mise à jour Firestore Directe
   if (isFirebaseConfigured && db) {
     try {
-      await setDoc(doc(db, 'doctors', doctorId), updates, { merge: true });
+      await setDoc(doc(db, 'doctors', targetId), updates, { merge: true });
 
-      const q = query(collection(db, 'doctors'), where('id', '==', doctorId));
-      const snap = await getDocs(q);
-      snap.docs.forEach(async (dSnap) => {
-        await setDoc(dSnap.ref, updates, { merge: true });
-      });
+      if (targetEmail) {
+        const q = query(collection(db, 'doctors'), where('email', '==', targetEmail));
+        const snap = await getDocs(q);
+        snap.docs.forEach(async (dSnap) => {
+          await setDoc(dSnap.ref, updates, { merge: true });
+        });
+      }
     } catch (e) {
       console.warn('Firebase approveDoctor notice:', e);
     }
   }
 
-  // 2. Mise à jour API Serverless Cloud
-  if (typeof window !== 'undefined') {
-    try {
-      fetch('/api/consultation/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'approve_doctor', payload: { doctorId } })
-      }).catch(e => {});
-    } catch (e) {}
-  }
-
-  // 3. Mise à jour LocalStorage et Session
+  // 2. Mise à jour LocalStorage et Session
   const doctors = getLocalDoctors();
-  const idx = doctors.findIndex(d => d.id === doctorId);
   let updatedDoc: DoctorProfile | null = null;
-  if (idx >= 0) {
-    doctors[idx] = { ...doctors[idx], ...updates };
-    saveLocalDoctors(doctors);
-    updatedDoc = doctors[idx];
+  const updatedList = doctors.map(d => {
+    if (d.id === targetId || (targetEmail && d.email.toLowerCase() === targetEmail)) {
+      const up = { ...d, ...updates };
+      updatedDoc = up;
+      return up;
+    }
+    return d;
+  });
+  if (updatedDoc) {
+    saveLocalDoctors(updatedList);
   }
 
   if (typeof window !== 'undefined') {
@@ -106,11 +113,27 @@ export async function approveDoctor(doctorId: string): Promise<DoctorProfile | n
       const savedSession = localStorage.getItem('telemed_session_v2');
       if (savedSession) {
         const parsed = JSON.parse(savedSession);
-        if (parsed.profile?.id === doctorId || parsed.user?.uid === doctorId) {
+        if (
+          parsed.profile?.id === targetId ||
+          (targetEmail && parsed.profile?.email?.toLowerCase() === targetEmail) ||
+          parsed.user?.uid === targetId ||
+          (targetEmail && parsed.user?.email?.toLowerCase() === targetEmail)
+        ) {
           parsed.profile = { ...parsed.profile, ...updates };
           localStorage.setItem('telemed_session_v2', JSON.stringify(parsed));
         }
       }
+    } catch (e) {}
+  }
+
+  // 3. Mise à jour API Serverless Cloud
+  if (typeof window !== 'undefined') {
+    try {
+      fetch('/api/consultation/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'approve_doctor', payload: { doctorId: targetId, email: targetEmail } })
+      }).catch(e => {});
     } catch (e) {}
   }
 
@@ -126,34 +149,42 @@ export async function rejectDoctor(
     rejectionReason: reason,
   };
 
+  const allDocs = await getAllDoctors();
+  const clean = doctorId.trim();
+  const lower = clean.toLowerCase();
+  const target = allDocs.find(d => d.id === clean || d.email?.toLowerCase() === lower);
+  const targetId = target?.id || clean;
+  const targetEmail = target?.email?.toLowerCase().trim() || (lower.includes('@') ? lower : '');
+
   // 1. Mise à jour Firestore
   if (isFirebaseConfigured && db) {
     try {
-      await setDoc(doc(db, 'doctors', doctorId), updates, { merge: true });
+      await setDoc(doc(db, 'doctors', targetId), updates, { merge: true });
+      if (targetEmail) {
+        const q = query(collection(db, 'doctors'), where('email', '==', targetEmail));
+        const snap = await getDocs(q);
+        snap.docs.forEach(async (dSnap) => {
+          await setDoc(dSnap.ref, updates, { merge: true });
+        });
+      }
     } catch (e) {
       console.warn('Firebase rejectDoctor notice:', e);
     }
   }
 
-  // 2. Mise à jour API Serverless Cloud
-  if (typeof window !== 'undefined') {
-    try {
-      fetch('/api/consultation/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'reject_doctor', payload: { doctorId, reason } })
-      }).catch(e => {});
-    } catch (e) {}
-  }
-
-  // 3. Mise à jour LocalStorage
+  // 2. Mise à jour LocalStorage et Session
   const doctors = getLocalDoctors();
-  const idx = doctors.findIndex(d => d.id === doctorId);
   let updatedDoc: DoctorProfile | null = null;
-  if (idx >= 0) {
-    doctors[idx] = { ...doctors[idx], ...updates };
-    saveLocalDoctors(doctors);
-    updatedDoc = doctors[idx];
+  const updatedList = doctors.map(d => {
+    if (d.id === targetId || (targetEmail && d.email.toLowerCase() === targetEmail)) {
+      const up = { ...d, ...updates };
+      updatedDoc = up;
+      return up;
+    }
+    return d;
+  });
+  if (updatedDoc) {
+    saveLocalDoctors(updatedList);
   }
 
   if (typeof window !== 'undefined') {
@@ -161,7 +192,12 @@ export async function rejectDoctor(
       const savedSession = localStorage.getItem('telemed_session_v2');
       if (savedSession) {
         const parsed = JSON.parse(savedSession);
-        if (parsed.profile?.id === doctorId || parsed.user?.uid === doctorId) {
+        if (
+          parsed.profile?.id === targetId ||
+          (targetEmail && parsed.profile?.email?.toLowerCase() === targetEmail) ||
+          parsed.user?.uid === targetId ||
+          (targetEmail && parsed.user?.email?.toLowerCase() === targetEmail)
+        ) {
           parsed.profile = { ...parsed.profile, ...updates };
           localStorage.setItem('telemed_session_v2', JSON.stringify(parsed));
         }
@@ -169,12 +205,27 @@ export async function rejectDoctor(
     } catch (e) {}
   }
 
+  // 3. Mise à jour API Serverless Cloud
+  if (typeof window !== 'undefined') {
+    try {
+      fetch('/api/consultation/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'reject_doctor', payload: { doctorId: targetId, email: targetEmail, reason } })
+      }).catch(e => {});
+    } catch (e) {}
+  }
+
   return updatedDoc;
 }
 
 export async function renewDoctorLicense(doctorId: string, days: number = 90): Promise<DoctorProfile | null> {
-  const doctors = await getAllDoctors();
-  const docProfile = doctors.find(d => d.id === doctorId);
+  const allDocs = await getAllDoctors();
+  const clean = doctorId.trim();
+  const lower = clean.toLowerCase();
+  const docProfile = allDocs.find(d => d.id === clean || d.email?.toLowerCase() === lower);
+  const targetId = docProfile?.id || clean;
+  const targetEmail = docProfile?.email?.toLowerCase().trim() || (lower.includes('@') ? lower : '');
 
   const currentExpiry = docProfile?.licenseExpiresAt ? new Date(docProfile.licenseExpiresAt) : new Date();
   const baseDate = currentExpiry > new Date() ? currentExpiry : new Date();
@@ -188,31 +239,32 @@ export async function renewDoctorLicense(doctorId: string, days: number = 90): P
   // 1. Mise à jour Firestore
   if (isFirebaseConfigured && db) {
     try {
-      await setDoc(doc(db, 'doctors', doctorId), updates, { merge: true });
+      await setDoc(doc(db, 'doctors', targetId), updates, { merge: true });
+      if (targetEmail) {
+        const q = query(collection(db, 'doctors'), where('email', '==', targetEmail));
+        const snap = await getDocs(q);
+        snap.docs.forEach(async (dSnap) => {
+          await setDoc(dSnap.ref, updates, { merge: true });
+        });
+      }
     } catch (e) {
       console.warn('Firebase renewDoctorLicense notice:', e);
     }
   }
 
-  // 2. Mise à jour API Serverless Cloud
-  if (typeof window !== 'undefined') {
-    try {
-      fetch('/api/consultation/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'renew_doctor_license', payload: { doctorId, days } })
-      }).catch(e => {});
-    } catch (e) {}
-  }
-
-  // 3. Mise à jour LocalStorage
+  // 2. Mise à jour LocalStorage et Session
   const localDocs = getLocalDoctors();
-  const idx = localDocs.findIndex(d => d.id === doctorId);
   let updatedDoc: DoctorProfile | null = null;
-  if (idx >= 0) {
-    localDocs[idx] = { ...localDocs[idx], ...updates };
-    saveLocalDoctors(localDocs);
-    updatedDoc = localDocs[idx];
+  const updatedList = localDocs.map(d => {
+    if (d.id === targetId || (targetEmail && d.email.toLowerCase() === targetEmail)) {
+      const up = { ...d, ...updates };
+      updatedDoc = up;
+      return up;
+    }
+    return d;
+  });
+  if (updatedDoc) {
+    saveLocalDoctors(updatedList);
   }
 
   if (typeof window !== 'undefined') {
@@ -220,11 +272,27 @@ export async function renewDoctorLicense(doctorId: string, days: number = 90): P
       const savedSession = localStorage.getItem('telemed_session_v2');
       if (savedSession) {
         const parsed = JSON.parse(savedSession);
-        if (parsed.profile?.id === doctorId || parsed.user?.uid === doctorId) {
+        if (
+          parsed.profile?.id === targetId ||
+          (targetEmail && parsed.profile?.email?.toLowerCase() === targetEmail) ||
+          parsed.user?.uid === targetId ||
+          (targetEmail && parsed.user?.email?.toLowerCase() === targetEmail)
+        ) {
           parsed.profile = { ...parsed.profile, ...updates };
           localStorage.setItem('telemed_session_v2', JSON.stringify(parsed));
         }
       }
+    } catch (e) {}
+  }
+
+  // 3. Mise à jour API Serverless Cloud
+  if (typeof window !== 'undefined') {
+    try {
+      fetch('/api/consultation/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'renew_doctor_license', payload: { doctorId: targetId, email: targetEmail, days } })
+      }).catch(e => {});
     } catch (e) {}
   }
 

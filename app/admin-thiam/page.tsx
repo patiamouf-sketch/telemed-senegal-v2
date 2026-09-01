@@ -77,8 +77,18 @@ export default function AdminThiamPage() {
 
   const handleApproveDoctor = async (docId: string, docName: string) => {
     setActionLoading(docId);
+    
+    // Mise à jour optimiste immédiate dans l'interface
+    setDoctors(prev =>
+      prev.map(d =>
+        d.id === docId || (docName && d.fullName === docName)
+          ? { ...d, status: 'active', licenseExpiresAt: new Date(Date.now() + 90 * 86400000).toISOString() }
+          : d
+      )
+    );
+
     await approveDoctor(docId);
-    await loadData();
+    await loadData(true);
     setActionLoading(null);
 
     confetti({
@@ -93,15 +103,33 @@ export default function AdminThiamPage() {
     const reason = prompt('Motif du rejet :', 'Numéro ONMS non vérifiable ou dossier incomplet');
     if (!reason) return;
     setActionLoading(docId);
+
+    setDoctors(prev =>
+      prev.map(d =>
+        d.id === docId
+          ? { ...d, status: 'rejected', rejectionReason: reason }
+          : d
+      )
+    );
+
     await rejectDoctor(docId, reason);
-    await loadData();
+    await loadData(true);
     setActionLoading(null);
   };
 
   const handleRenewLicense = async (docId: string) => {
     setActionLoading(docId);
+
+    setDoctors(prev =>
+      prev.map(d =>
+        d.id === docId
+          ? { ...d, status: 'active', licenseExpiresAt: new Date(Date.now() + 90 * 86400000).toISOString() }
+          : d
+      )
+    );
+
     await renewDoctorLicense(docId, 90);
-    await loadData();
+    await loadData(true);
     setActionLoading(null);
   };
 
