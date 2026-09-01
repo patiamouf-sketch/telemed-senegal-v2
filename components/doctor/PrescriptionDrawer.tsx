@@ -22,10 +22,10 @@ import {
   Heart,
   Eye,
   Edit3,
-  Clock,
-  Sparkles
+  Sparkles,
+  AlertCircle
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import confetti from 'canvas-confetti';
 import { LocalQRCode } from '../ui/LocalQRCode';
 
@@ -45,11 +45,13 @@ export function PrescriptionDrawer({
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<DrugEntry[]>([]);
   const [activeTab, setActiveTab] = useState<'editor' | 'preview'>('editor');
+  const [formError, setFormError] = useState<string | null>(null);
 
+  // Lignes d'ordonnance initiales harmonisées (Médicament en MAJUSCULES, posologie & durée en minuscules)
   const [items, setItems] = useState<PrescriptionItem[]>([
     {
       id: 'rx-1',
-      medication: 'Paracétamol (Doliprane) 1g',
+      medication: 'PARACETAMOL (DOLIPRANE) 1G',
       ammCode: 'ARP-SN-2022-0145',
       form: 'Comprimé 1g',
       dosage: '1 comprimé toutes les 8h si douleurs ou fièvre (max 3g/24h)',
@@ -64,7 +66,7 @@ export function PrescriptionDrawer({
   const [isSealing, setIsSealing] = useState(false);
   const [sealedPrescription, setSealedPrescription] = useState<OfficialPrescription | null>(null);
 
-  // Search handler
+  // Recherche DCI
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setSearchQuery(val);
@@ -75,15 +77,16 @@ export function PrescriptionDrawer({
     }
   };
 
+  // Sélection d'un médicament du référentiel (Nom converti en MAJUSCULES, posologie & durée en minuscules)
   const handleSelectDrug = (drug: DrugEntry) => {
     const brandStr = drug.brandNames.length > 0 ? ` (${drug.brandNames[0]})` : '';
     const newItem: PrescriptionItem = {
       id: `rx-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
-      medication: `${drug.dci}${brandStr}`,
+      medication: `${drug.dci}${brandStr}`.toUpperCase(),
       ammCode: drug.ammCode,
       form: drug.defaultForm,
-      dosage: drug.defaultDosage,
-      duration: drug.defaultDuration,
+      dosage: (drug.defaultDosage || '').toLowerCase(),
+      duration: (drug.defaultDuration || '5 jours').toLowerCase(),
     };
     setItems(prev => [...prev, newItem]);
     if (drug.defaultChd && !dietaryAdvice.includes(drug.defaultChd)) {
@@ -91,55 +94,88 @@ export function PrescriptionDrawer({
     }
     setSearchQuery('');
     setSearchResults([]);
+    setFormError(null);
   };
 
-  // Saisie libre d'un nouveau médicament non répertorié
+  // Ajout d'une ligne vierge ou personnalisée (Saisie libre directe avec stylo)
   const handleAddCustomDrug = (customName?: string) => {
-    const nameToAdd = (customName || searchQuery).trim();
-    if (!nameToAdd) return;
+    const nameToAdd = (customName || searchQuery).trim().toUpperCase();
 
     const newItem: PrescriptionItem = {
       id: `rx-custom-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
-      medication: nameToAdd,
+      medication: nameToAdd || '',
       ammCode: 'EN-ATTENTE-REF',
-      form: 'Comprimé / Gélule / Sirop',
-      dosage: '1 prise 2 à 3 fois par jour',
-      duration: '5 à 7 jours',
+      form: 'Comprimé',
+      dosage: '',
+      duration: '',
     };
 
     setItems(prev => [...prev, newItem]);
     setSearchQuery('');
     setSearchResults([]);
+    setFormError(null);
   };
 
   const handleRemoveItem = (id: string) => {
     setItems(prev => prev.filter(i => i.id !== id));
   };
 
+  // Mise à jour d'un champ avec harmonisation automatique :
+  // - medication : toujours en MAJUSCULES
+  // - dosage : toujours en minuscules
+  // - duration : toujours en minuscules
   const handleUpdateItem = (id: string, field: keyof PrescriptionItem, val: string) => {
+    let formattedVal = val;
+    if (field === 'medication') {
+      formattedVal = val.toUpperCase();
+    } else if (field === 'dosage' || field === 'duration') {
+      formattedVal = val.toLowerCase();
+    }
+
     setItems(prev =>
-      prev.map(item => (item.id === id ? { ...item, [field]: val } : item))
+      prev.map(item => (item.id === id ? { ...item, [field]: formattedVal } : item))
     );
+    setFormError(null);
   };
 
-  // Signer et Clôturer
+  // Validation stricte et signature de l'ordonnance
   const handleSignAndClose = async () => {
-    // Vérification de sécurité de la licence médicale
+    setFormError(null);
+
+    // 1. Vérification de sécurité de la licence médicale
     const licenseCheck = isDoctorLicenseValid(doctor);
     if (!licenseCheck.isValid) {
       alert(`Action bloquée par la sécurité : ${licenseCheck.message}`);
       return;
     }
 
+    // 2. Vérification de la présence de médicaments
     if (items.length === 0) {
-      alert('Veuillez ajouter au moins un médicament avant de signer l’ordonnance.');
+      setFormError('Veuillez ajouter au moins un médicament sur l’ordonnance.');
       return;
+    }
+
+    // 3. Validation des 3 champs OBLIGATOIRES pour chaque ligne
+    for (let idx = 0; idx < items.length; idx++) {
+      const it = items[idx];
+      if (!it.medication.trim()) {
+        setFormError(`Ligne ${idx + 1} : Le NOM DU MÉDICAMENT est obligatoire (en MAJUSCULES).`);
+        return;
+      }
+      if (!it.dosage.trim()) {
+        setFormError(`Ligne ${idx + 1} (${it.medication}) : La POSOLOGIE est obligatoire (en minuscules).`);
+        return;
+      }
+      if (!it.duration.trim()) {
+        setFormError(`Ligne ${idx + 1} (${it.medication}) : Le NOMBRE DE JOURS DE TRAITEMENT est obligatoire (en minuscules, ex: "5 jours").`);
+        return;
+      }
     }
 
     setIsSealing(true);
     const timestamp = new Date().toISOString();
 
-    // Soumission automatique des médicaments personnalisés en attente de validation admin
+    // Soumission automatique des nouveaux médicaments non répertoriés pour examen admin
     for (const item of items) {
       if (item.ammCode === 'EN-ATTENTE-REF' || !item.ammCode) {
         submitPendingMedication({
@@ -153,9 +189,9 @@ export function PrescriptionDrawer({
       }
     }
 
-    // SHA-256 condensat
+    // Calcul du condensat
     const hash = await generatePrescriptionHash({
-      patientNin: patient.patientPhone || patient.patientNin || 'TEL-SN',
+      patientNin: patient.patientPhone || 'TEL-SN',
       doctorId: doctor.id,
       timestamp,
       items,
@@ -225,14 +261,14 @@ export function PrescriptionDrawer({
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-lg sm:text-xl font-extrabold text-[#0F172A]">
-                  Rédiger une Ordonnance Médicale
+                  Ordonnancier Médical
                 </h2>
                 <Badge variant="emerald" size="sm">
                   TELEMED SENEGAL
                 </Badge>
               </div>
               <p className="text-xs text-slate-500">
-                Base DCI / AMM avec autocomplétion et saisie libre autorisée.
+                Saisie libre maîtrisée : Médicament en MAJUSCULES • Posologie & Durée en minuscules.
               </p>
             </div>
           </div>
@@ -279,7 +315,7 @@ export function PrescriptionDrawer({
               }`}
             >
               <Edit3 className="w-3.5 h-3.5" />
-              1. Formulaire de Prescription
+              1. Rédaction de l'Ordonnance ({items.length})
             </button>
 
             <button
@@ -291,25 +327,33 @@ export function PrescriptionDrawer({
               }`}
             >
               <Eye className="w-3.5 h-3.5" />
-              2. Aperçu avec Cachet ({items.length})
+              2. Aperçu avec Cachet Officiel
             </button>
+          </div>
+        )}
+
+        {/* Erreur de validation */}
+        {formError && (
+          <div className="p-3.5 rounded-[20px] bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+            <span className="font-semibold">{formError}</span>
           </div>
         )}
 
         {/* VIEW 1: EDITOR FORM */}
         {!sealedPrescription && activeTab === 'editor' && (
           <div className="space-y-5 text-xs sm:text-sm">
-            {/* DCI/AMM Autocomplete & Free Text Search */}
+            {/* Barre de recherche avec autocomplétion optionnelle */}
             <div className="relative space-y-1.5">
               <label className="block text-xs font-bold text-[#0F172A] flex items-center gap-1.5">
                 <Search className="w-3.5 h-3.5 text-[#3B82F6]" />
-                Recherche de Médicament (DCI / Nom Commercial ou Saisie Libre) :
+                Recherche de Médicament (DCI / Nom Commercial) ou Saisie Directe :
               </label>
               <div className="relative flex gap-2">
                 <div className="relative flex-1">
                   <input
                     type="text"
-                    placeholder="Tapez le nom du médicament (ex: Paracétamol, Doliprane, Amoxicilline, ou tout autre médicament personnalisé...)"
+                    placeholder="Tapez le nom du médicament (ex: PARACETAMOL, AMOXICILLINE, ou tout autre médicament...)"
                     value={searchQuery}
                     onChange={handleSearchChange}
                     onKeyDown={e => {
@@ -322,26 +366,24 @@ export function PrescriptionDrawer({
                         }
                       }
                     }}
-                    className="w-full pl-10 pr-4 py-3 rounded-[20px] bg-white border border-slate-200/80 focus:border-[#3B82F6] focus:outline-none focus:ring-4 focus:ring-blue-500/10 text-xs text-[#0F172A] shadow-sm"
+                    className="w-full pl-10 pr-4 py-3 rounded-[20px] bg-white border border-slate-200/80 focus:border-[#3B82F6] focus:outline-none focus:ring-4 focus:ring-blue-500/10 text-xs text-[#0F172A] shadow-sm uppercase placeholder:normal-case"
                   />
                   <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
                 </div>
 
-                {searchQuery.trim().length > 0 && (
-                  <GlassButton
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => handleAddCustomDrug()}
-                    className="rounded-[20px] text-xs font-bold whitespace-nowrap"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>Ajouter "{searchQuery.trim()}"</span>
-                  </GlassButton>
-                )}
+                <GlassButton
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => handleAddCustomDrug()}
+                  className="rounded-[20px] text-xs font-bold whitespace-nowrap"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>+ Ajouter une Ligne</span>
+                </GlassButton>
               </div>
 
-              {/* Autocomplete Dropdown with Free-text option */}
+              {/* Suggestions dropdown */}
               {searchQuery.trim().length >= 2 && (
                 <div className="absolute top-full left-0 right-0 mt-1.5 bg-white rounded-[24px] border border-slate-200/80 shadow-2xl z-30 max-h-64 overflow-y-auto divide-y divide-slate-100">
                   {searchResults.map((drug, idx) => (
@@ -352,9 +394,9 @@ export function PrescriptionDrawer({
                     >
                       <div>
                         <div className="flex items-center gap-2">
-                          <strong className="text-xs font-bold text-[#0F172A]">{drug.dci}</strong>
+                          <strong className="text-xs font-bold text-[#0F172A] uppercase">{drug.dci}</strong>
                           {drug.brandNames.length > 0 && (
-                            <span className="text-[11px] text-[#3B82F6] font-semibold">
+                            <span className="text-[11px] text-[#3B82F6] font-semibold uppercase">
                               ({drug.brandNames.join(', ')})
                             </span>
                           )}
@@ -368,7 +410,6 @@ export function PrescriptionDrawer({
                     </div>
                   ))}
 
-                  {/* Option de saisie libre */}
                   <div
                     onClick={() => handleAddCustomDrug()}
                     className="p-3.5 bg-amber-50/60 hover:bg-amber-100/70 cursor-pointer flex items-center justify-between transition-colors"
@@ -377,15 +418,15 @@ export function PrescriptionDrawer({
                       <Sparkles className="w-4 h-4 text-amber-600 flex-shrink-0" />
                       <div>
                         <p className="text-xs font-bold text-amber-900">
-                          Prescrire comme nouveau médicament : <span className="underline">"{searchQuery.trim()}"</span>
+                          Prescrire : <span className="font-mono uppercase underline">"{searchQuery.trim().toUpperCase()}"</span>
                         </p>
                         <span className="text-[10px] text-amber-700">
-                          Sera ajouté à l'ordonnance et soumis à l'approbation de l'administrateur.
+                          Saisie libre personnalisée transmise sur l'ordonnance.
                         </span>
                       </div>
                     </div>
                     <Badge variant="amber" size="sm">
-                      Nouveau Référencement
+                      Saisie Libre
                     </Badge>
                   </div>
                 </div>
@@ -394,63 +435,96 @@ export function PrescriptionDrawer({
 
             {/* Prescribed Items Table */}
             <div className="space-y-3">
-              <label className="text-xs font-bold text-[#0F172A] block">
-                Lignes d'ordonnance ({items.length}) :
-              </label>
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-[#0F172A] block">
+                  Lignes d'ordonnance prescrites ({items.length}) :
+                </label>
+                <button
+                  type="button"
+                  onClick={() => handleAddCustomDrug('')}
+                  className="text-xs text-[#3B82F6] font-bold hover:underline flex items-center gap-1"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Ajouter un autre médicament
+                </button>
+              </div>
 
               {items.length === 0 ? (
-                <div className="p-6 text-center rounded-[20px] bg-slate-50 border border-dashed border-slate-200 text-slate-400 text-xs">
-                  Recherchez ou saisissez librement des médicaments ci-dessus.
+                <div className="p-8 text-center rounded-[20px] bg-slate-50 border border-dashed border-slate-200 text-slate-400 text-xs space-y-2">
+                  <p>Aucun médicament sur l'ordonnance.</p>
+                  <GlassButton
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => handleAddCustomDrug('')}
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    Ajouter une ligne
+                  </GlassButton>
                 </div>
               ) : (
-                <div className="space-y-2.5">
+                <div className="space-y-3">
                   {items.map((item, index) => (
                     <div
                       key={item.id}
-                      className="p-4 rounded-[20px] bg-white border border-slate-100 shadow-sm space-y-2.5"
+                      className="p-4 rounded-[22px] bg-white border border-slate-200/80 shadow-sm space-y-3 transition-all"
                     >
+                      {/* Ligne 1 : Nom du médicament (OBLIGATOIRE EN MAJUSCULES) */}
                       <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="w-5 h-5 rounded-full bg-blue-50 text-[#3B82F6] flex items-center justify-center font-bold text-[11px]">
-                            {index + 1}
-                          </span>
-                          <strong className="text-xs font-extrabold text-[#0F172A]">{item.medication}</strong>
-                          {item.ammCode === 'EN-ATTENTE-REF' ? (
-                            <span className="text-[9px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
-                              En attente de référencement
+                        <div className="flex-1">
+                          <label className="text-[10px] font-extrabold text-[#0F172A] uppercase tracking-wider block mb-1 flex items-center gap-1">
+                            <span className="w-4 h-4 rounded-full bg-blue-50 text-[#3B82F6] inline-flex items-center justify-center font-bold text-[10px]">
+                              {index + 1}
                             </span>
-                          ) : item.ammCode ? (
-                            <span className="text-[9px] font-mono text-slate-400 bg-slate-100 px-2 py-0.5 rounded">
-                              {item.ammCode}
-                            </span>
-                          ) : null}
+                            Nom du Médicament * <span className="text-[9px] text-blue-600 font-semibold">(MAJUSCULES)</span>
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            placeholder="EX: AMOXICILLINE 1G COMPRIME"
+                            value={item.medication}
+                            onChange={e => handleUpdateItem(item.id, 'medication', e.target.value)}
+                            className="w-full px-3.5 py-2.5 rounded-[16px] bg-slate-50 border border-slate-200 text-xs font-bold text-[#0F172A] focus:bg-white uppercase placeholder:normal-case"
+                          />
                         </div>
+
                         <button
                           type="button"
                           onClick={() => handleRemoveItem(item.id)}
-                          className="p-1.5 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-full transition-colors"
+                          className="p-2 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-full transition-colors mt-4 flex-shrink-0"
+                          title="Supprimer cette ligne"
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+                      {/* Ligne 2 : Posologie & Nombre de jours (OBLIGATOIRES EN MINUSCULES) */}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
                         <div className="sm:col-span-2">
-                          <label className="text-[10px] text-slate-400 font-semibold block mb-0.5">Posologie :</label>
+                          <label className="text-[10px] font-bold text-slate-600 block mb-1">
+                            Posologie * <span className="text-[9px] text-slate-400 font-normal">(en minuscules)</span>
+                          </label>
                           <input
                             type="text"
+                            required
+                            placeholder="ex: 1 comprimé 3 fois par jour au cours des repas"
                             value={item.dosage}
                             onChange={e => handleUpdateItem(item.id, 'dosage', e.target.value)}
-                            className="w-full px-3 py-1.5 rounded-[14px] bg-slate-50 border border-slate-200/70 text-xs focus:bg-white text-[#0F172A]"
+                            className="w-full px-3 py-2 rounded-[14px] bg-slate-50 border border-slate-200 text-xs text-[#0F172A] focus:bg-white lowercase"
                           />
                         </div>
+
                         <div>
-                          <label className="text-[10px] text-slate-400 font-semibold block mb-0.5">Durée :</label>
+                          <label className="text-[10px] font-bold text-slate-600 block mb-1">
+                            Durée du traitement * <span className="text-[9px] text-slate-400 font-normal">(en minuscules)</span>
+                          </label>
                           <input
                             type="text"
+                            required
+                            placeholder="ex: 5 jours"
                             value={item.duration}
                             onChange={e => handleUpdateItem(item.id, 'duration', e.target.value)}
-                            className="w-full px-3 py-1.5 rounded-[14px] bg-slate-50 border border-slate-200/70 text-xs focus:bg-white text-[#0F172A]"
+                            className="w-full px-3 py-2 rounded-[14px] bg-slate-50 border border-slate-200 text-xs text-[#0F172A] focus:bg-white lowercase"
                           />
                         </div>
                       </div>
@@ -556,7 +630,7 @@ export function PrescriptionDrawer({
                 </div>
               </div>
 
-              {/* Prescribed Items */}
+              {/* Prescribed Items (Médicaments en MAJUSCULES, posologies & durées en minuscules) */}
               <div className="space-y-4 py-2">
                 <span className="text-xs font-extrabold text-[#0F172A] uppercase tracking-wider border-b border-slate-200 pb-1 block">
                   Prescription Médicale :
@@ -564,10 +638,10 @@ export function PrescriptionDrawer({
                 <ol className="space-y-3 list-decimal list-inside text-xs">
                   {items.map((item, idx) => (
                     <li key={idx} className="space-y-0.5">
-                      <strong className="text-[#0F172A] font-bold text-sm">{item.medication}</strong>
+                      <strong className="text-[#0F172A] font-extrabold text-sm uppercase">{item.medication}</strong>
                       <div className="pl-4 text-slate-600 space-y-0.5">
-                        <p>Posologie : <em>{item.dosage}</em></p>
-                        <p className="text-[11px] text-slate-500">Durée du traitement : <strong>{item.duration}</strong></p>
+                        <p>Posologie : <em className="lowercase">{item.dosage}</em></p>
+                        <p className="text-[11px] text-slate-500">Durée du traitement : <strong className="lowercase">{item.duration}</strong></p>
                       </div>
                     </li>
                   ))}
