@@ -332,10 +332,10 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-900/50 backdrop-blur-md font-sans">
-      <GlassCard className="relative w-full max-w-5xl h-[92vh] bg-white/95 backdrop-blur-2xl border border-white/80 shadow-2xl flex flex-col overflow-hidden rounded-[32px]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-4 bg-slate-900/60 backdrop-blur-md font-sans max-h-[100dvh] h-[100dvh] overflow-hidden">
+      <GlassCard className="relative w-full max-w-5xl h-[100dvh] sm:h-[92vh] max-h-[100dvh] sm:max-h-[850px] bg-white/95 backdrop-blur-2xl border border-white/80 shadow-2xl flex flex-col justify-between overflow-hidden rounded-none sm:rounded-[32px]">
         {/* Top Header Bar with Clean Patient Badge & License Status */}
-        <div className="px-6 py-4 border-b border-slate-100/90 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-gradient-to-r from-sky-50/70 via-white to-blue-50/50">
+        <div className="px-4 sm:px-6 py-3.5 border-b border-slate-100/90 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-gradient-to-r from-sky-50/70 via-white to-blue-50/50 flex-shrink-0">
           <div className="flex items-center gap-3">
             <div
               className={`w-11 h-11 rounded-full flex items-center justify-center text-white shadow-md flex-shrink-0 ${

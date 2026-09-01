@@ -29,9 +29,14 @@ import {
   MessageSquare,
   Copy,
   Check,
-  Send,
   Smartphone,
+  Send,
   Mic,
+  MicOff,
+  VideoOff,
+  Play,
+  Pause,
+  Volume2,
   Image as ImageIcon,
   ExternalLink,
   Printer
@@ -80,6 +85,186 @@ export default function PatientRoomPage() {
   const [patientImagePreview, setPatientImagePreview] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
+
+  // Voice note recording states (MediaRecorder)
+  const [isRecordingVoice, setIsRecordingVoice] = useState(false);
+  const [voiceSeconds, setVoiceSeconds] = useState(0);
+  const [playingVoiceId, setPlayingVoiceId] = useState<string | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const currentAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Visio WebRTC local stream states
+  const localVideoRef = useRef<HTMLVideoElement>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const [isVideoMuted, setIsVideoMuted] = useState(false);
+  const [isVideoOff, setIsVideoOff] = useState(false);
+
+  // Voice timer effect
+  useEffect(() => {
+    let interval: any;
+    if (isRecordingVoice) {
+      interval = setInterval(() => setVoiceSeconds(s => s + 1), 1000);
+    } else {
+      setVoiceSeconds(0);
+    }
+    return () => clearInterval(interval);
+  }, [isRecordingVoice]);
+
+  // Video camera stream effect when patient enters visio
+  useEffect(() => {
+    if (step === 'consultation' && serviceType === 'visio_consultation' && typeof navigator !== 'undefined' && navigator.mediaDevices) {
+      navigator.mediaDevices
+        .getUserMedia({ video: true, audio: true })
+        .then(stream => {
+          mediaStreamRef.current = stream;
+          if (localVideoRef.current) {
+            localVideoRef.current.srcObject = stream;
+          }
+        })
+        .catch(err => {
+          console.warn('Patient camera access notice:', err);
+        });
+
+      return () => {
+        if (mediaStreamRef.current) {
+          mediaStreamRef.current.getTracks().forEach(t => t.stop());
+        }
+      };
+    }
+  }, [step, serviceType]);
+
+  // Toggle Video Track
+  const toggleVideoTrack = () => {
+    if (mediaStreamRef.current) {
+      const videoTrack = mediaStreamRef.current.getVideoTracks()[0];
+      if (videoTrack) {
+        videoTrack.enabled = !videoTrack.enabled;
+        setIsVideoOff(!videoTrack.enabled);
+        return;
+      }
+    }
+    setIsVideoOff(!isVideoOff);
+  };
+
+  // Toggle Audio Track
+  const toggleAudioTrack = () => {
+    if (mediaStreamRef.current) {
+      const audioTrack = mediaStreamRef.current.getAudioTracks()[0];
+      if (audioTrack) {
+        audioTrack.enabled = !audioTrack.enabled;
+        setIsVideoMuted(!audioTrack.enabled);
+        return;
+      }
+    }
+    setIsVideoMuted(!isVideoMuted);
+  };
+
+  // Start Patient Voice Recording
+  const startVoiceRecording = async () => {
+    if (!createdPatient) return;
+    audioChunksRef.current = [];
+    try {
+      if (typeof navigator !== 'undefined' && navigator.mediaDevices) {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+          ? 'audio/webm;codecs=opus'
+          : MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')
+          ? 'audio/ogg;codecs=opus'
+          : 'audio/webm';
+
+        const recorder = new MediaRecorder(stream, { mimeType });
+        mediaRecorderRef.current = recorder;
+
+        recorder.ondataavailable = e => {
+          if (e.data.size > 0) {
+            audioChunksRef.current.push(e.data);
+          }
+        };
+
+        recorder.onstop = async () => {
+          const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
+          stream.getTracks().forEach(t => t.stop());
+
+          const reader = new FileReader();
+          reader.onload = async () => {
+            const dataUrl = reader.result as string;
+            const recordedSecs = Math.max(1, voiceSeconds);
+
+            const msg = await sendConsultationMessage(createdPatient.id, {
+              sender: 'patient',
+              type: 'voice',
+              text: `Note vocale patient (${recordedSecs}s)`,
+              audioUrl: dataUrl,
+              audioDuration: recordedSecs,
+            });
+
+            setChatMessages(prev => [...prev, msg]);
+          };
+          reader.readAsDataURL(audioBlob);
+        };
+
+        recorder.start(200);
+        setIsRecordingVoice(true);
+      } else {
+        setIsRecordingVoice(true);
+      }
+    } catch (err) {
+      console.warn('Microphone permission notice:', err);
+      setIsRecordingVoice(true);
+    }
+  };
+
+  // Stop Patient Voice Recording
+  const stopVoiceRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      mediaRecorderRef.current.stop();
+      setIsRecordingVoice(false);
+    } else {
+      const duration = Math.max(1, voiceSeconds);
+      setIsRecordingVoice(false);
+      if (createdPatient) {
+        sendConsultationMessage(createdPatient.id, {
+          sender: 'patient',
+          type: 'voice',
+          text: `Note vocale patient (${duration}s)`,
+          audioDuration: duration,
+        }).then(msg => setChatMessages(prev => [...prev, msg]));
+      }
+    }
+  };
+
+  const handleToggleVoiceRecording = () => {
+    if (isRecordingVoice) {
+      stopVoiceRecording();
+    } else {
+      startVoiceRecording();
+    }
+  };
+
+  // Play audio voice note
+  const handlePlayVoice = (msgId: string, audioUrl?: string) => {
+    if (playingVoiceId === msgId) {
+      currentAudioRef.current?.pause();
+      setPlayingVoiceId(null);
+      return;
+    }
+
+    if (currentAudioRef.current) {
+      currentAudioRef.current.pause();
+    }
+
+    if (audioUrl) {
+      const audio = new Audio(audioUrl);
+      currentAudioRef.current = audio;
+      audio.onended = () => setPlayingVoiceId(null);
+      audio.play().catch(e => console.warn('Audio play error:', e));
+      setPlayingVoiceId(msgId);
+    } else {
+      setPlayingVoiceId(msgId);
+      setTimeout(() => setPlayingVoiceId(null), 3000);
+    }
+  };
 
   useEffect(() => {
     async function loadDoctor() {
@@ -808,18 +993,61 @@ export default function PatientRoomPage() {
               </div>
             </div>
 
-            {/* Video Simulation if Visio */}
+            {/* Video Window if Visio */}
             {serviceType === 'visio_consultation' && (
-              <div className="rounded-[28px] bg-slate-950 p-6 text-white text-center space-y-3 relative overflow-hidden">
-                <div className="w-20 h-20 rounded-full bg-gradient-to-tr from-blue-600 to-sky-400 flex items-center justify-center text-2xl font-extrabold mx-auto shadow-xl ring-4 ring-sky-400/20 animate-pulse">
-                  Dr
+              <div className="h-64 sm:h-72 bg-slate-950 p-4 rounded-[28px] border border-slate-800 flex flex-col justify-between relative overflow-hidden flex-shrink-0">
+                <div className="flex-1 rounded-[20px] bg-slate-900 border border-slate-800 relative flex items-center justify-center overflow-hidden">
+                  {/* Doctor Remote Stream */}
+                  <div className="text-center space-y-2 p-4">
+                    <div className="w-16 h-16 rounded-full bg-gradient-to-tr from-blue-600 to-sky-400 text-white flex items-center justify-center text-2xl font-extrabold mx-auto shadow-2xl ring-4 ring-sky-400/30 animate-pulse">
+                      Dr
+                    </div>
+                    <div>
+                      <h4 className="text-base font-bold text-white">{doctor.fullName}</h4>
+                      <p className="text-[11px] text-sky-400 font-mono">Médecin en direct • Téléconsultation Chiffrée</p>
+                    </div>
+                  </div>
+
+                  {/* Patient Local Camera Pip */}
+                  <div className="absolute bottom-3 right-3 w-28 h-20 sm:w-32 sm:h-24 rounded-[16px] bg-slate-800 border-2 border-white/20 shadow-2xl flex flex-col items-center justify-center overflow-hidden">
+                    <video
+                      ref={localVideoRef}
+                      autoPlay
+                      playsInline
+                      muted
+                      className={`w-full h-full object-cover ${isVideoOff ? 'hidden' : 'block'}`}
+                    />
+                    {isVideoOff && (
+                      <div className="w-full h-full bg-slate-900 flex flex-col items-center justify-center text-white p-1 text-center">
+                        <span className="text-[9px] font-bold">Caméra Off</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <h4 className="font-bold text-lg">{doctor.fullName}</h4>
-                <p className="text-xs text-sky-300">Votre médecin est connecté en direct.</p>
-                <div className="flex items-center justify-center gap-2 pt-2">
-                  <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-xs border border-emerald-500/30">
-                    Caméra & Audio Actifs
-                  </span>
+
+                {/* Patient Video Controls Bar */}
+                <div className="pt-2 flex items-center justify-center gap-3">
+                  <button
+                    type="button"
+                    onClick={toggleAudioTrack}
+                    className={`p-2.5 rounded-full transition-all ${
+                      isVideoMuted ? 'bg-rose-500 text-white' : 'bg-white/20 hover:bg-white/30 text-white'
+                    }`}
+                    title={isVideoMuted ? 'Activer micro' : 'Couper micro'}
+                  >
+                    {isVideoMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={toggleVideoTrack}
+                    className={`p-2.5 rounded-full transition-all ${
+                      isVideoOff ? 'bg-rose-500 text-white' : 'bg-white/20 hover:bg-white/30 text-white'
+                    }`}
+                    title={isVideoOff ? 'Activer caméra' : 'Couper caméra'}
+                  >
+                    {isVideoOff ? <VideoOff className="w-4 h-4" /> : <Video className="w-4 h-4" />}
+                  </button>
                 </div>
               </div>
             )}
@@ -850,7 +1078,7 @@ export default function PatientRoomPage() {
                           <strong className="text-xs text-emerald-900 uppercase">Ordonnance Médicale Scellée</strong>
                         </div>
                         <Badge variant="emerald" size="sm">
-                          ONMS {doctor.onmsNumber}
+                          ONMS {doctor.onmsNumber || 'Certifié'}
                         </Badge>
                       </div>
 
@@ -902,14 +1130,50 @@ export default function PatientRoomPage() {
                         </div>
                       )}
 
+                      {/* Voice Note with Audio Playback */}
                       {msg.type === 'voice' && (
-                        <div className="flex items-center gap-2">
-                          <Mic className="w-4 h-4" />
-                          <span className="font-bold">Note Vocale ({msg.audioDuration || 10}s)</span>
+                        <div className="flex items-center gap-3 p-1">
+                          <button
+                            type="button"
+                            onClick={() => handlePlayVoice(msg.id, msg.audioUrl)}
+                            className={`p-2 rounded-full transition-transform active:scale-95 ${
+                              msg.sender === 'patient' ? 'bg-white/20 text-white' : 'bg-[#3B82F6] text-white'
+                            }`}
+                          >
+                            {playingVoiceId === msg.id ? (
+                              <Pause className="w-4 h-4" />
+                            ) : (
+                              <Play className="w-4 h-4 ml-0.5" />
+                            )}
+                          </button>
+                          <div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-bold text-xs">Note Vocale ({msg.audioDuration || 5}s)</span>
+                              {playingVoiceId === msg.id && (
+                                <span className="flex items-center gap-0.5">
+                                  <span className="w-1 h-3 bg-current animate-pulse rounded-full" />
+                                  <span className="w-1 h-4 bg-current animate-pulse delay-75 rounded-full" />
+                                  <span className="w-1 h-2 bg-current animate-pulse delay-150 rounded-full" />
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-[10px] opacity-80 block">Écouter le message</span>
+                          </div>
                         </div>
                       )}
 
-                      {msg.text && <p>{msg.text}</p>}
+                      {msg.text && msg.type !== 'voice' && <p>{msg.text}</p>}
+
+                      <span
+                        className={`text-[10px] block text-right ${
+                          msg.sender === 'patient' ? 'text-blue-100' : 'text-slate-400'
+                        }`}
+                      >
+                        {new Date(msg.timestamp).toLocaleTimeString('fr-FR', {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </span>
                     </div>
                   )}
                 </div>
@@ -917,8 +1181,8 @@ export default function PatientRoomPage() {
               <div ref={chatEndRef} />
             </div>
 
-            {/* Patient Message Input with Image attachment */}
-            <form onSubmit={handleSendPatientMessage} className="flex items-center gap-2">
+            {/* Patient Message Input with Image & Voice MediaRecorder */}
+            <div className="p-3 border-t border-slate-100 bg-white/95 backdrop-blur-md flex items-center gap-2">
               <input
                 type="file"
                 ref={fileInputRef}
@@ -935,17 +1199,50 @@ export default function PatientRoomPage() {
                 <ImageIcon className="w-5 h-5" />
               </button>
 
-              <input
-                type="text"
-                placeholder="Écrivez votre message au médecin..."
-                value={chatInput}
-                onChange={e => setChatInput(e.target.value)}
-                className="flex-1 px-4 py-3 rounded-full bg-white border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-[#0F172A]"
-              />
-              <GlassButton type="submit" variant="primary" size="sm">
-                <Send className="w-4 h-4" />
-              </GlassButton>
-            </form>
+              {/* Voice Record Button for Patient */}
+              <button
+                type="button"
+                onClick={handleToggleVoiceRecording}
+                className={`p-2.5 rounded-full transition-all ${
+                  isRecordingVoice
+                    ? 'bg-rose-500 text-white animate-pulse shadow-lg ring-4 ring-rose-500/20'
+                    : 'text-slate-400 hover:text-[#3B82F6] hover:bg-blue-50'
+                }`}
+                title={isRecordingVoice ? 'Arrêter et envoyer' : 'Enregistrer une note vocale'}
+              >
+                <Mic className="w-5 h-5" />
+              </button>
+
+              {isRecordingVoice ? (
+                <div className="flex-1 px-4 py-2.5 rounded-full bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold flex items-center justify-between">
+                  <span className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping" />
+                    Enregistrement ({voiceSeconds}s)...
+                  </span>
+                  <button
+                    type="button"
+                    className="text-[11px] font-extrabold underline cursor-pointer bg-rose-600 text-white px-3 py-1 rounded-full hover:bg-rose-700 transition-colors"
+                    onClick={handleToggleVoiceRecording}
+                  >
+                    Envoyer
+                  </button>
+                </div>
+              ) : (
+                <form onSubmit={handleSendPatientMessage} className="flex-1 flex items-center gap-2">
+                  <input
+                    type="text"
+                    placeholder="Écrivez votre message au médecin..."
+                    value={chatInput}
+                    onFocus={e => setTimeout(() => e.target.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 300)}
+                    onChange={e => setChatInput(e.target.value)}
+                    className="flex-1 px-4 py-2.5 rounded-full bg-slate-50 border border-slate-200/80 text-xs focus:outline-none focus:bg-white text-[#0F172A]"
+                  />
+                  <GlassButton type="submit" variant="primary" size="sm">
+                    <Send className="w-4 h-4" />
+                  </GlassButton>
+                </form>
+              )}
+            </div>
           </GlassCard>
         )}
       </div>

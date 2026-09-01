@@ -40,43 +40,56 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     const profile = await getDoctorById(user.uid) || await getDoctorById(user.email);
-    setDoctorProfile(profile);
+    if (profile) {
+      setDoctorProfile(profile);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('telemed_session_v2', JSON.stringify({ user, profile }));
+      }
+    }
   }, [user]);
 
   useEffect(() => {
-    if (isFirebaseConfigured && auth) {
-      const unsubscribe = onAuthStateChanged(auth, async (firebaseUser: User | null) => {
-        if (firebaseUser) {
-          setUser({
-            uid: firebaseUser.uid,
-            email: firebaseUser.email || '',
-            displayName: firebaseUser.displayName || undefined,
-          });
-          const profile = await getDoctorById(firebaseUser.uid) || await getDoctorById(firebaseUser.email || '');
-          setDoctorProfile(profile);
-        } else {
-          setUser(null);
-          setDoctorProfile(null);
-        }
-        setLoading(false);
-      });
-      return () => unsubscribe();
-    } else {
-      // Local demo mode: check saved demo session in localStorage
+    let unsubscribe = () => {};
+
+    const initAuth = async () => {
       if (typeof window !== 'undefined') {
         try {
           const savedSession = localStorage.getItem('telemed_session_v2');
           if (savedSession) {
             const parsed = JSON.parse(savedSession);
-            setUser(parsed.user);
-            setDoctorProfile(parsed.profile);
+            if (parsed.user) {
+              setUser(parsed.user);
+              const freshProfile = await getDoctorById(parsed.user.uid) || await getDoctorById(parsed.user.email) || parsed.profile;
+              setDoctorProfile(freshProfile);
+            }
           }
-        } catch (e) {
-          console.error(e);
-        }
+        } catch (e) {}
       }
-      setLoading(false);
-    }
+
+      if (isFirebaseConfigured && auth) {
+        unsubscribe = onAuthStateChanged(auth, async (firebaseUser: User | null) => {
+          if (firebaseUser) {
+            const currentUser = {
+              uid: firebaseUser.uid,
+              email: firebaseUser.email || '',
+              displayName: firebaseUser.displayName || undefined,
+            };
+            setUser(currentUser);
+            const profile = await getDoctorById(firebaseUser.uid) || await getDoctorById(firebaseUser.email || '');
+            setDoctorProfile(profile);
+            if (typeof window !== 'undefined') {
+              localStorage.setItem('telemed_session_v2', JSON.stringify({ user: currentUser, profile }));
+            }
+          }
+          setLoading(false);
+        });
+      } else {
+        setLoading(false);
+      }
+    };
+
+    initAuth();
+    return () => unsubscribe();
   }, []);
 
   const login = async (email: string, password: string = 'password123'): Promise<DoctorProfile | null> => {

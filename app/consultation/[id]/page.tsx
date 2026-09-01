@@ -776,6 +776,7 @@ export default function DedicatedConsultationPage() {
                       type="text"
                       placeholder="Écrivez votre message médical..."
                       value={inputText}
+                      onFocus={e => setTimeout(() => e.target.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 300)}
                       onChange={e => setInputText(e.target.value)}
                       className="flex-1 px-4 py-2.5 rounded-full bg-slate-50 border border-slate-200/80 text-xs focus:outline-none focus:bg-white text-[#0F172A]"
                     />

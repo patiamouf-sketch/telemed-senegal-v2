@@ -157,22 +157,50 @@ export async function getDoctorBySlug(slug: string): Promise<DoctorProfile | nul
 }
 
 export async function updateDoctorProfile(id: string, updates: Partial<DoctorProfile>): Promise<DoctorProfile | null> {
+  // 1. Mise à jour Firestore
   if (isFirebaseConfigured && db) {
     try {
-      await updateDoc(doc(db, 'doctors', id), updates);
+      await setDoc(doc(db, 'doctors', id), updates, { merge: true });
     } catch (e) {
-      console.warn('Firebase updateDoc failed, fallback to local storage:', e);
+      console.warn('Firebase setDoc notice:', e);
     }
   }
 
+  // 2. Mise à jour API Serverless Cloud
+  if (typeof window !== 'undefined') {
+    try {
+      fetch('/api/consultation/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'register_doctor', payload: { id, ...updates } })
+      }).catch(e => {});
+    } catch (e) {}
+  }
+
+  // 3. Mise à jour LocalStorage et Session active
   const doctors = getLocalDoctors();
   const idx = doctors.findIndex(d => d.id === id);
+  let updated: DoctorProfile | null = null;
   if (idx >= 0) {
     doctors[idx] = { ...doctors[idx], ...updates };
     saveLocalDoctors(doctors);
-    return doctors[idx];
+    updated = doctors[idx];
   }
-  return null;
+
+  if (typeof window !== 'undefined') {
+    try {
+      const savedSession = localStorage.getItem('telemed_session_v2');
+      if (savedSession) {
+        const parsed = JSON.parse(savedSession);
+        if (parsed.profile?.id === id || parsed.user?.uid === id) {
+          parsed.profile = { ...parsed.profile, ...updates };
+          localStorage.setItem('telemed_session_v2', JSON.stringify(parsed));
+        }
+      }
+    } catch (e) {}
+  }
+
+  return updated;
 }
 
 /**

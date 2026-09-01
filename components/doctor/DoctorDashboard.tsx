@@ -651,35 +651,32 @@ export function DoctorDashboard() {
                       </span>
                     </div>
 
-                    <div className="flex items-center gap-2">
-                      {patient.paymentConfirmedByDoctor ? (
-                        <div className="flex items-center gap-1.5 w-full sm:w-auto">
-                          <Link href={`/consultation/${patient.id}`} className="w-full sm:w-auto">
-                            <GlassButton
-                              size="sm"
-                              variant="primary"
-                              className="text-xs w-full sm:w-auto shadow-pill"
-                            >
-                              {patient.serviceType === 'visio_consultation' ? (
-                                <Video className="w-3.5 h-3.5" />
-                              ) : (
-                                <MessageSquare className="w-3.5 h-3.5" />
-                              )}
-                              <span>Entrer en Consultation</span>
-                            </GlassButton>
-                          </Link>
-                        </div>
-                      ) : (
+                    <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap justify-end w-full sm:w-auto">
+                      {!patient.paymentConfirmedByDoctor && (
                         <GlassButton
                           size="sm"
                           variant="success"
                           onClick={() => handleConfirmPayment(patient.id)}
-                          className="text-xs w-full sm:w-auto"
+                          className="text-xs w-full sm:w-auto shadow-sm"
                         >
                           <CheckCircle2 className="w-3.5 h-3.5" />
-                          <span>Confirmer la réception</span>
+                          <span>Confirmer Réception</span>
                         </GlassButton>
                       )}
+
+                      <GlassButton
+                        size="sm"
+                        variant={patient.paymentConfirmedByDoctor ? 'primary' : 'secondary'}
+                        onClick={() => setActiveConsultation(patient)}
+                        className="text-xs w-full sm:w-auto shadow-pill"
+                      >
+                        {patient.serviceType === 'visio_consultation' ? (
+                          <Video className="w-3.5 h-3.5" />
+                        ) : (
+                          <MessageSquare className="w-3.5 h-3.5" />
+                        )}
+                        <span>Ouvrir la Salle de Soin</span>
+                      </GlassButton>
                     </div>
                   </div>
                 </div>

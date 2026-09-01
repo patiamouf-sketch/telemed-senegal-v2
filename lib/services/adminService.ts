@@ -64,10 +64,10 @@ export async function approveDoctor(doctorId: string): Promise<DoctorProfile | n
     rejectionReason: undefined,
   };
 
-  // 1. Mise à jour Firestore
+  // 1. Mise à jour Firestore (setDoc avec merge garantit la persistance même si le document n'existait pas)
   if (isFirebaseConfigured && db) {
     try {
-      await updateDoc(doc(db, 'doctors', doctorId), updates);
+      await setDoc(doc(db, 'doctors', doctorId), updates, { merge: true });
     } catch (e) {
       console.warn('Firebase approveDoctor notice:', e);
     }
@@ -84,15 +84,30 @@ export async function approveDoctor(doctorId: string): Promise<DoctorProfile | n
     } catch (e) {}
   }
 
-  // 3. Mise à jour LocalStorage
+  // 3. Mise à jour LocalStorage et Session
   const doctors = getLocalDoctors();
   const idx = doctors.findIndex(d => d.id === doctorId);
+  let updatedDoc: DoctorProfile | null = null;
   if (idx >= 0) {
     doctors[idx] = { ...doctors[idx], ...updates };
     saveLocalDoctors(doctors);
-    return doctors[idx];
+    updatedDoc = doctors[idx];
   }
-  return null;
+
+  if (typeof window !== 'undefined') {
+    try {
+      const savedSession = localStorage.getItem('telemed_session_v2');
+      if (savedSession) {
+        const parsed = JSON.parse(savedSession);
+        if (parsed.profile?.id === doctorId || parsed.user?.uid === doctorId) {
+          parsed.profile = { ...parsed.profile, ...updates };
+          localStorage.setItem('telemed_session_v2', JSON.stringify(parsed));
+        }
+      }
+    } catch (e) {}
+  }
+
+  return updatedDoc;
 }
 
 export async function rejectDoctor(
@@ -107,7 +122,7 @@ export async function rejectDoctor(
   // 1. Mise à jour Firestore
   if (isFirebaseConfigured && db) {
     try {
-      await updateDoc(doc(db, 'doctors', doctorId), updates);
+      await setDoc(doc(db, 'doctors', doctorId), updates, { merge: true });
     } catch (e) {
       console.warn('Firebase rejectDoctor notice:', e);
     }
@@ -127,12 +142,27 @@ export async function rejectDoctor(
   // 3. Mise à jour LocalStorage
   const doctors = getLocalDoctors();
   const idx = doctors.findIndex(d => d.id === doctorId);
+  let updatedDoc: DoctorProfile | null = null;
   if (idx >= 0) {
     doctors[idx] = { ...doctors[idx], ...updates };
     saveLocalDoctors(doctors);
-    return doctors[idx];
+    updatedDoc = doctors[idx];
   }
-  return null;
+
+  if (typeof window !== 'undefined') {
+    try {
+      const savedSession = localStorage.getItem('telemed_session_v2');
+      if (savedSession) {
+        const parsed = JSON.parse(savedSession);
+        if (parsed.profile?.id === doctorId || parsed.user?.uid === doctorId) {
+          parsed.profile = { ...parsed.profile, ...updates };
+          localStorage.setItem('telemed_session_v2', JSON.stringify(parsed));
+        }
+      }
+    } catch (e) {}
+  }
+
+  return updatedDoc;
 }
 
 export async function renewDoctorLicense(doctorId: string, days: number = 90): Promise<DoctorProfile | null> {
@@ -151,7 +181,7 @@ export async function renewDoctorLicense(doctorId: string, days: number = 90): P
   // 1. Mise à jour Firestore
   if (isFirebaseConfigured && db) {
     try {
-      await updateDoc(doc(db, 'doctors', doctorId), updates);
+      await setDoc(doc(db, 'doctors', doctorId), updates, { merge: true });
     } catch (e) {
       console.warn('Firebase renewDoctorLicense notice:', e);
     }
@@ -171,12 +201,27 @@ export async function renewDoctorLicense(doctorId: string, days: number = 90): P
   // 3. Mise à jour LocalStorage
   const localDocs = getLocalDoctors();
   const idx = localDocs.findIndex(d => d.id === doctorId);
+  let updatedDoc: DoctorProfile | null = null;
   if (idx >= 0) {
     localDocs[idx] = { ...localDocs[idx], ...updates };
     saveLocalDoctors(localDocs);
-    return localDocs[idx];
+    updatedDoc = localDocs[idx];
   }
-  return null;
+
+  if (typeof window !== 'undefined') {
+    try {
+      const savedSession = localStorage.getItem('telemed_session_v2');
+      if (savedSession) {
+        const parsed = JSON.parse(savedSession);
+        if (parsed.profile?.id === doctorId || parsed.user?.uid === doctorId) {
+          parsed.profile = { ...parsed.profile, ...updates };
+          localStorage.setItem('telemed_session_v2', JSON.stringify(parsed));
+        }
+      }
+    } catch (e) {}
+  }
+
+  return updatedDoc;
 }
 
 export async function getAdminStats(): Promise<AdminStats> {
