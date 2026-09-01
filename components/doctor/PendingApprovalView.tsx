@@ -7,6 +7,7 @@ import { GlassButton } from '../ui/GlassButton';
 import { Badge } from '../ui/Badge';
 import { Clock, ShieldCheck, Stethoscope, Phone, CreditCard, RefreshCw, MessageSquare, Sparkles, CheckCircle2 } from 'lucide-react';
 import { approveDoctor } from '@/lib/services/adminService';
+import { getDoctorById } from '@/lib/services/doctorService';
 import confetti from 'canvas-confetti';
 
 export function PendingApprovalView() {
@@ -14,19 +15,25 @@ export function PendingApprovalView() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSimulatingApprove, setIsSimulatingApprove] = useState(false);
 
-  // Écouteur en temps réel automatique : vérifie toutes les 2 secondes si le Super-Admin a validé le compte
+  // Écouteur en temps réel automatique : vérifie toutes les 1.5 secondes si le Super-Admin a validé le compte
   useEffect(() => {
     refreshProfile();
     const interval = setInterval(async () => {
       await refreshProfile();
-    }, 2000);
+    }, 1500);
     return () => clearInterval(interval);
   }, [refreshProfile]);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
     await refreshProfile();
-    setTimeout(() => setIsRefreshing(false), 500);
+    if (doctorProfile) {
+      const fresh = await getDoctorById(doctorProfile.id) || (doctorProfile.email ? await getDoctorById(doctorProfile.email) : null);
+      if (fresh?.status === 'active') {
+        window.location.reload();
+      }
+    }
+    setTimeout(() => setIsRefreshing(false), 400);
   };
 
   const handleSimulateApproval = async () => {

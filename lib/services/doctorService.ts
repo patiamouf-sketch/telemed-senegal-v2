@@ -138,65 +138,80 @@ export async function getDoctorById(id: string): Promise<DoctorProfile | null> {
   const cleanId = id.trim();
   const lowerId = cleanId.toLowerCase();
 
-  // 1. PRIORITÉ ABSOLUE N°1 : FIRESTORE DATABASE DIRECT
+  let candidate: DoctorProfile | null = null;
+
+  // 1. FIRESTORE DATABASE DIRECT
   if (isFirebaseConfigured && db) {
     try {
       // Essai A : Recherche directe par Document ID
       const docRef = doc(db, 'doctors', cleanId);
       const snap = await getDoc(docRef);
       if (snap.exists()) {
-        const docData = snap.data() as DoctorProfile;
-        syncDoctorToLocal(docData);
-        return docData;
+        candidate = snap.data() as DoctorProfile;
       }
 
-      // Essai B : Recherche par champ Email dans Firestore
-      const qEmail = query(collection(db, 'doctors'), where('email', '==', lowerId));
-      const emailSnap = await getDocs(qEmail);
-      if (!emailSnap.empty) {
-        const docData = emailSnap.docs[0].data() as DoctorProfile;
-        syncDoctorToLocal(docData);
-        return docData;
+      // Essai B : Si pas trouvé ou si statut n'est pas actif, recherche par Email
+      if (!candidate || candidate.status !== 'active') {
+        const qEmail = query(collection(db, 'doctors'), where('email', '==', lowerId));
+        const emailSnap = await getDocs(qEmail);
+        if (!emailSnap.empty) {
+          const docData = emailSnap.docs[0].data() as DoctorProfile;
+          if (!candidate || docData.status === 'active') {
+            candidate = docData;
+          }
+        }
       }
 
-      // Essai C : Recherche par champ id dans Firestore
-      const qId = query(collection(db, 'doctors'), where('id', '==', cleanId));
-      const idSnap = await getDocs(qId);
-      if (!idSnap.empty) {
-        const docData = idSnap.docs[0].data() as DoctorProfile;
-        syncDoctorToLocal(docData);
-        return docData;
+      // Essai C : Si toujours pas trouvé, recherche par champ id
+      if (!candidate) {
+        const qId = query(collection(db, 'doctors'), where('id', '==', cleanId));
+        const idSnap = await getDocs(qId);
+        if (!idSnap.empty) {
+          candidate = idSnap.docs[0].data() as DoctorProfile;
+        }
       }
     } catch (e) {
       console.warn('Firebase getDoctorById notice:', e);
     }
   }
 
-  // 2. PRIORITÉ N°2 : Cache Local
-  const doctors = getLocalDoctors();
-  const matchedLocal = doctors.find(d => d.id === cleanId || d.email.toLowerCase() === lowerId);
-  if (matchedLocal) return matchedLocal;
-
-  // 3. PRIORITÉ N°3 : API Serverless
-  if (typeof window !== 'undefined') {
+  // 2. API SERVERLESS CLOUD (SYNCHRONISATION MULTI-POSTES / MULTI-APPAREILS)
+  // Toujours interroger l'API Cloud si candidate n'est pas actif, pour capter la validation de l'Admin en temps réel
+  if (typeof window !== 'undefined' && (!candidate || candidate.status !== 'active')) {
     try {
       const res = await fetch('/api/consultation/sync?type=doctors');
       if (res.ok) {
         const data = await res.json();
         if (data.doctors && Array.isArray(data.doctors)) {
           const match = data.doctors.find((d: DoctorProfile) =>
-            d.id === cleanId || d.email?.toLowerCase() === lowerId
+            d.id === cleanId || d.email?.toLowerCase() === lowerId || (cleanId.includes('@') && d.email?.toLowerCase() === cleanId.toLowerCase())
           );
           if (match) {
-            syncDoctorToLocal(match);
-            return match;
+            if (!candidate || match.status === 'active') {
+              candidate = match;
+            }
           }
         }
       }
     } catch (e) {}
   }
 
-  return null;
+  // 3. CACHE LOCAL
+  const doctors = getLocalDoctors();
+  const matchedLocal = doctors.find(d => d.id === cleanId || d.email.toLowerCase() === lowerId);
+  if (matchedLocal) {
+    if (!candidate) {
+      candidate = matchedLocal;
+    } else if (matchedLocal.status === 'active' && candidate.status !== 'active') {
+      candidate = { ...candidate, status: 'active', licenseExpiresAt: matchedLocal.licenseExpiresAt };
+    }
+  }
+
+  if (candidate) {
+    syncDoctorToLocal(candidate);
+  }
+
+  return candidate;
 }
 
 export function listenToDoctorProfile(
