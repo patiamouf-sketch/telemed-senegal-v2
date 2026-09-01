@@ -7,7 +7,7 @@ import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, on
 import { getDoctorById, createDoctorProfile, listenToDoctorProfile } from '../services/doctorService';
 import { INITIAL_DOCTORS, getLocalDoctors } from '../services/mockData';
 
-const ADMIN_EMAIL = (process.env.NEXT_PUBLIC_ADMIN_EMAIL || 'dr.thiam@telemed.sn').toLowerCase();
+const ADMIN_EMAIL = (process.env.NEXT_PUBLIC_ADMIN_EMAIL || 'pati.amouf@gmail.com').toLowerCase();
 
 interface AuthContextType {
   user: { uid: string; email: string; displayName?: string } | null;
@@ -18,7 +18,6 @@ interface AuthContextType {
   signup: (data: Omit<DoctorProfile, 'id' | 'status' | 'createdAt'>, password?: string) => Promise<DoctorProfile>;
   logout: () => Promise<void>;
   refreshProfile: () => Promise<void>;
-  switchDemoUser: (role: 'admin' | 'pending' | 'active' | 'anonymous') => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -30,8 +29,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const isAdmin = Boolean(
     user?.email?.toLowerCase() === ADMIN_EMAIL || 
-    doctorProfile?.email?.toLowerCase() === ADMIN_EMAIL ||
-    doctorProfile?.id === 'admin-thiam-1'
+    doctorProfile?.email?.toLowerCase() === ADMIN_EMAIL
   );
 
   const refreshProfile = useCallback(async () => {
@@ -124,19 +122,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return profile;
       }
 
-      // Local / Demo mode fallback
       const doctors = getLocalDoctors();
       let matched = doctors.find(d => d.email.toLowerCase() === cleanEmail);
-      
-      // Auto-create or match demo profile if not found
-      if (!matched && cleanEmail === ADMIN_EMAIL) {
-        matched = INITIAL_DOCTORS.find(d => d.id === 'admin-thiam-1');
-      }
-
-      if (!matched) {
-        // Find by simple name or fallback
-        matched = doctors[0];
-      }
 
       const currentUser = {
         uid: matched?.id || `user-${Date.now()}`,
@@ -172,7 +159,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           uid = cred.user.uid;
         } catch (e: any) {
           if (e.code !== 'auth/email-already-in-use') {
-            console.warn('Firebase signup warning:', e);
+            console.warn('Firebase signup notice:', e);
           }
         }
       }
@@ -210,36 +197,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const switchDemoUser = (role: 'admin' | 'pending' | 'active' | 'anonymous') => {
-    const doctors = getLocalDoctors();
-    if (role === 'anonymous') {
-      logout();
-      return;
-    }
-    
-    let target: DoctorProfile | undefined;
-    if (role === 'admin') {
-      target = doctors.find(d => d.email.toLowerCase() === ADMIN_EMAIL) || INITIAL_DOCTORS[3];
-    } else if (role === 'pending') {
-      target = doctors.find(d => d.status === 'pending') || INITIAL_DOCTORS[1];
-    } else if (role === 'active') {
-      target = doctors.find(d => d.status === 'active' && d.id !== 'admin-thiam-1') || INITIAL_DOCTORS[0];
-    }
-
-    if (target) {
-      const demoUser = {
-        uid: target.id,
-        email: target.email,
-        displayName: target.fullName,
-      };
-      setUser(demoUser);
-      setDoctorProfile(target);
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('telemed_session_v2', JSON.stringify({ user: demoUser, profile: target }));
-      }
-    }
-  };
-
   return (
     <AuthContext.Provider
       value={{
@@ -251,7 +208,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         signup,
         logout,
         refreshProfile,
-        switchDemoUser,
       }}
     >
       {children}

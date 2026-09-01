@@ -27,7 +27,7 @@ export function isDoctorLicenseValid(doctor?: DoctorProfile | null): {
       isExpired: false,
       isPending: true,
       daysRemaining: 0,
-      message: 'Votre dossier médical est en cours de validation par la direction médicale.',
+      message: 'Votre dossier médical est en cours de validation par la Direction Médicale.',
     };
   }
 
@@ -37,17 +37,27 @@ export function isDoctorLicenseValid(doctor?: DoctorProfile | null): {
       isExpired: true,
       isPending: false,
       daysRemaining: 0,
-      message: 'Votre compte praticien a été rejeté ou suspendu.',
+      message: 'Votre demande d’adhésion a été rejetée. Contactez la Direction Générale au +221 78 106 92 98.',
+    };
+  }
+
+  if (doctor.status === 'banned' || doctor.status === 'blocked') {
+    return {
+      isValid: false,
+      isExpired: true,
+      isPending: false,
+      daysRemaining: 0,
+      message: 'Votre compte praticien a été suspendu par la Direction Médicale de TELEMED SENEGAL. Contactez la Direction Générale au +221 78 106 92 98.',
     };
   }
 
   if (!doctor.licenseExpiresAt) {
-    // Par défaut valide si actif
+    // Par défaut valide si actif (30 jours)
     return {
       isValid: true,
       isExpired: false,
       isPending: false,
-      daysRemaining: 90,
+      daysRemaining: 30,
     };
   }
 
@@ -62,7 +72,7 @@ export function isDoctorLicenseValid(doctor?: DoctorProfile | null): {
       isExpired: true,
       isPending: false,
       daysRemaining: 0,
-      message: `Votre licence médicale a expiré le ${expiry.toLocaleDateString('fr-FR')}. Veuillez contacter la direction médicale de Thiam Global Business pour renouvellement.`,
+      message: 'Votre licence a expiré. Pour régulariser votre situation, veuillez contacter la Direction Générale au +221 78 106 92 98.',
     };
   }
 

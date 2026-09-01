@@ -1,6 +1,6 @@
 import { OfficialPrescription } from './prescription';
 
-export type DoctorStatus = 'pending' | 'active' | 'rejected';
+export type DoctorStatus = 'pending' | 'active' | 'rejected' | 'banned' | 'blocked';
 
 export type ServiceType = 'avis_medical' | 'visio_consultation';
 
@@ -20,7 +20,8 @@ export interface DoctorProfile {
   slug: string;       // Utilisé pour la route /dr/[slug]
   status: DoctorStatus;
   rejectionReason?: string;
-  licenseExpiresAt?: string; // ISO date string (ex: +90 jours)
+  banReason?: string;
+  licenseExpiresAt?: string; // ISO date string (ex: +30 jours)
   createdAt: string;
   consultationFee: number;
   avisMedicalFee: number; // Prix Avis Médical (Messagerie/Audio), ex: 3000 FCFA

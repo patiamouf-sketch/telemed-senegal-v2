@@ -26,22 +26,23 @@ import {
   Eye,
   X
 } from 'lucide-react';
-import { getAllDoctors, approveDoctor, rejectDoctor, renewDoctorLicense, getAdminStats } from '@/lib/services/adminService';
+import { getAllDoctors, approveDoctor, rejectDoctor, banDoctor, unbanDoctor, deleteDoctorPermanently, renewDoctorLicense, getAdminStats } from '@/lib/services/adminService';
 import { getPendingMedications, approvePendingMedication, rejectPendingMedication } from '@/lib/services/doctorService';
 import { DoctorProfile, AdminStats } from '@/lib/types/doctor';
 import { PendingMedication } from '@/lib/types/prescription';
 import { format, differenceInDays } from 'date-fns';
+import { ShieldAlert, Trash2, Ban, Unlock } from 'lucide-react';
 import Link from 'next/link';
 import confetti from 'canvas-confetti';
 
 export default function AdminThiamPage() {
-  const { user, doctorProfile, isAdmin } = useAuth();
+  const { user, doctorProfile } = useAuth();
   const [doctors, setDoctors] = useState<DoctorProfile[]>([]);
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [pendingMeds, setPendingMeds] = useState<PendingMedication[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'pending' | 'active' | 'medications' | 'all'>('pending');
+  const [activeTab, setActiveTab] = useState<'pending' | 'active' | 'banned' | 'medications' | 'all'>('pending');
 
   // Modal d'approbation d'un médicament
   const [selectedMedToApprove, setSelectedMedToApprove] = useState<PendingMedication | null>(null);
@@ -78,11 +79,11 @@ export default function AdminThiamPage() {
   const handleApproveDoctor = async (docId: string, docName: string) => {
     setActionLoading(docId);
     
-    // Mise à jour optimiste immédiate dans l'interface
+    // Mise à jour optimiste immédiate dans l'interface (+30j)
     setDoctors(prev =>
       prev.map(d =>
         d.id === docId || (docName && d.fullName === docName)
-          ? { ...d, status: 'active', licenseExpiresAt: new Date(Date.now() + 90 * 86400000).toISOString() }
+          ? { ...d, status: 'active', licenseExpiresAt: new Date(Date.now() + 30 * 86400000).toISOString() }
           : d
       )
     );
@@ -117,18 +118,64 @@ export default function AdminThiamPage() {
     setActionLoading(null);
   };
 
+  const handleBanDoctor = async (docId: string) => {
+    const reason = prompt('Motif du blocage / bannissement :', 'Non-respect de la déontologie médicale ou suspension ordinale');
+    if (!reason) return;
+    setActionLoading(docId);
+
+    setDoctors(prev =>
+      prev.map(d =>
+        d.id === docId
+          ? { ...d, status: 'banned', banReason: reason }
+          : d
+      )
+    );
+
+    await banDoctor(docId, reason);
+    await loadData(true);
+    setActionLoading(null);
+  };
+
+  const handleUnbanDoctor = async (docId: string) => {
+    if (!confirm('Voulez-vous lever la suspension de ce médecin et réactiver son accès ?')) return;
+    setActionLoading(docId);
+
+    setDoctors(prev =>
+      prev.map(d =>
+        d.id === docId
+          ? { ...d, status: 'active', banReason: undefined }
+          : d
+      )
+    );
+
+    await unbanDoctor(docId);
+    await loadData(true);
+    setActionLoading(null);
+  };
+
+  const handleDeleteDoctor = async (docId: string, docName: string) => {
+    if (!confirm(`⚠️ ATTENTION : Êtes-vous certain de vouloir supprimer DÉFINITIVEMENT le compte du ${docName} ? Cette action est irréversible.`)) {
+      return;
+    }
+    setActionLoading(docId);
+    setDoctors(prev => prev.filter(d => d.id !== docId));
+    await deleteDoctorPermanently(docId);
+    await loadData(true);
+    setActionLoading(null);
+  };
+
   const handleRenewLicense = async (docId: string) => {
     setActionLoading(docId);
 
     setDoctors(prev =>
       prev.map(d =>
         d.id === docId
-          ? { ...d, status: 'active', licenseExpiresAt: new Date(Date.now() + 90 * 86400000).toISOString() }
+          ? { ...d, status: 'active', licenseExpiresAt: new Date(Date.now() + 30 * 86400000).toISOString() }
           : d
       )
     );
 
-    await renewDoctorLicense(docId, 90);
+    await renewDoctorLicense(docId, 30);
     await loadData(true);
     setActionLoading(null);
   };
@@ -182,7 +229,30 @@ export default function AdminThiamPage() {
 
   const pendingDocs = doctors.filter(d => d.status === 'pending');
   const activeDocs = doctors.filter(d => d.status === 'active' && d.id !== 'admin-thiam-1');
+  const bannedDocs = doctors.filter(d => d.status === 'banned' || d.status === 'blocked');
   const activePendingMeds = pendingMeds.filter(m => m.status === 'pending');
+
+  // CONTRÔLE D'ACCÈS INVISIBLE (STEALTH MODE) : Seul pati.amouf@gmail.com peut voir cette interface
+  if (!loading && (!user || user.email?.toLowerCase() !== 'pati.amouf@gmail.com')) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4 bg-[#F8FAFC] font-sans">
+        <GlassCard className="p-8 text-center bg-white shadow-xl max-w-sm space-y-4 border border-slate-200">
+          <div className="w-12 h-12 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center mx-auto">
+            <ShieldAlert className="w-6 h-6" />
+          </div>
+          <h1 className="text-xl font-bold text-slate-900">404 - Page Introuvable</h1>
+          <p className="text-xs text-slate-500">
+            La ressource demandée n'existe pas ou vous n'avez pas l'autorisation d'y accéder.
+          </p>
+          <Link href="/">
+            <GlassButton variant="primary" size="sm">
+              Retour à l'accueil
+            </GlassButton>
+          </Link>
+        </GlassCard>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen pb-16 font-sans">
@@ -205,13 +275,13 @@ export default function AdminThiamPage() {
               </div>
               <div>
                 <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0F172A] tracking-tight flex items-center gap-2">
-                  Administration Direction Médicale
+                  Direction Médicale • Contrôle & Validation
                   <Badge variant="blue" size="sm">
                     TELEMED SENEGAL
                   </Badge>
                 </h1>
                 <p className="text-xs text-slate-500">
-                  Validation des praticiens ONMS et examen des nouveaux médicaments proposés.
+                  Dr. Elhadji Pathé THIAM, Directeur Général de THIAM GLOBAL BUSINESS, Pharmacien et Informaticien • <strong>+221 78 106 92 98</strong>
                 </p>
               </div>
             </div>
@@ -252,7 +322,18 @@ export default function AdminThiamPage() {
             <div className="text-3xl font-extrabold text-emerald-600">
               {stats?.activeCount ?? activeDocs.length}
             </div>
-            <span className="text-[11px] text-emerald-700/80 font-medium">Licences conformes</span>
+            <span className="text-[11px] text-emerald-700/80 font-medium">Licences 30j conformes</span>
+          </GlassCard>
+
+          <GlassCard className="p-5 space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Bloqués / Suspendus</span>
+              <ShieldAlert className="w-4 h-4 text-rose-500" />
+            </div>
+            <div className="text-3xl font-extrabold text-rose-600">
+              {bannedDocs.length}
+            </div>
+            <span className="text-[11px] text-rose-700/80 font-medium">Accès révoqués</span>
           </GlassCard>
 
           <GlassCard className="p-5 space-y-1">
@@ -263,18 +344,7 @@ export default function AdminThiamPage() {
             <div className="text-3xl font-extrabold text-[#3B82F6]">
               {activePendingMeds.length}
             </div>
-            <span className="text-[11px] text-blue-700/80 font-medium">À examiner / valider</span>
-          </GlassCard>
-
-          <GlassCard className="p-5 space-y-1">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Consultations / Jour</span>
-              <Users className="w-4 h-4 text-indigo-500" />
-            </div>
-            <div className="text-3xl font-extrabold text-indigo-600">
-              {stats?.activePatientsToday ?? 12}
-            </div>
-            <span className="text-[11px] text-indigo-700/80 font-medium">Activité nationale</span>
+            <span className="text-[11px] text-blue-700/80 font-medium">Proposés en consultation</span>
           </GlassCard>
         </div>
 
@@ -314,6 +384,18 @@ export default function AdminThiamPage() {
           >
             <CheckCircle2 className="w-3.5 h-3.5" />
             Médecins Actifs & Licences ({activeDocs.length})
+          </button>
+
+          <button
+            onClick={() => setActiveTab('banned')}
+            className={`px-5 py-2.5 rounded-full text-xs font-bold transition-all flex items-center gap-2 ${
+              activeTab === 'banned'
+                ? 'bg-rose-600 text-white shadow-md'
+                : 'bg-white/70 text-slate-600 hover:bg-white'
+            }`}
+          >
+            <Ban className="w-3.5 h-3.5" />
+            Suspendus ({bannedDocs.length})
           </button>
 
           <button
@@ -436,7 +518,7 @@ export default function AdminThiamPage() {
                         className="text-xs shadow-pill-emerald"
                       >
                         <CheckCircle2 className="w-3.5 h-3.5" />
-                        Approuver (+Licence 90j)
+                        Approuver (+Licence 30j)
                       </GlassButton>
                     </div>
                   </GlassCard>
@@ -529,7 +611,7 @@ export default function AdminThiamPage() {
                 const daysRemaining = doc.licenseExpiresAt
                   ? differenceInDays(new Date(doc.licenseExpiresAt), new Date())
                   : 0;
-                const isExpiringSoon = daysRemaining <= 15;
+                const isExpiringSoon = daysRemaining <= 7;
                 const isExpired = daysRemaining < 0;
 
                 return (
@@ -554,7 +636,7 @@ export default function AdminThiamPage() {
                     <div className="p-3 bg-white rounded-[16px] border border-slate-100 text-xs space-y-1.5">
                       <div className="flex justify-between">
                         <span className="text-slate-400">ONMS :</span>
-                        <strong className="font-mono text-slate-800">{doc.onmsNumber}</strong>
+                        <strong className="font-mono text-slate-800">{doc.onmsNumber || 'N/A'}</strong>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-slate-400">Téléphone :</span>
@@ -570,18 +652,43 @@ export default function AdminThiamPage() {
 
                     <div className="pt-1 flex items-center justify-between gap-2">
                       <Link href={`/dr/${doc.slug}`} target="_blank" className="text-xs text-[#3B82F6] font-bold hover:underline">
-                        Voir la salle
+                        Voir salle
                       </Link>
 
-                      <GlassButton
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => handleRenewLicense(doc.id)}
-                        isLoading={actionLoading === doc.id}
-                        className="text-xs"
-                      >
-                        Prolonger (+90j)
-                      </GlassButton>
+                      <div className="flex items-center gap-1.5">
+                        <GlassButton
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => handleRenewLicense(doc.id)}
+                          isLoading={actionLoading === doc.id}
+                          className="text-xs"
+                          title="Prolonger la licence de 30 jours"
+                        >
+                          +30j
+                        </GlassButton>
+
+                        <GlassButton
+                          size="sm"
+                          variant="danger"
+                          onClick={() => handleBanDoctor(doc.id)}
+                          isLoading={actionLoading === doc.id}
+                          className="text-xs px-2"
+                          title="Bloquer l'accès"
+                        >
+                          <Ban className="w-3.5 h-3.5" />
+                        </GlassButton>
+
+                        <GlassButton
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => handleDeleteDoctor(doc.id, doc.fullName)}
+                          isLoading={actionLoading === doc.id}
+                          className="text-xs px-2 text-rose-600 hover:bg-rose-50"
+                          title="Supprimer définitivement"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </GlassButton>
+                      </div>
                     </div>
                   </GlassCard>
                 );
@@ -590,7 +697,71 @@ export default function AdminThiamPage() {
           </div>
         )}
 
-        {/* TAB 4: ALL DOCTORS */}
+        {/* TAB 4: BANNED / BLOCKED DOCTORS */}
+        {activeTab === 'banned' && (
+          <div className="space-y-4">
+            {bannedDocs.length === 0 ? (
+              <GlassCard className="p-12 text-center">
+                <CheckCircle2 className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                <h3 className="text-base font-bold text-[#0F172A]">Aucun praticien suspendu</h3>
+                <p className="text-xs text-slate-500 mt-1">
+                  Tous les praticiens enregistrés sont en règle ou en attente.
+                </p>
+              </GlassCard>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {bannedDocs.map(doc => (
+                  <GlassCard key={doc.id} className="p-5 space-y-3 border-rose-200 bg-rose-50/40">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <Badge variant="rose" size="sm">
+                          Compte Suspendu / Bloqué
+                        </Badge>
+                        <h4 className="font-bold text-slate-900 text-base mt-1">{doc.fullName}</h4>
+                        <p className="text-xs text-slate-500">{doc.speciality} • Tél: {doc.phone}</p>
+                      </div>
+                      <div className="w-8 h-8 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center">
+                        <Ban className="w-4 h-4" />
+                      </div>
+                    </div>
+
+                    {doc.banReason && (
+                      <div className="p-3 bg-white rounded-xl border border-rose-100 text-xs text-rose-900">
+                        <strong>Motif de suspension :</strong> {doc.banReason}
+                      </div>
+                    )}
+
+                    <div className="pt-2 flex items-center justify-end gap-2">
+                      <GlassButton
+                        size="sm"
+                        variant="success"
+                        onClick={() => handleUnbanDoctor(doc.id)}
+                        isLoading={actionLoading === doc.id}
+                        className="text-xs"
+                      >
+                        <Unlock className="w-3.5 h-3.5" />
+                        Lever la suspension
+                      </GlassButton>
+
+                      <GlassButton
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => handleDeleteDoctor(doc.id, doc.fullName)}
+                        isLoading={actionLoading === doc.id}
+                        className="text-xs text-rose-600"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        Supprimer
+                      </GlassButton>
+                    </div>
+                  </GlassCard>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB 5: ALL DOCTORS */}
         {activeTab === 'all' && (
           <GlassCard className="p-6">
             <div className="divide-y divide-slate-100">
@@ -598,12 +769,21 @@ export default function AdminThiamPage() {
                 <div key={doc.id} className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
                   <div>
                     <strong className="text-sm font-bold text-[#0F172A] block">{doc.fullName}</strong>
-                    <span className="text-slate-500">{doc.speciality} • ONMS : {doc.onmsNumber} • Tél : {doc.phone}</span>
+                    <span className="text-slate-500">{doc.speciality} • ONMS : {doc.onmsNumber || 'N/A'} • Tél : {doc.phone}</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <Badge variant={doc.status === 'active' ? 'emerald' : doc.status === 'pending' ? 'amber' : 'rose'} size="sm">
                       {doc.status}
                     </Badge>
+                    <GlassButton
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => handleDeleteDoctor(doc.id, doc.fullName)}
+                      className="text-xs text-rose-600 px-2"
+                      title="Supprimer définitivement"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </GlassButton>
                   </div>
                 </div>
               ))}

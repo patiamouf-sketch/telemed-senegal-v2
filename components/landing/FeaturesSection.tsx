@@ -31,8 +31,8 @@ export function FeaturesSection() {
     {
       icon: Clock,
       color: 'amber',
-      title: 'Licence 90 Jours Offerte',
-      desc: 'Lancez votre patientèle libérale sans frais initiaux avec 3 mois de couverture complète du service SaaS.',
+      title: 'Licence 30 Jours Offerte',
+      desc: 'Lancez votre patientèle libérale sans frais initiaux avec 30 jours de couverture complète du service de téléconsultation.',
       badge: 'Offre Tremplin',
     },
   ];
@@ -41,7 +41,7 @@ export function FeaturesSection() {
     <section className="py-16 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto font-sans">
       <div className="text-center max-w-2xl mx-auto mb-12">
         <Badge variant="blue" className="mb-2">
-          Architecture V2
+          Architecture Médicale V2
         </Badge>
         <h2 className="text-3xl sm:text-4xl font-extrabold text-[#0F172A] tracking-tight">
           Conçu sur mesure pour la médecine libérale
@@ -71,7 +71,7 @@ export function FeaturesSection() {
 
               <div className="pt-3 border-t border-slate-100 flex items-center gap-1.5 text-[11px] font-bold text-[#3B82F6]">
                 <CheckCircle2 className="w-4 h-4" />
-                <span>Inclus dans le SaaS</span>
+                <span>Inclus dans TELEMED SENEGAL</span>
               </div>
             </GlassCard>
           );
@@ -86,15 +86,15 @@ export function Footer() {
     <footer className="mt-20 border-t border-sky-100/60 bg-white/40 backdrop-blur-md py-10 px-4 sm:px-8 text-center text-xs text-slate-500 font-sans">
       <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
         <div className="flex items-center gap-2 font-bold text-[#0F172A]">
-          <span>TéléMed Sénégal V2</span>
+          <span>TELEMED SENEGAL</span>
           <span>•</span>
-          <span className="text-[#3B82F6]">Thiam Global Business</span>
+          <span className="text-[#3B82F6]">Direction Médicale • Service de Téléconsultation</span>
         </div>
         <div>
-          Conforme à la législation sanitaire et à l'Ordre National des Médecins du Sénégal (ONMS).
+          Dr. Elhadji Pathé THIAM, Directeur Général de THIAM GLOBAL BUSINESS, Pharmacien et Informaticien • <strong>+221 78 106 92 98</strong>
         </div>
         <div>
-          © {new Date().getFullYear()} Thiam Global Business. Tous droits réservés.
+          © {new Date().getFullYear()} TELEMED SENEGAL. Tous droits réservés.
         </div>
       </div>
     </footer>

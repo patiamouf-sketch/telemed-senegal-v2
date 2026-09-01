@@ -14,7 +14,7 @@ interface AuthModalProps {
 }
 
 export function AuthModal({ onClose, onSwitchToSignup, onSuccess }: AuthModalProps) {
-  const { login, switchDemoUser } = useAuth();
+  const { login } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -34,12 +34,6 @@ export function AuthModal({ onClose, onSwitchToSignup, onSuccess }: AuthModalPro
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleQuickLogin = (demoRole: 'admin' | 'active' | 'pending') => {
-    switchDemoUser(demoRole);
-    if (onSuccess) onSuccess();
-    if (onClose) onClose();
   };
 
   return (
@@ -108,36 +102,6 @@ export function AuthModal({ onClose, onSwitchToSignup, onSuccess }: AuthModalPro
             Se connecter
           </GlassButton>
         </form>
-
-        {/* Quick Demo Logins for fast testing */}
-        <div className="mt-6 pt-5 border-t border-slate-100">
-          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider text-center mb-2.5 flex items-center justify-center gap-1">
-            <Sparkles className="w-3 h-3 text-[#3B82F6]" /> Accès Rapide Démo
-          </p>
-          <div className="grid grid-cols-3 gap-2">
-            <button
-              type="button"
-              onClick={() => handleQuickLogin('active')}
-              className="p-2.5 rounded-full bg-blue-50/70 hover:bg-blue-100/80 border border-blue-100 text-[11px] text-center text-[#0F172A] font-bold transition-all"
-            >
-              Dr Sow (Actif)
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuickLogin('pending')}
-              className="p-2.5 rounded-full bg-amber-50/70 hover:bg-amber-100/80 border border-amber-100 text-[11px] text-center text-[#0F172A] font-bold transition-all"
-            >
-              Dr Fall (Attente)
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuickLogin('admin')}
-              className="p-2.5 rounded-full bg-purple-50/70 hover:bg-purple-100/80 border border-purple-100 text-[11px] text-center text-[#0F172A] font-bold transition-all"
-            >
-              Dr Thiam (Admin)
-            </button>
-          </div>
-        </div>
 
         {onSwitchToSignup && (
           <div className="mt-5 text-center text-xs text-slate-500">

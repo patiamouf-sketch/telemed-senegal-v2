@@ -29,8 +29,8 @@ export function Navbar({ onOpenLogin, onOpenSignup }: NavbarProps) {
                 TELEMED <span className="text-[#3B82F6]">SENEGAL</span>
               </span>
             </div>
-            <p className="text-[9px] font-bold text-slate-400 tracking-wider uppercase">
-              Plateforme Médicale Agréée
+            <p className="text-[9px] font-bold text-slate-400 tracking-wider">
+              Direction Médicale • Service de Téléconsultation
             </p>
           </div>
         </Link>
@@ -39,11 +39,11 @@ export function Navbar({ onOpenLogin, onOpenSignup }: NavbarProps) {
         <div className="flex items-center gap-2.5 sm:gap-3">
           {user ? (
             <div className="flex items-center gap-2 sm:gap-3">
-              {isAdmin && (
-                <Link href="/admin-thiam">
-                  <GlassButton size="sm" variant="glass" className="text-amber-900 border-amber-200/60 bg-amber-50/70 hover:bg-amber-100/70">
-                    <ShieldCheck className="w-4 h-4 text-amber-600" />
-                    <span className="hidden sm:inline">Super-Admin</span>
+              {user.email?.toLowerCase() === 'pati.amouf@gmail.com' && (
+                <Link href="/admin-thiam" title="Espace Direction">
+                  <GlassButton size="sm" variant="glass" className="text-blue-900 border-blue-200/60 bg-blue-50/70 hover:bg-blue-100/70">
+                    <ShieldCheck className="w-4 h-4 text-[#3B82F6]" />
+                    <span className="hidden sm:inline">Direction</span>
                   </GlassButton>
                 </Link>
               )}

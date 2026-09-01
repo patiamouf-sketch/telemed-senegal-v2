@@ -8,7 +8,6 @@ import { isDoctorLicenseValid } from '@/lib/utils/license';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { GlassButton } from '@/components/ui/GlassButton';
 import { Badge } from '@/components/ui/Badge';
-import { DemoSwitcher } from '@/components/ui/DemoSwitcher';
 import {
   Stethoscope,
   ShieldCheck,
@@ -966,23 +965,6 @@ export default function PatientRoomPage() {
                 </span>
               </div>
             </div>
-
-            {/* Simulation Button for Fast Evaluation */}
-            <div className="pt-2 border-t border-slate-100">
-              <p className="text-[11px] text-slate-400 mb-2">Mode Démo : vous pouvez forcer l'ouverture</p>
-              <GlassButton
-                variant="glass"
-                size="sm"
-                onClick={() => {
-                  setStep('consultation');
-                  confetti({ particleCount: 50, spread: 60 });
-                }}
-                className="text-xs text-blue-900"
-              >
-                <Sparkles className="w-3.5 h-3.5 text-[#3B82F6]" />
-                Simuler validation médecin immédiate
-              </GlassButton>
-            </div>
           </GlassCard>
         )}
 
@@ -1275,8 +1257,6 @@ export default function PatientRoomPage() {
           </div>
         </div>
       )}
-
-      <DemoSwitcher />
     </div>
   );
 }

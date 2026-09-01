@@ -5,14 +5,13 @@ import { useAuth } from '@/lib/context/AuthContext';
 import { Navbar } from '@/components/ui/Navbar';
 import { DoctorDashboard } from '@/components/doctor/DoctorDashboard';
 import { PendingApprovalView } from '@/components/doctor/PendingApprovalView';
-import { DemoSwitcher } from '@/components/ui/DemoSwitcher';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { GlassButton } from '@/components/ui/GlassButton';
-import { Activity, LogIn } from 'lucide-react';
+import { ShieldAlert, LogOut, Activity, LogIn } from 'lucide-react';
 import Link from 'next/link';
 
 export default function DashboardPage() {
-  const { user, doctorProfile, loading } = useAuth();
+  const { user, doctorProfile, loading, logout } = useAuth();
 
   if (loading) {
     return (
@@ -43,7 +42,39 @@ export default function DashboardPage() {
             </Link>
           </GlassCard>
         </main>
-        <DemoSwitcher />
+      </div>
+    );
+  }
+
+  if (doctorProfile?.status === 'banned' || doctorProfile?.status === 'blocked') {
+    return (
+      <div className="min-h-screen flex flex-col justify-between pt-2 bg-[#F8FAFC]">
+        <Navbar />
+        <main className="flex-1 max-w-2xl mx-auto px-4 py-16 flex items-center justify-center">
+          <GlassCard className="p-8 text-center bg-white shadow-2xl space-y-5 border-rose-200">
+            <div className="w-16 h-16 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center mx-auto shadow-inner">
+              <ShieldAlert className="w-8 h-8" />
+            </div>
+            <h1 className="text-2xl font-bold text-slate-900">Accès Praticien Désactivé</h1>
+            <p className="text-xs sm:text-sm text-slate-600 max-w-md mx-auto leading-relaxed">
+              L'accès à votre cabinet de téléconsultation a été suspendu par la Direction Médicale de <strong>TELEMED SENEGAL</strong>.
+            </p>
+            {doctorProfile.banReason && (
+              <div className="p-3 bg-rose-50 rounded-xl text-xs text-rose-900 font-medium">
+                Motif : {doctorProfile.banReason}
+              </div>
+            )}
+            <p className="text-xs text-slate-500">
+              Contact Direction Générale : <strong>+221 78 106 92 98</strong>
+            </p>
+            <div className="pt-2 flex items-center justify-center gap-3">
+              <GlassButton variant="secondary" size="md" onClick={() => logout()}>
+                <LogOut className="w-4 h-4" />
+                Déconnexion
+              </GlassButton>
+            </div>
+          </GlassCard>
+        </main>
       </div>
     );
   }
@@ -55,7 +86,6 @@ export default function DashboardPage() {
         <main className="flex-1">
           <PendingApprovalView />
         </main>
-        <DemoSwitcher />
       </div>
     );
   }
@@ -66,7 +96,6 @@ export default function DashboardPage() {
       <main className="flex-1">
         <DoctorDashboard />
       </main>
-      <DemoSwitcher />
     </div>
   );
 }

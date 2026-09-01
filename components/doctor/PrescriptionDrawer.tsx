@@ -145,7 +145,7 @@ export function PrescriptionDrawer({
     // 1. Vérification de sécurité de la licence médicale
     const licenseCheck = isDoctorLicenseValid(doctor);
     if (!licenseCheck.isValid) {
-      alert(`Action bloquée par la sécurité : ${licenseCheck.message}`);
+      alert("Votre licence a expiré. Pour régulariser votre situation, veuillez contacter la Direction Générale au +221 78 106 92 98.");
       return;
     }
 
@@ -197,8 +197,10 @@ export function PrescriptionDrawer({
       items,
     });
 
-    const origin = typeof window !== 'undefined' ? window.location.origin : 'https://telemed.sn';
-    const verificationUrl = `${origin}/verify/${hash}`;
+    const origin = typeof window !== 'undefined' && window.location.origin.includes('localhost')
+      ? window.location.origin
+      : 'https://telemed-senegal-v2.vercel.app';
+    const verificationUrl = `${origin}/verify-rx/${hash}`;
 
     const newPrescription: OfficialPrescription = {
       id: `presc-${Date.now()}`,

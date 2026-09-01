@@ -10,7 +10,6 @@ import { PrescriptionDrawer } from '@/components/doctor/PrescriptionDrawer';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { GlassButton } from '@/components/ui/GlassButton';
 import { Badge } from '@/components/ui/Badge';
-import { DemoSwitcher } from '@/components/ui/DemoSwitcher';
 import {
   Video,
   Mic,
@@ -823,8 +822,6 @@ export default function DedicatedConsultationPage() {
           </div>
         </div>
       )}
-
-      <DemoSwitcher />
     </div>
   );
 }

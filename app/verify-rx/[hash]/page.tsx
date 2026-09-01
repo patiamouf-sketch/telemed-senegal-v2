@@ -269,7 +269,7 @@ export default function VerifyPrescriptionAliasPage() {
                 <span className="text-[9px] text-emerald-700 font-semibold block">Scan de conformité</span>
               </div>
               <div className="p-1.5 bg-white rounded-xl border border-slate-200 shadow-sm flex-shrink-0">
-                <LocalQRCode value={prescription.verificationUrl || `https://telemed.sn/verify/${prescription.hash}`} size={64} />
+                <LocalQRCode value={prescription.verificationUrl || `https://telemed-senegal-v2.vercel.app/verify-rx/${prescription.hash}`} size={64} />
               </div>
             </div>
           </div>

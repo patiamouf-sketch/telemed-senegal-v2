@@ -1,17 +1,21 @@
 import { DoctorProfile, AdminStats } from '../types/doctor';
 import { db, isFirebaseConfigured } from '../firebase';
 import { getLocalDoctors, saveLocalDoctors, getLocalQueue } from './mockData';
-import { doc, getDocs, collection, updateDoc, query, where, setDoc } from 'firebase/firestore';
+import { doc, getDocs, collection, query, where, setDoc, deleteDoc } from 'firebase/firestore';
 import { addDays } from 'date-fns';
 
 function mergeDoctorRecord(existing: DoctorProfile | undefined, incoming: DoctorProfile): DoctorProfile {
   if (!existing) return incoming;
-  // RÈGLE DE SÉCURITÉ ABSOLUE : Un statut 'active' ou 'rejected' validé ne peut JAMAIS être rétrogradé en 'pending' par un cache périmé
-  const finalStatus = (existing.status === 'active' || incoming.status === 'active')
-    ? 'active'
-    : (existing.status === 'rejected' || incoming.status === 'rejected')
-      ? 'rejected'
-      : incoming.status || existing.status || 'pending';
+  // RÈGLE DE SÉCURITÉ ABSOLUE : Un statut validé (active, banned, blocked, rejected) prime
+  const finalStatus = (existing.status === 'banned' || incoming.status === 'banned')
+    ? 'banned'
+    : (existing.status === 'blocked' || incoming.status === 'blocked')
+      ? 'blocked'
+      : (existing.status === 'active' || incoming.status === 'active')
+        ? 'active'
+        : (existing.status === 'rejected' || incoming.status === 'rejected')
+          ? 'rejected'
+          : incoming.status || existing.status || 'pending';
 
   const finalLicense = (existing.status === 'active' ? existing.licenseExpiresAt : incoming.licenseExpiresAt) ||
     incoming.licenseExpiresAt || existing.licenseExpiresAt;
@@ -20,6 +24,7 @@ function mergeDoctorRecord(existing: DoctorProfile | undefined, incoming: Doctor
     ...existing,
     ...incoming,
     status: finalStatus,
+    banReason: incoming.banReason || existing.banReason,
     licenseExpiresAt: finalLicense,
   };
 }
@@ -84,11 +89,12 @@ export async function getPendingDoctors(): Promise<DoctorProfile[]> {
 }
 
 export async function approveDoctor(doctorId: string): Promise<DoctorProfile | null> {
-  const licenseExpiresAt = addDays(new Date(), 90).toISOString();
+  const licenseExpiresAt = addDays(new Date(), 30).toISOString();
   const updates: Partial<DoctorProfile> = {
     status: 'active',
     licenseExpiresAt,
     rejectionReason: undefined,
+    banReason: undefined,
   };
 
   const clean = doctorId.trim();
@@ -237,7 +243,196 @@ export async function rejectDoctor(
   return updatedDoc;
 }
 
-export async function renewDoctorLicense(doctorId: string, days: number = 90): Promise<DoctorProfile | null> {
+export async function banDoctor(
+  doctorId: string,
+  reason: string = 'Non-respect des règles déontologiques ou dossier non conforme'
+): Promise<DoctorProfile | null> {
+  const updates: Partial<DoctorProfile> = {
+    status: 'banned',
+    banReason: reason,
+  };
+
+  const clean = doctorId.trim();
+  const lower = clean.toLowerCase();
+  const localDocs = getLocalDoctors();
+  const target = localDocs.find(d => d.id === clean || d.email?.toLowerCase() === lower);
+  const targetId = target?.id || clean;
+  const targetEmail = target?.email?.toLowerCase().trim() || (lower.includes('@') ? lower : '');
+
+  // 1. Mise à jour LocalStorage et Session
+  let updatedDoc: DoctorProfile | null = null;
+  const updatedList = localDocs.map(d => {
+    if (d.id === targetId || (targetEmail && d.email.toLowerCase() === targetEmail)) {
+      const up = { ...d, ...updates };
+      updatedDoc = up;
+      return up;
+    }
+    return d;
+  });
+  if (updatedDoc) {
+    saveLocalDoctors(updatedList);
+  }
+
+  if (typeof window !== 'undefined') {
+    try {
+      const savedSession = localStorage.getItem('telemed_session_v2');
+      if (savedSession) {
+        const parsed = JSON.parse(savedSession);
+        if (
+          parsed.profile?.id === targetId ||
+          (targetEmail && parsed.profile?.email?.toLowerCase() === targetEmail) ||
+          parsed.user?.uid === targetId ||
+          (targetEmail && parsed.user?.email?.toLowerCase() === targetEmail)
+        ) {
+          parsed.profile = { ...parsed.profile, ...updates };
+          localStorage.setItem('telemed_session_v2', JSON.stringify(parsed));
+        }
+      }
+    } catch (e) {}
+  }
+
+  // 2. Mise à jour Firestore
+  if (isFirebaseConfigured && db) {
+    try {
+      await setDoc(doc(db, 'doctors', targetId), updates, { merge: true });
+      if (targetEmail) {
+        await setDoc(doc(db, 'doctors', targetEmail), updates, { merge: true });
+        const q = query(collection(db, 'doctors'), where('email', '==', targetEmail));
+        const snap = await getDocs(q);
+        await Promise.all(snap.docs.map(dSnap => setDoc(dSnap.ref, updates, { merge: true })));
+      }
+    } catch (e) {
+      console.warn('Firebase banDoctor notice:', e);
+    }
+  }
+
+  // 3. Mise à jour API Serverless Cloud
+  if (typeof window !== 'undefined') {
+    try {
+      await fetch('/api/consultation/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'ban_doctor', payload: { doctorId: targetId, email: targetEmail, reason } })
+      });
+    } catch (e) {}
+  }
+
+  return updatedDoc;
+}
+
+export async function unbanDoctor(doctorId: string): Promise<DoctorProfile | null> {
+  const updates: Partial<DoctorProfile> = {
+    status: 'active',
+    banReason: undefined,
+  };
+
+  const clean = doctorId.trim();
+  const lower = clean.toLowerCase();
+  const localDocs = getLocalDoctors();
+  const target = localDocs.find(d => d.id === clean || d.email?.toLowerCase() === lower);
+  const targetId = target?.id || clean;
+  const targetEmail = target?.email?.toLowerCase().trim() || (lower.includes('@') ? lower : '');
+
+  let updatedDoc: DoctorProfile | null = null;
+  const updatedList = localDocs.map(d => {
+    if (d.id === targetId || (targetEmail && d.email.toLowerCase() === targetEmail)) {
+      const up = { ...d, ...updates };
+      updatedDoc = up;
+      return up;
+    }
+    return d;
+  });
+  if (updatedDoc) {
+    saveLocalDoctors(updatedList);
+  }
+
+  if (typeof window !== 'undefined') {
+    try {
+      const savedSession = localStorage.getItem('telemed_session_v2');
+      if (savedSession) {
+        const parsed = JSON.parse(savedSession);
+        if (
+          parsed.profile?.id === targetId ||
+          (targetEmail && parsed.profile?.email?.toLowerCase() === targetEmail) ||
+          parsed.user?.uid === targetId ||
+          (targetEmail && parsed.user?.email?.toLowerCase() === targetEmail)
+        ) {
+          parsed.profile = { ...parsed.profile, ...updates };
+          localStorage.setItem('telemed_session_v2', JSON.stringify(parsed));
+        }
+      }
+    } catch (e) {}
+  }
+
+  if (isFirebaseConfigured && db) {
+    try {
+      await setDoc(doc(db, 'doctors', targetId), updates, { merge: true });
+      if (targetEmail) {
+        await setDoc(doc(db, 'doctors', targetEmail), updates, { merge: true });
+        const q = query(collection(db, 'doctors'), where('email', '==', targetEmail));
+        const snap = await getDocs(q);
+        await Promise.all(snap.docs.map(dSnap => setDoc(dSnap.ref, updates, { merge: true })));
+      }
+    } catch (e) {
+      console.warn('Firebase unbanDoctor notice:', e);
+    }
+  }
+
+  if (typeof window !== 'undefined') {
+    try {
+      await fetch('/api/consultation/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'unban_doctor', payload: { doctorId: targetId, email: targetEmail } })
+      });
+    } catch (e) {}
+  }
+
+  return updatedDoc;
+}
+
+export async function deleteDoctorPermanently(doctorId: string): Promise<boolean> {
+  const clean = doctorId.trim();
+  const lower = clean.toLowerCase();
+  const localDocs = getLocalDoctors();
+  const target = localDocs.find(d => d.id === clean || d.email?.toLowerCase() === lower);
+  const targetId = target?.id || clean;
+  const targetEmail = target?.email?.toLowerCase().trim() || (lower.includes('@') ? lower : '');
+
+  // 1. Suppression LocalStorage
+  const filtered = localDocs.filter(d => d.id !== targetId && (!targetEmail || d.email?.toLowerCase() !== targetEmail));
+  saveLocalDoctors(filtered);
+
+  // 2. Suppression Firestore
+  if (isFirebaseConfigured && db) {
+    try {
+      await deleteDoc(doc(db, 'doctors', targetId));
+      if (targetEmail) {
+        await deleteDoc(doc(db, 'doctors', targetEmail));
+        const q = query(collection(db, 'doctors'), where('email', '==', targetEmail));
+        const snap = await getDocs(q);
+        await Promise.all(snap.docs.map(dSnap => deleteDoc(dSnap.ref)));
+      }
+    } catch (e) {
+      console.warn('Firebase deleteDoctor notice:', e);
+    }
+  }
+
+  // 3. Suppression API Cloud
+  if (typeof window !== 'undefined') {
+    try {
+      await fetch('/api/consultation/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'delete_doctor', payload: { doctorId: targetId, email: targetEmail } })
+      });
+    } catch (e) {}
+  }
+
+  return true;
+}
+
+export async function renewDoctorLicense(doctorId: string, days: number = 30): Promise<DoctorProfile | null> {
   const clean = doctorId.trim();
   const lower = clean.toLowerCase();
   const localDocs = getLocalDoctors();
@@ -251,6 +446,7 @@ export async function renewDoctorLicense(doctorId: string, days: number = 90): P
 
   const updates: Partial<DoctorProfile> = {
     status: 'active',
+    banReason: undefined,
     licenseExpiresAt: newExpiry,
   };
 

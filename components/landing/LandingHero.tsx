@@ -18,9 +18,9 @@ export function LandingHero({ onOpenLogin, onOpenSignup }: LandingHeroProps) {
         {/* Top Announcement Pill */}
         <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/80 backdrop-blur-xl border border-sky-200/60 shadow-sm text-xs font-bold text-[#0F172A] animate-fade-in">
           <Sparkles className="w-3.5 h-3.5 text-[#3B82F6] animate-pulse" />
-          <span>TéléMed Sénégal V2 • Thiam Global Business</span>
+          <span>TELEMED SENEGAL • Direction Médicale</span>
           <span className="w-1.5 h-1.5 rounded-full bg-[#3B82F6]" />
-          <span className="text-[#3B82F6] font-bold">Licence 90 jours offerte</span>
+          <span className="text-[#3B82F6] font-bold">Licence 30 jours offerte</span>
         </div>
 
         {/* Hero Title */}
@@ -88,7 +88,7 @@ export function LandingHero({ onOpenLogin, onOpenSignup }: LandingHeroProps) {
               </div>
               <h3 className="font-extrabold text-[#0F172A] text-sm">Adhésion & NIN</h3>
               <p className="text-xs text-slate-500 leading-relaxed">
-                Formulaire d'inscription avec vérification ONMS par la direction médicale du Dr Thiam.
+                Formulaire d'inscription avec vérification ordinale par la Direction Médicale.
               </p>
             </div>
 
@@ -103,14 +103,14 @@ export function LandingHero({ onOpenLogin, onOpenSignup }: LandingHeroProps) {
               </p>
             </div>
 
-            {/* Column 3: 90 Days License */}
+            {/* Column 3: 30 Days License */}
             <div className="p-5 rounded-[24px] bg-white border border-slate-100/90 shadow-sm space-y-2">
               <div className="w-9 h-9 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center font-extrabold text-sm">
                 03
               </div>
-              <h3 className="font-extrabold text-[#0F172A] text-sm">Licence 90 Jours</h3>
+              <h3 className="font-extrabold text-[#0F172A] text-sm">Licence 30 Jours</h3>
               <p className="text-xs text-slate-500 leading-relaxed">
-                Accès complet accordé dès validation par le Super-Admin pour lancer votre activité libérale.
+                Accès complet accordé dès validation par la Direction Médicale pour lancer votre activité libérale.
               </p>
             </div>
           </div>

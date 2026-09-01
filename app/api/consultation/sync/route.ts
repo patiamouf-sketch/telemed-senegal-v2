@@ -100,8 +100,9 @@ export async function POST(req: NextRequest) {
         const idx = doctors.findIndex(d => d.id === doctorId || (targetEmail && d.email?.toLowerCase().trim() === targetEmail));
         if (idx >= 0) {
           doctors[idx].status = 'active';
-          doctors[idx].licenseExpiresAt = addDays(new Date(), 90).toISOString();
+          doctors[idx].licenseExpiresAt = addDays(new Date(), 30).toISOString();
           doctors[idx].rejectionReason = undefined;
+          doctors[idx].banReason = undefined;
           return NextResponse.json({ success: true, doctor: doctors[idx] });
         }
         return NextResponse.json({ success: true, message: 'Doctor approval recorded' });
@@ -119,14 +120,50 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ success: true, message: 'Doctor rejection recorded' });
       }
 
+      case 'ban_doctor': {
+        const { doctorId, email, reason } = payload;
+        const targetEmail = email?.toLowerCase().trim();
+        const idx = doctors.findIndex(d => d.id === doctorId || (targetEmail && d.email?.toLowerCase().trim() === targetEmail));
+        if (idx >= 0) {
+          doctors[idx].status = 'banned';
+          doctors[idx].banReason = reason || 'Non-respect des règles déontologiques ou dossier non conforme';
+          return NextResponse.json({ success: true, doctor: doctors[idx] });
+        }
+        return NextResponse.json({ success: true, message: 'Doctor ban recorded' });
+      }
+
+      case 'unban_doctor': {
+        const { doctorId, email } = payload;
+        const targetEmail = email?.toLowerCase().trim();
+        const idx = doctors.findIndex(d => d.id === doctorId || (targetEmail && d.email?.toLowerCase().trim() === targetEmail));
+        if (idx >= 0) {
+          doctors[idx].status = 'active';
+          doctors[idx].banReason = undefined;
+          return NextResponse.json({ success: true, doctor: doctors[idx] });
+        }
+        return NextResponse.json({ success: true, message: 'Doctor unban recorded' });
+      }
+
+      case 'delete_doctor': {
+        const { doctorId, email } = payload;
+        const targetEmail = email?.toLowerCase().trim();
+        const idx = doctors.findIndex(d => d.id === doctorId || (targetEmail && d.email?.toLowerCase().trim() === targetEmail));
+        if (idx >= 0) {
+          doctors.splice(idx, 1);
+          return NextResponse.json({ success: true, message: 'Doctor deleted permanently' });
+        }
+        return NextResponse.json({ success: true, message: 'Doctor deletion recorded' });
+      }
+
       case 'renew_doctor_license': {
-        const { doctorId, email, days = 90 } = payload;
+        const { doctorId, email, days = 30 } = payload;
         const targetEmail = email?.toLowerCase().trim();
         const idx = doctors.findIndex(d => d.id === doctorId || (targetEmail && d.email?.toLowerCase().trim() === targetEmail));
         if (idx >= 0) {
           const currentExpiry = doctors[idx].licenseExpiresAt ? new Date(doctors[idx].licenseExpiresAt!) : new Date();
           const baseDate = currentExpiry > new Date() ? currentExpiry : new Date();
           doctors[idx].status = 'active';
+          doctors[idx].banReason = undefined;
           doctors[idx].licenseExpiresAt = addDays(baseDate, days).toISOString();
           return NextResponse.json({ success: true, doctor: doctors[idx] });
         }

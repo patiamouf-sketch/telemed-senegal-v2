@@ -150,34 +150,6 @@ export function DoctorDashboard() {
     }
   };
 
-  // Add demo patient for live simulation
-  const handleAddDemoPatient = async () => {
-    const demoPatients = [
-      { name: 'Mamadou Diallo', nin: '1984021500321', age: 45, gender: 'M' as const, type: 'visio_consultation' as const, fee: visioFee, method: 'wave' as const, reason: 'Suivi tension artérielle & avis sur bilan lipidique' },
-      { name: 'Fatou Bintou Seck', nin: '1996091800654', age: 28, gender: 'F' as const, type: 'avis_medical' as const, fee: avisFee, method: 'orange_money' as const, reason: 'Avis pédiatrique pour fièvre légère enfant' },
-      { name: 'Ousmane Ndiaye', nin: '1972043000189', age: 52, gender: 'M' as const, type: 'visio_consultation' as const, fee: visioFee, method: 'wave' as const, reason: 'Évaluation douleurs articulaires genou droit' },
-    ];
-    const item = demoPatients[Math.floor(Math.random() * demoPatients.length)];
-
-    await addPatientToQueue({
-      doctorSlug,
-      patientName: item.name,
-      patientNin: item.nin,
-      patientPhone: `+221 77 ${Math.floor(100 + Math.random() * 900)} ${Math.floor(10 + Math.random() * 90)} ${Math.floor(10 + Math.random() * 90)}`,
-      age: item.age,
-      gender: item.gender,
-      serviceType: item.type,
-      amountPaid: item.fee,
-      paymentMethod: item.method,
-      paymentDeclared: true,
-      paymentConfirmedByDoctor: false,
-      reason: item.reason,
-      urgency: 'normale',
-    });
-
-    playMedicalChime();
-  };
-
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-8 font-sans">
       {/* Top Header with Breathable Layout & Discrete License Badge */}
@@ -272,16 +244,18 @@ export function DoctorDashboard() {
         <div className="p-4 rounded-[24px] bg-rose-50 border-2 border-rose-200 text-rose-900 text-xs flex flex-col sm:flex-row items-center justify-between gap-3 shadow-md">
           <div className="space-y-0.5">
             <span className="font-extrabold text-sm block">⚠️ Sécurité Médicale : Licence d'exercice échue</span>
-            <p className="text-rose-700 leading-relaxed">{licenseCheck.message}</p>
+            <p className="text-rose-700 leading-relaxed">
+              Votre licence a expiré. Pour régulariser votre situation, veuillez contacter la Direction Générale au <strong>+221 78 106 92 98</strong>.
+            </p>
           </div>
           <a
-            href="https://wa.me/221770000000?text=Bonjour%20Dr%20Thiam,%20je%20souhaite%20renouveler%20ma%20licence%20TeleMed"
+            href="https://wa.me/221781069298?text=Bonjour%20Dr%20Thiam,%20je%20souhaite%20renouveler%20ma%20licence%20TELEMED%20SENEGAL"
             target="_blank"
             rel="noopener noreferrer"
             className="flex-shrink-0"
           >
             <GlassButton size="sm" variant="danger" className="text-xs">
-              Contacter Dr Thiam (+90j)
+              Direction Générale (+221 78 106 92 98)
             </GlassButton>
           </a>
         </div>
@@ -563,18 +537,6 @@ export function DoctorDashboard() {
                 </div>
               </div>
             </div>
-
-            <div className="flex items-center gap-2">
-              <GlassButton
-                variant="secondary"
-                size="sm"
-                onClick={handleAddDemoPatient}
-                className="text-xs"
-              >
-                <Plus className="w-3.5 h-3.5 text-[#3B82F6]" />
-                Simuler un patient test
-              </GlassButton>
-            </div>
           </div>
 
           {queue.length === 0 ? (
@@ -667,8 +629,15 @@ export function DoctorDashboard() {
                       <GlassButton
                         size="sm"
                         variant={patient.paymentConfirmedByDoctor ? 'primary' : 'secondary'}
-                        onClick={() => setActiveConsultation(patient)}
-                        className="text-xs w-full sm:w-auto shadow-pill"
+                        onClick={() => {
+                          if (!licenseCheck.isValid) {
+                            alert("Votre licence a expiré. Pour régulariser votre situation, veuillez contacter la Direction Générale au +221 78 106 92 98.");
+                            return;
+                          }
+                          setActiveConsultation(patient);
+                        }}
+                        disabled={!licenseCheck.isValid}
+                        className={`text-xs w-full sm:w-auto shadow-pill ${!licenseCheck.isValid ? 'opacity-50 cursor-not-allowed' : ''}`}
                       >
                         {patient.serviceType === 'visio_consultation' ? (
                           <Video className="w-3.5 h-3.5" />
