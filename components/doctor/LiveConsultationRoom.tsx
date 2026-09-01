@@ -28,7 +28,7 @@ import {
   AlertTriangle,
   Lock
 } from 'lucide-react';
-import { sendConsultationMessage, archiveConsultationSession } from '@/lib/services/doctorService';
+import { sendConsultationMessage, archiveConsultationSession, listenToPatient } from '@/lib/services/doctorService';
 import { isDoctorLicenseValid } from '@/lib/utils/license';
 import confetti from 'canvas-confetti';
 
@@ -44,6 +44,21 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
   const [isVideoMuted, setIsVideoMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
   const [callSeconds, setCallSeconds] = useState(0);
+
+  // Synchronisation temps réel des messages & ordonnance
+  useEffect(() => {
+    const unsub = listenToPatient(patient.id, updated => {
+      if (updated) {
+        if (updated.messages) {
+          setMessages(updated.messages);
+        }
+        if (updated.prescription) {
+          setLatestPrescription(updated.prescription);
+        }
+      }
+    });
+    return () => unsub();
+  }, [patient.id]);
 
   // Drawer states
   const [showPrescriptionDrawer, setShowPrescriptionDrawer] = useState(false);

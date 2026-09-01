@@ -11,8 +11,22 @@ import {
   getLocalPrescriptions,
   saveLocalPrescriptions,
 } from './mockData';
-import { doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import {
+  doc,
+  getDoc,
+  setDoc,
+  updateDoc,
+  collection,
+  query,
+  where,
+  getDocs,
+  onSnapshot,
+  arrayUnion
+} from 'firebase/firestore';
 
+/**
+ * Création ou mise à jour d'un profil médecin
+ */
 export async function createDoctorProfile(
   profileData: Omit<DoctorProfile, 'id' | 'status' | 'createdAt'>,
   userId?: string
@@ -105,6 +119,9 @@ export async function updateDoctorProfile(id: string, updates: Partial<DoctorPro
   return null;
 }
 
+/**
+ * Ajout d'un patient à la file d'attente
+ */
 export async function addPatientToQueue(
   patientData: Omit<PatientQueueItem, 'id' | 'status' | 'joinedAt'>
 ): Promise<PatientQueueItem> {
@@ -127,15 +144,29 @@ export async function addPatientToQueue(
     ]
   };
 
+  // 1. Synchronisation Firestore
   if (isFirebaseConfigured && db) {
     try {
       await setDoc(doc(db, 'patient_queues', id), newQueueItem);
-      return newQueueItem;
     } catch (e) {
-      console.warn('Firebase addPatientToQueue failed, fallback to local storage:', e);
+      console.warn('Firebase addPatientToQueue failed, using API sync:', e);
     }
   }
 
+  // 2. Synchronisation API Serverless Vercel
+  try {
+    if (typeof window !== 'undefined') {
+      fetch('/api/consultation/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'add_patient', payload: newQueueItem }),
+      }).catch(e => console.warn('API sync add_patient notice:', e));
+    }
+  } catch (e) {
+    console.warn('Sync API exception:', e);
+  }
+
+  // 3. Cache local
   const queue = getLocalQueue();
   queue.unshift(newQueueItem);
   saveLocalQueue(queue);
@@ -143,26 +174,54 @@ export async function addPatientToQueue(
   return newQueueItem;
 }
 
+/**
+ * Récupère la file d'attente d'un médecin
+ */
 export async function getDoctorQueue(doctorSlug: string): Promise<PatientQueueItem[]> {
+  const normalizedSlug = doctorSlug.toLowerCase().trim();
+
+  // 1. Essai Firestore
   if (isFirebaseConfigured && db) {
     try {
       const q = query(
         collection(db, 'patient_queues'),
-        where('doctorSlug', '==', doctorSlug),
+        where('doctorSlug', '==', normalizedSlug),
         where('status', 'in', ['waiting', 'in_consultation'])
       );
       const snap = await getDocs(q);
-      return snap.docs.map(d => d.data() as PatientQueueItem);
+      if (!snap.empty) {
+        return snap.docs.map(d => d.data() as PatientQueueItem);
+      }
     } catch (e) {
-      console.warn('Firebase getDoctorQueue failed, fallback to local storage:', e);
+      console.warn('Firebase getDoctorQueue failed, fallback:', e);
     }
   }
 
+  // 2. Essai API Serverless
+  if (typeof window !== 'undefined') {
+    try {
+      const res = await fetch(`/api/consultation/sync?slug=${encodeURIComponent(normalizedSlug)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.queue && data.queue.length > 0) {
+          return data.queue;
+        }
+      }
+    } catch (e) {
+      console.warn('API sync getDoctorQueue notice:', e);
+    }
+  }
+
+  // 3. Fallback Local Storage
   const queue = getLocalQueue();
-  return queue.filter(q => q.doctorSlug === doctorSlug && (q.status === 'waiting' || q.status === 'in_consultation'));
+  return queue.filter(q => q.doctorSlug.toLowerCase() === normalizedSlug && (q.status === 'waiting' || q.status === 'in_consultation'));
 }
 
+/**
+ * Récupère les données d'un patient par ID
+ */
 export async function getPatientById(patientId: string): Promise<PatientQueueItem | null> {
+  // 1. Essai Firestore
   if (isFirebaseConfigured && db) {
     try {
       const snap = await getDoc(doc(db, 'patient_queues', patientId));
@@ -170,10 +229,26 @@ export async function getPatientById(patientId: string): Promise<PatientQueueIte
         return snap.data() as PatientQueueItem;
       }
     } catch (e) {
-      console.warn('Firebase getPatientById failed, fallback to local:', e);
+      console.warn('Firebase getPatientById failed, fallback:', e);
     }
   }
 
+  // 2. Essai API Serverless
+  if (typeof window !== 'undefined') {
+    try {
+      const res = await fetch(`/api/consultation/sync?id=${encodeURIComponent(patientId)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.patient) {
+          return data.patient;
+        }
+      }
+    } catch (e) {
+      console.warn('API sync getPatientById notice:', e);
+    }
+  }
+
+  // 3. Fallback Local Storage
   const queue = getLocalQueue();
   const matched = queue.find(p => p.id === patientId);
   if (matched) return matched;
@@ -182,36 +257,170 @@ export async function getPatientById(patientId: string): Promise<PatientQueueIte
   return archive.find(p => p.id === patientId) || null;
 }
 
+/**
+ * Écouteur temps réel pour un patient (messages, statut de paiement, ordonnance)
+ */
+export function listenToPatient(
+  patientId: string,
+  callback: (patient: PatientQueueItem | null) => void
+): () => void {
+  let isUnsubscribed = false;
+  let firestoreUnsub: (() => void) | null = null;
+
+  // 1. Abonnement Firestore Temps Réel
+  if (isFirebaseConfigured && db) {
+    try {
+      firestoreUnsub = onSnapshot(
+        doc(db, 'patient_queues', patientId),
+        snap => {
+          if (!isUnsubscribed && snap.exists()) {
+            callback(snap.data() as PatientQueueItem);
+          }
+        },
+        err => console.warn('Firestore onSnapshot notice:', err)
+      );
+    } catch (e) {
+      console.warn('Firestore listen exception, falling back to API poll:', e);
+    }
+  }
+
+  // 2. Polling API Serverless régulier pour garantir la synchronisation multi-appareils
+  const interval = setInterval(async () => {
+    if (isUnsubscribed) return;
+    try {
+      const res = await fetch(`/api/consultation/sync?id=${encodeURIComponent(patientId)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.patient && !isUnsubscribed) {
+          callback(data.patient);
+        }
+      }
+    } catch (e) {
+      // Silently continue
+    }
+  }, 2000);
+
+  // Fonction de nettoyage
+  return () => {
+    isUnsubscribed = true;
+    clearInterval(interval);
+    if (firestoreUnsub) {
+      try {
+        firestoreUnsub();
+      } catch (e) {}
+    }
+  };
+}
+
+/**
+ * Écouteur temps réel pour la file d'attente du médecin
+ */
+export function listenToDoctorQueue(
+  doctorSlug: string,
+  callback: (queue: PatientQueueItem[]) => void
+): () => void {
+  let isUnsubscribed = false;
+  let firestoreUnsub: (() => void) | null = null;
+  const normalizedSlug = doctorSlug.toLowerCase().trim();
+
+  // 1. Abonnement Firestore Temps Réel
+  if (isFirebaseConfigured && db) {
+    try {
+      const q = query(
+        collection(db, 'patient_queues'),
+        where('doctorSlug', '==', normalizedSlug),
+        where('status', 'in', ['waiting', 'in_consultation'])
+      );
+      firestoreUnsub = onSnapshot(
+        q,
+        snap => {
+          if (!isUnsubscribed) {
+            const items = snap.docs.map(d => d.data() as PatientQueueItem);
+            callback(items);
+          }
+        },
+        err => console.warn('Firestore queue onSnapshot notice:', err)
+      );
+    } catch (e) {
+      console.warn('Firestore queue listen exception:', e);
+    }
+  }
+
+  // 2. Polling API Serverless régulier de secours
+  const interval = setInterval(async () => {
+    if (isUnsubscribed) return;
+    try {
+      const res = await fetch(`/api/consultation/sync?slug=${encodeURIComponent(normalizedSlug)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.queue && !isUnsubscribed) {
+          callback(data.queue);
+        }
+      }
+    } catch (e) {
+      // Silently continue
+    }
+  }, 2500);
+
+  return () => {
+    isUnsubscribed = true;
+    clearInterval(interval);
+    if (firestoreUnsub) {
+      try {
+        firestoreUnsub();
+      } catch (e) {}
+    }
+  };
+}
+
+/**
+ * Confirmation du paiement par le médecin
+ */
 export async function confirmPatientPayment(patientId: string): Promise<PatientQueueItem | null> {
+  const sysMsg: ChatMessage = {
+    id: `msg-conf-${Date.now()}`,
+    sender: 'system',
+    type: 'text',
+    text: 'Paiement confirmé par le médecin. La salle de soin est active.',
+    timestamp: new Date().toISOString()
+  };
+
   const updates = {
     paymentConfirmedByDoctor: true,
     status: 'in_consultation' as const,
   };
 
+  // 1. Mise à jour Firestore
   if (isFirebaseConfigured && db) {
     try {
-      await updateDoc(doc(db, 'patient_queues', patientId), updates);
+      await updateDoc(doc(db, 'patient_queues', patientId), {
+        ...updates,
+        messages: arrayUnion(sysMsg)
+      });
     } catch (e) {
-      console.warn('Firebase confirmPayment failed, fallback to local:', e);
+      console.warn('Firebase confirmPayment failed:', e);
     }
   }
 
+  // 2. Mise à jour API Serverless
+  if (typeof window !== 'undefined') {
+    try {
+      fetch('/api/consultation/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'confirm_payment', payload: { patientId } })
+      }).catch(e => console.warn('API confirmPayment error:', e));
+    } catch (e) {}
+  }
+
+  // 3. Mise à jour locale
   const queue = getLocalQueue();
   const idx = queue.findIndex(p => p.id === patientId);
   if (idx >= 0) {
     queue[idx] = {
       ...queue[idx],
       ...updates,
-      messages: [
-        ...(queue[idx].messages || []),
-        {
-          id: `msg-conf-${Date.now()}`,
-          sender: 'system',
-          type: 'text',
-          text: 'Paiement confirmé par le médecin. La salle de soin est active.',
-          timestamp: new Date().toISOString()
-        }
-      ]
+      messages: [...(queue[idx].messages || []), sysMsg]
     };
     saveLocalQueue(queue);
     return queue[idx];
@@ -219,6 +428,9 @@ export async function confirmPatientPayment(patientId: string): Promise<PatientQ
   return null;
 }
 
+/**
+ * Envoi d'un message de consultation (Texte, Audio OGG/WebM, Image, Ordonnance)
+ */
 export async function sendConsultationMessage(
   patientId: string,
   message: {
@@ -245,17 +457,48 @@ export async function sendConsultationMessage(
     isPrescription: message.isPrescription || Boolean(message.prescriptionData),
   };
 
+  // 1. Envoi temps réel Firestore
+  if (isFirebaseConfigured && db) {
+    try {
+      await updateDoc(doc(db, 'patient_queues', patientId), {
+        messages: arrayUnion(newMsg)
+      });
+    } catch (e) {
+      console.warn('Firebase sendConsultationMessage failed:', e);
+    }
+  }
+
+  // 2. Envoi API Serverless Vercel
+  if (typeof window !== 'undefined') {
+    try {
+      fetch('/api/consultation/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'send_message',
+          payload: { patientId, message: newMsg }
+        })
+      }).catch(e => console.warn('API send_message notice:', e));
+    } catch (e) {}
+  }
+
+  // 3. Mise à jour Cache Local
   const queue = getLocalQueue();
   const idx = queue.findIndex(p => p.id === patientId);
   if (idx >= 0) {
-    queue[idx].messages = [...(queue[idx].messages || []), newMsg];
+    if (!queue[idx].messages) queue[idx].messages = [];
+    if (!queue[idx].messages.some(m => m.id === newMsg.id)) {
+      queue[idx].messages.push(newMsg);
+    }
     saveLocalQueue(queue);
   } else {
-    // If already in archive, save there as well
     const archive = getLocalArchive();
     const aIdx = archive.findIndex(p => p.id === patientId);
     if (aIdx >= 0) {
-      archive[aIdx].messages = [...(archive[aIdx].messages || []), newMsg];
+      if (!archive[aIdx].messages) archive[aIdx].messages = [];
+      if (!archive[aIdx].messages.some(m => m.id === newMsg.id)) {
+        archive[aIdx].messages.push(newMsg);
+      }
       saveLocalArchive(archive);
     }
   }
@@ -264,6 +507,24 @@ export async function sendConsultationMessage(
 }
 
 export async function createOfficialPrescription(prescription: OfficialPrescription): Promise<OfficialPrescription> {
+  if (isFirebaseConfigured && db) {
+    try {
+      await setDoc(doc(db, 'prescriptions', prescription.hash), prescription);
+    } catch (e) {
+      console.warn('Firebase createOfficialPrescription notice:', e);
+    }
+  }
+
+  if (typeof window !== 'undefined') {
+    try {
+      fetch('/api/consultation/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'save_prescription', payload: prescription })
+      }).catch(e => {});
+    } catch (e) {}
+  }
+
   const prescriptions = getLocalPrescriptions();
   prescriptions.unshift(prescription);
   saveLocalPrescriptions(prescriptions);
@@ -271,17 +532,78 @@ export async function createOfficialPrescription(prescription: OfficialPrescript
 }
 
 export async function getPrescriptionByHash(hash: string): Promise<OfficialPrescription | null> {
+  const normalizedHash = hash.toLowerCase().trim();
+
+  // 1. Essai Firestore
+  if (isFirebaseConfigured && db) {
+    try {
+      const snap = await getDoc(doc(db, 'prescriptions', normalizedHash));
+      if (snap.exists()) {
+        return snap.data() as OfficialPrescription;
+      }
+    } catch (e) {
+      console.warn('Firebase getPrescriptionByHash notice:', e);
+    }
+  }
+
+  // 2. Essai API Serverless
+  if (typeof window !== 'undefined') {
+    try {
+      const res = await fetch(`/api/consultation/sync?hash=${encodeURIComponent(normalizedHash)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.prescription) {
+          return data.prescription;
+        }
+      }
+    } catch (e) {}
+  }
+
+  // 3. Fallback Local Storage
   const prescriptions = getLocalPrescriptions();
-  return prescriptions.find(p => p.hash.toLowerCase() === hash.toLowerCase().trim()) || null;
+  return prescriptions.find(p => p.hash.toLowerCase() === normalizedHash) || null;
 }
 
+/**
+ * Clôture et archivage de la session de consultation
+ */
 export async function archiveConsultationSession(
   patientId: string,
   prescription?: OfficialPrescription
 ): Promise<PatientQueueItem | null> {
+  const completedItem: Partial<PatientQueueItem> = {
+    status: 'completed',
+    isReadOnly: true,
+    completedAt: new Date().toISOString(),
+    prescription,
+  };
+
+  // 1. Mise à jour Firestore
+  if (isFirebaseConfigured && db) {
+    try {
+      await updateDoc(doc(db, 'patient_queues', patientId), completedItem);
+    } catch (e) {
+      console.warn('Firebase archiveConsultationSession failed:', e);
+    }
+  }
+
+  // 2. Mise à jour API Serverless
+  if (typeof window !== 'undefined') {
+    try {
+      fetch('/api/consultation/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'archive_session',
+          payload: { patientId, prescription }
+        })
+      }).catch(e => {});
+    } catch (e) {}
+  }
+
+  // 3. Mise à jour Locale
   const queue = getLocalQueue();
   const idx = queue.findIndex(p => p.id === patientId);
-  
   let itemToArchive: PatientQueueItem | undefined;
 
   if (idx >= 0) {
@@ -295,7 +617,7 @@ export async function archiveConsultationSession(
 
   if (!itemToArchive) return null;
 
-  const completedItem: PatientQueueItem = {
+  const fullCompletedItem: PatientQueueItem = {
     ...itemToArchive,
     status: 'completed',
     isReadOnly: true,
@@ -303,13 +625,12 @@ export async function archiveConsultationSession(
     prescription: prescription || itemToArchive.prescription,
   };
 
-  // Add to archive
   const archive = getLocalArchive();
   const aIdx = archive.findIndex(p => p.id === patientId);
   if (aIdx >= 0) {
-    archive[aIdx] = completedItem;
+    archive[aIdx] = fullCompletedItem;
   } else {
-    archive.unshift(completedItem);
+    archive.unshift(fullCompletedItem);
   }
   saveLocalArchive(archive);
 
@@ -317,10 +638,10 @@ export async function archiveConsultationSession(
     await createOfficialPrescription(prescription);
   }
 
-  return completedItem;
+  return fullCompletedItem;
 }
 
 export async function getDoctorArchive(doctorSlug: string): Promise<PatientQueueItem[]> {
   const archive = getLocalArchive();
-  return archive.filter(item => item.doctorSlug === doctorSlug);
+  return archive.filter(item => item.doctorSlug.toLowerCase() === doctorSlug.toLowerCase());
 }

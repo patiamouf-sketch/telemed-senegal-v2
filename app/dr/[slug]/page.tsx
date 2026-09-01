@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams } from 'next/navigation';
-import { getDoctorBySlug, addPatientToQueue, getPatientById, sendConsultationMessage } from '@/lib/services/doctorService';
+import { getDoctorBySlug, addPatientToQueue, getPatientById, sendConsultationMessage, listenToPatient } from '@/lib/services/doctorService';
 import { DoctorProfile, PatientQueueItem, ServiceType, ChatMessage } from '@/lib/types/doctor';
 import { isDoctorLicenseValid } from '@/lib/utils/license';
 import { GlassCard } from '@/components/ui/GlassCard';
@@ -81,16 +81,17 @@ export default function PatientRoomPage() {
     loadDoctor();
   }, [slug]);
 
-  // Polling to detect when doctor validates payment
+  // Écouteur temps réel dès que la session patient est créée
   useEffect(() => {
-    if (!createdPatient || step !== 'waiting') return;
+    if (!createdPatient?.id) return;
 
-    const interval = setInterval(async () => {
-      const updated = await getPatientById(createdPatient.id);
+    const unsub = listenToPatient(createdPatient.id, updated => {
       if (updated) {
         setCreatedPatient(updated);
-        setChatMessages(updated.messages || []);
-        if (updated.paymentConfirmedByDoctor) {
+        if (updated.messages) {
+          setChatMessages(updated.messages);
+        }
+        if (updated.paymentConfirmedByDoctor && step === 'waiting') {
           setStep('consultation');
           confetti({
             particleCount: 80,
@@ -99,10 +100,10 @@ export default function PatientRoomPage() {
           });
         }
       }
-    }, 2500);
+    });
 
-    return () => clearInterval(interval);
-  }, [createdPatient, step]);
+    return () => unsub();
+  }, [createdPatient?.id, step]);
 
   // Handle Form Submit -> Go to Payment Step
   const handleProceedToPayment = (e: React.FormEvent) => {

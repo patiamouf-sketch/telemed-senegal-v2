@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/context/AuthContext';
-import { getPatientById, getDoctorBySlug, sendConsultationMessage, archiveConsultationSession } from '@/lib/services/doctorService';
+import { getPatientById, getDoctorBySlug, sendConsultationMessage, archiveConsultationSession, listenToPatient } from '@/lib/services/doctorService';
 import { PatientQueueItem, ChatMessage, DoctorProfile } from '@/lib/types/doctor';
 import { OfficialPrescription } from '@/lib/types/prescription';
 import { PrescriptionDrawer } from '@/components/doctor/PrescriptionDrawer';
@@ -81,20 +81,22 @@ export default function DedicatedConsultationPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    async function loadData() {
-      if (!id) return;
-      setLoading(true);
-      const p = await getPatientById(id);
-      setPatient(p);
-      if (p) {
-        setMessages(p.messages || []);
-        if (p.prescription) setLatestPrescription(p.prescription);
-        const d = await getDoctorBySlug(p.doctorSlug);
-        setDoctor(d || doctorProfile);
+    if (!id) return;
+    setLoading(true);
+
+    const unsub = listenToPatient(id, updated => {
+      if (updated) {
+        setPatient(updated);
+        if (updated.messages) setMessages(updated.messages);
+        if (updated.prescription) setLatestPrescription(updated.prescription);
+        if (!doctor) {
+          getDoctorBySlug(updated.doctorSlug).then(d => setDoctor(d || doctorProfile));
+        }
       }
       setLoading(false);
-    }
-    loadData();
+    });
+
+    return () => unsub();
   }, [id, doctorProfile]);
 
   const activeDoc = doctor || doctorProfile || {

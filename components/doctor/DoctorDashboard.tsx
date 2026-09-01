@@ -37,7 +37,8 @@ import {
   addPatientToQueue,
   confirmPatientPayment,
   updateDoctorProfile,
-  getDoctorArchive
+  getDoctorArchive,
+  listenToDoctorQueue
 } from '@/lib/services/doctorService';
 import { PatientQueueItem } from '@/lib/types/doctor';
 import { differenceInDays } from 'date-fns';
@@ -85,26 +86,23 @@ export function DoctorDashboard() {
   const doctorSlug = doctorProfile?.slug || 'dr-sow';
   const patientLink = `${origin || 'https://telemed.sn'}/dr/${doctorSlug}`;
 
-  // Fetch patient queue & archive
-  const loadData = async () => {
-    const items = await getDoctorQueue(doctorSlug);
-    const arch = await getDoctorArchive(doctorSlug);
-    setArchive(arch);
-
-    // Detect newly declared payments
-    const unconfirmed = items.filter(p => p.paymentDeclared && !p.paymentConfirmedByDoctor);
-    if (unconfirmed.length > 0 && items.length > prevQueueLengthRef.current) {
-      playMedicalChime();
-      setNewPaymentAlert(unconfirmed[0]);
-    }
-    prevQueueLengthRef.current = items.length;
-    setQueue(items);
-  };
-
+  // Écouteur temps réel de la file d'attente et détection immédiate des paiements
   useEffect(() => {
-    loadData();
-    const interval = setInterval(loadData, 4000);
-    return () => clearInterval(interval);
+    // Chargement initial des archives
+    getDoctorArchive(doctorSlug).then(arch => setArchive(arch));
+
+    const unsub = listenToDoctorQueue(doctorSlug, items => {
+      // Détection des paiements déclarés non confirmés
+      const unconfirmed = items.filter(p => p.paymentDeclared && !p.paymentConfirmedByDoctor);
+      if (unconfirmed.length > 0 && items.length > prevQueueLengthRef.current) {
+        playMedicalChime();
+        setNewPaymentAlert(unconfirmed[0]);
+      }
+      prevQueueLengthRef.current = items.length;
+      setQueue(items);
+    });
+
+    return () => unsub();
   }, [doctorSlug]);
 
   const copyToClipboard = () => {
@@ -174,7 +172,6 @@ export function DoctorDashboard() {
     });
 
     playMedicalChime();
-    await loadData();
   };
 
   return (
@@ -752,7 +749,7 @@ export function DoctorDashboard() {
           doctor={doctorProfile}
           onClose={() => {
             setActiveConsultation(null);
-            loadData();
+            getDoctorArchive(doctorSlug).then(arch => setArchive(arch));
           }}
         />
       )}
