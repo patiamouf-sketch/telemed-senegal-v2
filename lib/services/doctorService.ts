@@ -83,7 +83,23 @@ function syncDoctorToLocal(docData: DoctorProfile) {
     const local = getLocalDoctors();
     const idx = local.findIndex(l => l.id === docData.id || l.email.toLowerCase() === docData.email.toLowerCase());
     if (idx >= 0) {
-      local[idx] = { ...local[idx], ...docData };
+      const existingStatus = local[idx].status;
+      const incomingStatus = docData.status;
+      const finalStatus = (existingStatus === 'active' || incomingStatus === 'active')
+        ? 'active'
+        : (existingStatus === 'rejected' || incomingStatus === 'rejected')
+          ? 'rejected'
+          : incomingStatus || existingStatus || 'pending';
+
+      const finalLicense = (finalStatus === 'active' ? (local[idx].licenseExpiresAt || docData.licenseExpiresAt) : docData.licenseExpiresAt) ||
+        docData.licenseExpiresAt || local[idx].licenseExpiresAt;
+
+      local[idx] = {
+        ...local[idx],
+        ...docData,
+        status: finalStatus,
+        licenseExpiresAt: finalLicense,
+      };
     } else {
       local.unshift(docData);
     }
@@ -93,8 +109,23 @@ function syncDoctorToLocal(docData: DoctorProfile) {
       const saved = localStorage.getItem('telemed_session_v2');
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (parsed.profile?.id === docData.id || parsed.profile?.email?.toLowerCase() === docData.email.toLowerCase() || parsed.user?.uid === docData.id || parsed.user?.email?.toLowerCase() === docData.email.toLowerCase()) {
-          parsed.profile = { ...parsed.profile, ...docData };
+        if (
+          parsed.profile?.id === docData.id ||
+          parsed.profile?.email?.toLowerCase() === docData.email.toLowerCase() ||
+          parsed.user?.uid === docData.id ||
+          parsed.user?.email?.toLowerCase() === docData.email.toLowerCase()
+        ) {
+          const currentStatus = parsed.profile?.status;
+          const targetStatus = (currentStatus === 'active' || docData.status === 'active')
+            ? 'active'
+            : docData.status || currentStatus;
+
+          parsed.profile = {
+            ...parsed.profile,
+            ...docData,
+            status: targetStatus,
+            licenseExpiresAt: targetStatus === 'active' ? (parsed.profile?.licenseExpiresAt || docData.licenseExpiresAt) : docData.licenseExpiresAt
+          };
           localStorage.setItem('telemed_session_v2', JSON.stringify(parsed));
         }
       }
