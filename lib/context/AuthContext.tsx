@@ -4,7 +4,7 @@ import React, { createContext, useContext, useEffect, useState, useCallback } fr
 import { DoctorProfile } from '../types/doctor';
 import { auth, isFirebaseConfigured } from '../firebase';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, User } from 'firebase/auth';
-import { getDoctorById, createDoctorProfile } from '../services/doctorService';
+import { getDoctorById, createDoctorProfile, listenToDoctorProfile } from '../services/doctorService';
 import { INITIAL_DOCTORS, getLocalDoctors } from '../services/mockData';
 
 const ADMIN_EMAIL = (process.env.NEXT_PUBLIC_ADMIN_EMAIL || 'dr.thiam@telemed.sn').toLowerCase();
@@ -39,14 +39,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setDoctorProfile(null);
       return;
     }
-    const profile = await getDoctorById(user.uid) || await getDoctorById(user.email);
+    const profile = await getDoctorById(doctorProfile?.id || user.uid) || await getDoctorById(user.email);
     if (profile) {
       setDoctorProfile(profile);
       if (typeof window !== 'undefined') {
         localStorage.setItem('telemed_session_v2', JSON.stringify({ user, profile }));
       }
     }
-  }, [user]);
+  }, [user, doctorProfile?.id]);
+
+  // Écouteur Firestore direct en temps réel sur le document du médecin
+  useEffect(() => {
+    if (!user) return;
+    const targetKey = doctorProfile?.id || user.uid || user.email;
+    if (!targetKey) return;
+
+    const unsub = listenToDoctorProfile(targetKey, (updatedProfile) => {
+      if (updatedProfile) {
+        setDoctorProfile(updatedProfile);
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('telemed_session_v2', JSON.stringify({ user, profile: updatedProfile }));
+        }
+      }
+    });
+
+    return () => unsub();
+  }, [user?.uid, user?.email, doctorProfile?.id]);
 
   useEffect(() => {
     let unsubscribe = () => {};

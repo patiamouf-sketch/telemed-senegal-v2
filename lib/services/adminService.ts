@@ -10,35 +10,21 @@ import { addDays } from 'date-fns';
 export async function getAllDoctors(): Promise<DoctorProfile[]> {
   const doctorMap = new Map<string, DoctorProfile>();
 
-  // 1. Essai API Serverless (Synchronisé entre tous les appareils)
-  if (typeof window !== 'undefined') {
-    try {
-      const res = await fetch('/api/consultation/sync?type=doctors');
-      if (res.ok) {
-        const data = await res.json();
-        if (data.doctors && Array.isArray(data.doctors)) {
-          data.doctors.forEach((d: DoctorProfile) => {
-            if (d.id) doctorMap.set(d.id, d);
-          });
-        }
-      }
-    } catch (e) {}
-  }
-
-  // 2. Essai Firestore
+  // 1. PRIORITÉ ABSOLUE N°1 : FIRESTORE DATABASE
   if (isFirebaseConfigured && db) {
     try {
       const snap = await getDocs(collection(db, 'doctors'));
       snap.docs.forEach(docSnap => {
         const data = docSnap.data() as DoctorProfile;
         if (data.id) doctorMap.set(data.id, data);
+        if (data.email) doctorMap.set(data.email.toLowerCase(), data);
       });
     } catch (e) {
       console.warn('Firebase getAllDoctors notice:', e);
     }
   }
 
-  // 3. Fallback Local Storage
+  // 2. PRIORITÉ N°2 : Local Storage
   const local = getLocalDoctors();
   local.forEach(d => {
     if (d.id && !doctorMap.has(d.id)) {
@@ -46,7 +32,22 @@ export async function getAllDoctors(): Promise<DoctorProfile[]> {
     }
   });
 
-  const combined = Array.from(doctorMap.values());
+  // 3. PRIORITÉ N°3 : API Serverless
+  if (typeof window !== 'undefined') {
+    try {
+      const res = await fetch('/api/consultation/sync?type=doctors');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.doctors && Array.isArray(data.doctors)) {
+          data.doctors.forEach((d: DoctorProfile) => {
+            if (d.id && !doctorMap.has(d.id)) doctorMap.set(d.id, d);
+          });
+        }
+      }
+    } catch (e) {}
+  }
+
+  const combined = Array.from(new Set(doctorMap.values()));
   saveLocalDoctors(combined);
   return combined;
 }
@@ -64,10 +65,16 @@ export async function approveDoctor(doctorId: string): Promise<DoctorProfile | n
     rejectionReason: undefined,
   };
 
-  // 1. Mise à jour Firestore (setDoc avec merge garantit la persistance même si le document n'existait pas)
+  // 1. Mise à jour Firestore Directe
   if (isFirebaseConfigured && db) {
     try {
       await setDoc(doc(db, 'doctors', doctorId), updates, { merge: true });
+
+      const q = query(collection(db, 'doctors'), where('id', '==', doctorId));
+      const snap = await getDocs(q);
+      snap.docs.forEach(async (dSnap) => {
+        await setDoc(dSnap.ref, updates, { merge: true });
+      });
     } catch (e) {
       console.warn('Firebase approveDoctor notice:', e);
     }

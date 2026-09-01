@@ -78,10 +78,75 @@ export async function createDoctorProfile(
   return newDoctor;
 }
 
-export async function getDoctorById(id: string): Promise<DoctorProfile | null> {
-  const cleanId = id.toLowerCase().trim();
+function syncDoctorToLocal(docData: DoctorProfile) {
+  try {
+    const local = getLocalDoctors();
+    const idx = local.findIndex(l => l.id === docData.id || l.email.toLowerCase() === docData.email.toLowerCase());
+    if (idx >= 0) {
+      local[idx] = { ...local[idx], ...docData };
+    } else {
+      local.unshift(docData);
+    }
+    saveLocalDoctors(local);
 
-  // 1. Essai API Serverless Cloud (Partagé en direct entre Super-Admin et Médecin)
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('telemed_session_v2');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.profile?.id === docData.id || parsed.profile?.email?.toLowerCase() === docData.email.toLowerCase() || parsed.user?.uid === docData.id || parsed.user?.email?.toLowerCase() === docData.email.toLowerCase()) {
+          parsed.profile = { ...parsed.profile, ...docData };
+          localStorage.setItem('telemed_session_v2', JSON.stringify(parsed));
+        }
+      }
+    }
+  } catch (e) {}
+}
+
+export async function getDoctorById(id: string): Promise<DoctorProfile | null> {
+  if (!id) return null;
+  const cleanId = id.trim();
+  const lowerId = cleanId.toLowerCase();
+
+  // 1. PRIORITÉ ABSOLUE N°1 : FIRESTORE DATABASE DIRECT
+  if (isFirebaseConfigured && db) {
+    try {
+      // Essai A : Recherche directe par Document ID
+      const docRef = doc(db, 'doctors', cleanId);
+      const snap = await getDoc(docRef);
+      if (snap.exists()) {
+        const docData = snap.data() as DoctorProfile;
+        syncDoctorToLocal(docData);
+        return docData;
+      }
+
+      // Essai B : Recherche par champ Email dans Firestore
+      const qEmail = query(collection(db, 'doctors'), where('email', '==', lowerId));
+      const emailSnap = await getDocs(qEmail);
+      if (!emailSnap.empty) {
+        const docData = emailSnap.docs[0].data() as DoctorProfile;
+        syncDoctorToLocal(docData);
+        return docData;
+      }
+
+      // Essai C : Recherche par champ id dans Firestore
+      const qId = query(collection(db, 'doctors'), where('id', '==', cleanId));
+      const idSnap = await getDocs(qId);
+      if (!idSnap.empty) {
+        const docData = idSnap.docs[0].data() as DoctorProfile;
+        syncDoctorToLocal(docData);
+        return docData;
+      }
+    } catch (e) {
+      console.warn('Firebase getDoctorById notice:', e);
+    }
+  }
+
+  // 2. PRIORITÉ N°2 : Cache Local
+  const doctors = getLocalDoctors();
+  const matchedLocal = doctors.find(d => d.id === cleanId || d.email.toLowerCase() === lowerId);
+  if (matchedLocal) return matchedLocal;
+
+  // 3. PRIORITÉ N°3 : API Serverless
   if (typeof window !== 'undefined') {
     try {
       const res = await fetch('/api/consultation/sync?type=doctors');
@@ -89,14 +154,10 @@ export async function getDoctorById(id: string): Promise<DoctorProfile | null> {
         const data = await res.json();
         if (data.doctors && Array.isArray(data.doctors)) {
           const match = data.doctors.find((d: DoctorProfile) =>
-            d.id?.toLowerCase() === cleanId || d.email?.toLowerCase() === cleanId
+            d.id === cleanId || d.email?.toLowerCase() === lowerId
           );
           if (match) {
-            const local = getLocalDoctors();
-            const idx = local.findIndex(l => l.id === match.id);
-            if (idx >= 0) local[idx] = match;
-            else local.push(match);
-            saveLocalDoctors(local);
+            syncDoctorToLocal(match);
             return match;
           }
         }
@@ -104,27 +165,80 @@ export async function getDoctorById(id: string): Promise<DoctorProfile | null> {
     } catch (e) {}
   }
 
-  // 2. Essai Firestore
-  if (isFirebaseConfigured && db) {
+  return null;
+}
+
+export function listenToDoctorProfile(
+  idOrEmail: string,
+  callback: (profile: DoctorProfile | null) => void
+): () => void {
+  if (!idOrEmail) return () => {};
+  const clean = idOrEmail.trim();
+  const lower = clean.toLowerCase();
+  const firestoreDb = db;
+
+  // Écouteur en direct Firestore si configuré
+  if (isFirebaseConfigured && firestoreDb) {
     try {
-      const snap = await getDoc(doc(db, 'doctors', id));
-      if (snap.exists()) {
-        return snap.data() as DoctorProfile;
-      }
+      const docRef = doc(firestoreDb, 'doctors', clean);
+      const unsubDoc = onSnapshot(docRef, (docSnap) => {
+        if (docSnap.exists()) {
+          const profile = docSnap.data() as DoctorProfile;
+          syncDoctorToLocal(profile);
+          callback(profile);
+        } else {
+          // Si le doc porte un nom différent, recherche par email
+          const q = query(collection(firestoreDb, 'doctors'), where('email', '==', lower));
+          getDocs(q).then((snap) => {
+            if (!snap.empty) {
+              const p = snap.docs[0].data() as DoctorProfile;
+              syncDoctorToLocal(p);
+              callback(p);
+            }
+          }).catch(() => {});
+        }
+      }, (err) => {
+        console.warn('listenToDoctorProfile error:', err);
+      });
+
+      return () => unsubDoc();
     } catch (e) {
-      console.warn('Firebase getDoctorById notice:', e);
+      console.warn('listenToDoctorProfile setup notice:', e);
     }
   }
 
-  // 3. Fallback Local Storage
-  const doctors = getLocalDoctors();
-  return doctors.find(d => d.id?.toLowerCase() === cleanId || d.email?.toLowerCase() === cleanId) || null;
+  // Polling de secours toutes les 3s
+  const interval = setInterval(async () => {
+    const p = await getDoctorById(clean);
+    if (p) callback(p);
+  }, 3000);
+  return () => clearInterval(interval);
 }
 
 export async function getDoctorBySlug(slug: string): Promise<DoctorProfile | null> {
   const normalizedSlug = slug.toLowerCase().trim();
 
-  // 1. Essai API Serverless Cloud
+  // 1. Essai Firestore en premier
+  if (isFirebaseConfigured && db) {
+    try {
+      const q = query(collection(db, 'doctors'), where('slug', '==', normalizedSlug));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        const docData = snap.docs[0].data() as DoctorProfile;
+        syncDoctorToLocal(docData);
+        return docData;
+      }
+    } catch (e) {
+      console.warn('Firebase getDoctorBySlug notice:', e);
+    }
+  }
+
+  // 2. Fallback Local Storage
+  const doctors = getLocalDoctors();
+  const matched = doctors.find(d => d.slug.toLowerCase() === normalizedSlug);
+  if (matched) return matched;
+
+  // 3. Essai API Serverless Cloud
   if (typeof window !== 'undefined') {
     try {
       const res = await fetch('/api/consultation/sync?type=doctors');
@@ -132,28 +246,16 @@ export async function getDoctorBySlug(slug: string): Promise<DoctorProfile | nul
         const data = await res.json();
         if (data.doctors && Array.isArray(data.doctors)) {
           const match = data.doctors.find((d: DoctorProfile) => d.slug?.toLowerCase().trim() === normalizedSlug);
-          if (match) return match;
+          if (match) {
+            syncDoctorToLocal(match);
+            return match;
+          }
         }
       }
     } catch (e) {}
   }
 
-  // 2. Essai Firestore
-  if (isFirebaseConfigured && db) {
-    try {
-      const q = query(collection(db, 'doctors'), where('slug', '==', normalizedSlug));
-      const snap = await getDocs(q);
-      if (!snap.empty) {
-        return snap.docs[0].data() as DoctorProfile;
-      }
-    } catch (e) {
-      console.warn('Firebase getDoctorBySlug notice:', e);
-    }
-  }
-
-  // 3. Fallback Local Storage
-  const doctors = getLocalDoctors();
-  return doctors.find(d => d.slug.toLowerCase() === normalizedSlug) || null;
+  return null;
 }
 
 export async function updateDoctorProfile(id: string, updates: Partial<DoctorProfile>): Promise<DoctorProfile | null> {
