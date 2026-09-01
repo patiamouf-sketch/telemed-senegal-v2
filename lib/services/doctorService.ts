@@ -45,21 +45,33 @@ export async function createDoctorProfile(
     availableForTeleconsult: true,
   };
 
+  // 1. Enregistrement Firestore
   if (isFirebaseConfigured && db) {
     try {
       await setDoc(doc(db, 'doctors', id), newDoctor);
-      return newDoctor;
     } catch (e) {
-      console.warn('Firebase save failed, falling back to local storage:', e);
+      console.warn('Firebase save failed, falling back to API sync:', e);
     }
   }
 
+  // 2. Enregistrement API Serverless universelle (synchronisation temps réel multi-appareils)
+  if (typeof window !== 'undefined') {
+    try {
+      fetch('/api/consultation/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'register_doctor', payload: newDoctor })
+      }).catch(e => {});
+    } catch (e) {}
+  }
+
+  // 3. Enregistrement LocalStorage
   const doctors = getLocalDoctors();
-  const existingIdx = doctors.findIndex(d => d.id === id || d.email === newDoctor.email);
+  const existingIdx = doctors.findIndex(d => d.id === id || d.email.toLowerCase() === newDoctor.email.toLowerCase());
   if (existingIdx >= 0) {
     doctors[existingIdx] = newDoctor;
   } else {
-    doctors.push(newDoctor);
+    doctors.unshift(newDoctor);
   }
   saveLocalDoctors(doctors);
 

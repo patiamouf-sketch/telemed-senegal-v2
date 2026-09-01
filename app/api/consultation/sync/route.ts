@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { PatientQueueItem, ChatMessage } from '@/lib/types/doctor';
+import { PatientQueueItem, ChatMessage, DoctorProfile } from '@/lib/types/doctor';
 import { OfficialPrescription, PendingMedication } from '@/lib/types/prescription';
+import { INITIAL_DOCTORS } from '@/lib/services/mockData';
+import { addDays } from 'date-fns';
 
 // Global in-memory shared store for serverless runtime fallback
 declare global {
@@ -8,6 +10,7 @@ declare global {
   var __telemedGlobalArchive: PatientQueueItem[] | undefined;
   var __telemedGlobalPrescriptions: OfficialPrescription[] | undefined;
   var __telemedGlobalPendingMeds: PendingMedication[] | undefined;
+  var __telemedGlobalDoctors: DoctorProfile[] | undefined;
 }
 
 if (!global.__telemedGlobalQueue) {
@@ -22,11 +25,15 @@ if (!global.__telemedGlobalPrescriptions) {
 if (!global.__telemedGlobalPendingMeds) {
   global.__telemedGlobalPendingMeds = [];
 }
+if (!global.__telemedGlobalDoctors) {
+  global.__telemedGlobalDoctors = [...INITIAL_DOCTORS];
+}
 
 const queue = global.__telemedGlobalQueue;
 const archive = global.__telemedGlobalArchive;
 const prescriptions = global.__telemedGlobalPrescriptions;
 const pendingMeds = global.__telemedGlobalPendingMeds;
+const doctors = global.__telemedGlobalDoctors;
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -34,6 +41,10 @@ export async function GET(req: NextRequest) {
   const slug = searchParams.get('slug');
   const hash = searchParams.get('hash');
   const type = searchParams.get('type');
+
+  if (type === 'doctors') {
+    return NextResponse.json({ success: true, doctors });
+  }
 
   if (type === 'pending_meds') {
     return NextResponse.json({ success: true, pendingMeds });
@@ -62,7 +73,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ success: true, prescription: presc });
   }
 
-  return NextResponse.json({ success: true, queue, archive });
+  return NextResponse.json({ success: true, queue, archive, doctors });
 }
 
 export async function POST(req: NextRequest) {
@@ -71,6 +82,54 @@ export async function POST(req: NextRequest) {
     const { action, payload } = body;
 
     switch (action) {
+      // Inscription et mise à jour de médecin
+      case 'register_doctor': {
+        const docProfile: DoctorProfile = payload;
+        const existsIdx = doctors.findIndex(d => d.id === docProfile.id || d.email.toLowerCase() === docProfile.email.toLowerCase());
+        if (existsIdx >= 0) {
+          doctors[existsIdx] = { ...doctors[existsIdx], ...docProfile };
+        } else {
+          doctors.unshift(docProfile);
+        }
+        return NextResponse.json({ success: true, doctor: docProfile });
+      }
+
+      case 'approve_doctor': {
+        const { doctorId } = payload;
+        const idx = doctors.findIndex(d => d.id === doctorId);
+        if (idx >= 0) {
+          doctors[idx].status = 'active';
+          doctors[idx].licenseExpiresAt = addDays(new Date(), 90).toISOString();
+          doctors[idx].rejectionReason = undefined;
+          return NextResponse.json({ success: true, doctor: doctors[idx] });
+        }
+        return NextResponse.json({ success: false, error: 'Doctor not found' }, { status: 404 });
+      }
+
+      case 'reject_doctor': {
+        const { doctorId, reason } = payload;
+        const idx = doctors.findIndex(d => d.id === doctorId);
+        if (idx >= 0) {
+          doctors[idx].status = 'rejected';
+          doctors[idx].rejectionReason = reason;
+          return NextResponse.json({ success: true, doctor: doctors[idx] });
+        }
+        return NextResponse.json({ success: false, error: 'Doctor not found' }, { status: 404 });
+      }
+
+      case 'renew_doctor_license': {
+        const { doctorId, days = 90 } = payload;
+        const idx = doctors.findIndex(d => d.id === doctorId);
+        if (idx >= 0) {
+          const currentExpiry = doctors[idx].licenseExpiresAt ? new Date(doctors[idx].licenseExpiresAt!) : new Date();
+          const baseDate = currentExpiry > new Date() ? currentExpiry : new Date();
+          doctors[idx].status = 'active';
+          doctors[idx].licenseExpiresAt = addDays(baseDate, days).toISOString();
+          return NextResponse.json({ success: true, doctor: doctors[idx] });
+        }
+        return NextResponse.json({ success: false, error: 'Doctor not found' }, { status: 404 });
+      }
+
       case 'add_patient': {
         const item: PatientQueueItem = payload;
         const exists = queue.findIndex(p => p.id === item.id);
@@ -87,7 +146,6 @@ export async function POST(req: NextRequest) {
         let matched = queue.find(p => p.id === patientId);
         if (matched) {
           if (!matched.messages) matched.messages = [];
-          // Avoid duplicate msg IDs
           if (!matched.messages.some(m => m.id === message.id)) {
             matched.messages.push(message);
           }

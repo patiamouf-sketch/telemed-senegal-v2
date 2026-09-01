@@ -53,19 +53,24 @@ export default function AdminThiamPage() {
   const [approveDuration, setApproveDuration] = useState('5 à 7 jours');
   const [approveChd, setApproveChd] = useState('Prise au cours des repas avec un grand verre d’eau.');
 
-  const loadData = async () => {
-    setLoading(true);
+  const loadData = async (silent: boolean = false) => {
+    if (!silent) setLoading(true);
     const docs = await getAllDoctors();
     const st = await getAdminStats();
     const meds = await getPendingMedications();
     setDoctors(docs);
     setStats(st);
     setPendingMeds(meds);
-    setLoading(false);
+    if (!silent) setLoading(false);
   };
 
   useEffect(() => {
     loadData();
+    // Écoute / rafraîchissement automatique toutes les 4 secondes
+    const interval = setInterval(() => {
+      loadData(true);
+    }, 4000);
+    return () => clearInterval(interval);
   }, []);
 
   const handleApproveDoctor = async (docId: string, docName: string) => {
@@ -186,7 +191,7 @@ export default function AdminThiamPage() {
             <GlassButton
               variant="secondary"
               size="sm"
-              onClick={loadData}
+              onClick={() => loadData()}
               isLoading={loading}
               className="text-xs"
             >
