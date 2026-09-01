@@ -1,86 +1,98 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { getPrescriptionByHash } from '@/lib/services/doctorService';
 import { OfficialPrescription } from '@/lib/types/prescription';
+import { getPrescriptionByHash } from '@/lib/services/doctorService';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { GlassButton } from '@/components/ui/GlassButton';
 import { Badge } from '@/components/ui/Badge';
+import { LocalQRCode } from '@/components/ui/LocalQRCode';
 import {
   ShieldCheck,
   CheckCircle2,
+  FileText,
+  AlertTriangle,
   Printer,
   Stethoscope,
   Clock,
   ArrowLeft,
   Heart,
-  Activity
+  Loader2,
+  MapPin,
+  Phone
 } from 'lucide-react';
 import Link from 'next/link';
-import { LocalQRCode } from '@/components/ui/LocalQRCode';
 
-export default function VerifyHashPage() {
+export default function VerifyPrescriptionPage() {
   const params = useParams();
-  const hash = (params?.hash as string) || '';
+  const rawHash = (params?.hash as string) || '';
+  const hash = decodeURIComponent(rawHash);
 
   const [prescription, setPrescription] = useState<OfficialPrescription | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [verified, setVerified] = useState(false);
 
   useEffect(() => {
-    async function loadPrescription() {
+    async function verify() {
       if (!hash) {
         setLoading(false);
-        setError('Aucun identifiant d\'ordonnance fourni.');
         return;
       }
-
       setLoading(true);
-      try {
-        const found = await getPrescriptionByHash(hash);
-        if (found) {
-          setPrescription(found);
-        } else {
-          setError('Aucune ordonnance trouvée correspondant à cette référence.');
-        }
-      } catch (err) {
-        console.error('Error fetching prescription:', err);
-        setError('Impossible de charger les données de vérification.');
-      } finally {
-        setLoading(false);
+      const presc = await getPrescriptionByHash(hash);
+      if (presc) {
+        setPrescription(presc);
+        setVerified(true);
+      } else {
+        setVerified(false);
       }
+      setLoading(false);
     }
-
-    loadPrescription();
+    verify();
   }, [hash]);
 
   const handlePrint = () => {
     window.print();
   };
 
+  const isOnmsRegistered = Boolean(
+    prescription?.doctorOnms &&
+    prescription.doctorOnms.trim() !== '' &&
+    !prescription.doctorOnms.toLowerCase().includes('attente') &&
+    !prescription.doctorOnms.toLowerCase().includes('non') &&
+    prescription.doctorOnms.toLowerCase() !== 'n/a'
+  );
+
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4 font-sans">
-        <GlassCard className="p-8 text-center bg-white/80 max-w-sm shadow-soft-float">
-          <Activity className="w-8 h-8 text-[#3B82F6] animate-spin mx-auto mb-3" />
-          <p className="text-sm font-bold text-[#0F172A]">Vérification de l'ordonnance...</p>
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <GlassCard className="p-8 text-center space-y-4 max-w-sm w-full">
+          <Loader2 className="w-8 h-8 text-[#3B82F6] animate-spin mx-auto" />
+          <h3 className="text-sm font-bold text-[#0F172A]">Vérification de l'ordonnance en cours...</h3>
+          <p className="text-xs text-slate-500">Consultation du registre sécurisé TELEMED SENEGAL</p>
         </GlassCard>
       </div>
     );
   }
 
-  if (error || !prescription) {
+  if (!verified || !prescription) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4 font-sans">
-        <GlassCard className="p-8 text-center bg-white/90 max-w-md space-y-4 shadow-soft-float">
-          <div className="w-12 h-12 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center mx-auto">
-            <Clock className="w-6 h-6" />
+        <GlassCard className="p-8 text-center space-y-4 max-w-md w-full border-rose-200">
+          <div className="w-14 h-14 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center mx-auto shadow-inner">
+            <AlertTriangle className="w-7 h-7" />
           </div>
-          <h2 className="text-xl font-bold text-[#0F172A]">Ordonnance Introuvable</h2>
-          <p className="text-xs text-slate-500">{error}</p>
+          <h2 className="text-lg font-bold text-slate-900">Ordonnance Non Trouvée</h2>
+          <p className="text-xs text-slate-600 leading-relaxed">
+            Ce document n'a pas pu être certifié ou la consultation vient d'être initiée. Vérifiez le lien ou le QR Code scanné.
+          </p>
+          <div className="p-3 bg-slate-50 rounded-xl text-left text-[11px] font-mono text-slate-500 break-all">
+            Empreinte recherchée : {hash || 'N/A'}
+          </div>
           <Link href="/">
-            <GlassButton variant="primary" size="sm">
+            <GlassButton variant="primary" size="sm" className="w-full text-xs">
+              <ArrowLeft className="w-3.5 h-3.5" />
               Retour à l'accueil
             </GlassButton>
           </Link>
@@ -129,8 +141,12 @@ export default function VerifyHashPage() {
               <div className="text-xs text-slate-700 space-y-0.5 mt-3">
                 <p className="font-bold text-slate-900 text-sm">{prescription.doctorName}</p>
                 <p className="text-[#3B82F6] font-semibold">{prescription.doctorSpeciality}</p>
-                <p className="font-mono text-emerald-800 font-bold">N° ONMS : {prescription.doctorOnms}</p>
-                <p className="text-slate-500">{prescription.doctorClinic} • {prescription.doctorCity}</p>
+                {isOnmsRegistered ? (
+                  <p className="font-mono text-emerald-800 font-bold">N° ONMS : {prescription.doctorOnms}</p>
+                ) : (
+                  <p className="text-slate-500 italic">Praticien diplômé d'État</p>
+                )}
+                <p className="text-slate-500">{prescription.doctorClinic || 'Cabinet Médical'} • {prescription.doctorCity || 'Sénégal'}</p>
               </div>
             </div>
 
@@ -145,19 +161,26 @@ export default function VerifyHashPage() {
             </div>
           </div>
 
-          {/* Patient Identity Box */}
-          <div className="p-4 rounded-[20px] bg-slate-50 border border-slate-200 text-xs grid grid-cols-2 sm:grid-cols-3 gap-3">
+          {/* Patient / Beneficiary Identity Box */}
+          <div className="p-4 rounded-[20px] bg-slate-50 border border-slate-200 text-xs grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div>
-              <span className="text-slate-400 text-[10px] block font-semibold">Patient(e) :</span>
+              <span className="text-slate-400 text-[10px] block font-semibold">Patient(e) Bénéficiaire :</span>
               <strong className="text-[#0F172A] font-extrabold text-sm">{prescription.patientName}</strong>
-            </div>
-            <div>
-              <span className="text-slate-400 text-[10px] block font-semibold">Téléphone :</span>
-              <span className="font-mono text-slate-900 font-bold">{prescription.patientPhone}</span>
             </div>
             <div>
               <span className="text-slate-400 text-[10px] block font-semibold">Sexe & Âge :</span>
               <strong className="text-slate-800">{prescription.patientGender === 'F' ? 'Femme' : 'Homme'}, {prescription.patientAge} ans</strong>
+            </div>
+            <div>
+              <span className="text-slate-400 text-[10px] block font-semibold">Adresse / Résidence :</span>
+              <span className="text-slate-700">{prescription.beneficiaryAddress || prescription.patientAddress || 'Sénégal'}</span>
+            </div>
+            <div>
+              <span className="text-slate-400 text-[10px] block font-semibold">Contact / Tél :</span>
+              <span className="font-mono text-slate-900 font-bold">{prescription.patientPhone}</span>
+              {(prescription.beneficiaryWeight || prescription.patientWeight) && (
+                <span className="text-[10px] text-[#3B82F6] font-bold block">Poids : {prescription.beneficiaryWeight || prescription.patientWeight}</span>
+              )}
             </div>
           </div>
 
@@ -169,10 +192,10 @@ export default function VerifyHashPage() {
             <ol className="space-y-3.5 list-decimal list-inside text-xs">
               {prescription.items.map((item, idx) => (
                 <li key={idx} className="space-y-0.5">
-                  <strong className="text-[#0F172A] font-bold text-sm">{item.medication}</strong>
+                  <strong className="text-[#0F172A] font-extrabold text-sm uppercase">{item.medication}</strong>
                   <div className="pl-4 text-slate-600 space-y-0.5">
-                    <p>Posologie : <em>{item.dosage}</em></p>
-                    <p className="text-[11px] text-slate-500">Durée du traitement : <strong>{item.duration}</strong></p>
+                    <p>Posologie : <em className="lowercase">{item.dosage}</em></p>
+                    <p className="text-[11px] text-slate-500">Durée du traitement : <strong className="lowercase">{item.duration}</strong></p>
                   </div>
                 </li>
               ))}
@@ -186,22 +209,32 @@ export default function VerifyHashPage() {
                 <Heart className="w-3.5 h-3.5 text-rose-500" />
                 Conseils Hygiéno-Diététiques (CHD) :
               </strong>
-              <p className="text-slate-700 leading-relaxed">{prescription.dietaryAdvice}</p>
+              <p className="text-slate-700 leading-relaxed whitespace-pre-wrap">{prescription.dietaryAdvice}</p>
             </div>
           )}
 
           {/* Official Stamp & QR Code */}
           <div className="pt-5 border-t-2 border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <div className="w-20 h-20 rounded-full border-2 border-dashed border-emerald-600 flex flex-col items-center justify-center text-center p-1 text-emerald-800 transform -rotate-6 shadow-sm">
-                <span className="text-[8px] font-extrabold uppercase">Ordre des Médecins</span>
-                <Stethoscope className="w-3.5 h-3.5 text-emerald-600 my-0.5" />
-                <span className="text-[8px] font-bold">ONMS {prescription.doctorOnms}</span>
-                <span className="text-[7px] text-emerald-600 font-extrabold">CERTIFIÉ CONFORME</span>
-              </div>
+              {isOnmsRegistered ? (
+                <div className="w-20 h-20 rounded-full border-2 border-dashed border-emerald-600 flex flex-col items-center justify-center text-center p-1 text-emerald-800 transform -rotate-6 shadow-sm">
+                  <span className="text-[8px] font-extrabold uppercase">Ordre des Médecins</span>
+                  <Stethoscope className="w-3.5 h-3.5 text-emerald-600 my-0.5" />
+                  <span className="text-[8px] font-bold">ONMS {prescription.doctorOnms}</span>
+                  <span className="text-[7px] text-emerald-600 font-extrabold">CERTIFIÉ CONFORME</span>
+                </div>
+              ) : (
+                <div className="w-20 h-20 rounded-full border-2 border-dashed border-blue-600 flex flex-col items-center justify-center text-center p-1 text-blue-900 transform -rotate-6 shadow-sm">
+                  <span className="text-[8px] font-extrabold uppercase">TELEMED SENEGAL</span>
+                  <Stethoscope className="w-3.5 h-3.5 text-blue-600 my-0.5" />
+                  <span className="text-[7px] font-bold uppercase">SERVICE MÉDICAL</span>
+                  <span className="text-[7px] text-blue-600 font-extrabold">AUTHENTIFIÉ</span>
+                </div>
+              )}
+
               <div className="text-xs text-slate-500">
                 <span className="font-bold text-slate-900 block">{prescription.doctorName}</span>
-                <span className="text-[10px] block">Signature & Cachet Numérique ONMS</span>
+                <span className="text-[10px] block italic">Signature & Cachet Numérique de Téléconsultation</span>
               </div>
             </div>
 

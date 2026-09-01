@@ -26,7 +26,7 @@ export interface OfficialPrescription {
   doctorId: string;
   doctorName: string;
   doctorSpeciality: string;
-  doctorOnms: string;
+  doctorOnms?: string;     // Optionnel si non encore inscrit
   doctorClinic?: string;
   doctorPhone?: string;
   doctorCity?: string;
@@ -37,6 +37,14 @@ export interface OfficialPrescription {
   patientAge: number;
   patientGender: 'M' | 'F';
   patientPhone: string;    // Numéro de téléphone du patient
+  patientAddress?: string; // Adresse du patient
+  patientWeight?: string;  // Poids en kg
+  forWho?: 'self' | 'other';
+  beneficiaryName?: string;
+  beneficiaryAge?: number;
+  beneficiaryGender?: 'M' | 'F';
+  beneficiaryAddress?: string;
+  beneficiaryWeight?: string;
   items: PrescriptionItem[];
   dietaryAdvice: string;   // Conseils Hygiéno-Diététiques (CHD)
   sealedAt: string;        // Date & Heure ISO

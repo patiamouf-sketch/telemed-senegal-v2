@@ -532,21 +532,9 @@ export async function createOfficialPrescription(prescription: OfficialPrescript
 }
 
 export async function getPrescriptionByHash(hash: string): Promise<OfficialPrescription | null> {
-  const normalizedHash = hash.toLowerCase().trim();
+  const normalizedHash = decodeURIComponent(hash).toLowerCase().trim();
 
-  // 1. Essai Firestore
-  if (isFirebaseConfigured && db) {
-    try {
-      const snap = await getDoc(doc(db, 'prescriptions', normalizedHash));
-      if (snap.exists()) {
-        return snap.data() as OfficialPrescription;
-      }
-    } catch (e) {
-      console.warn('Firebase getPrescriptionByHash notice:', e);
-    }
-  }
-
-  // 2. Essai API Serverless
+  // 1. Essai API Serverless (Partagé entre tous les appareils)
   if (typeof window !== 'undefined') {
     try {
       const res = await fetch(`/api/consultation/sync?hash=${encodeURIComponent(normalizedHash)}`);
@@ -559,9 +547,32 @@ export async function getPrescriptionByHash(hash: string): Promise<OfficialPresc
     } catch (e) {}
   }
 
-  // 3. Fallback Local Storage
+  // 2. Essai Firestore
+  if (isFirebaseConfigured && db) {
+    try {
+      const snap = await getDoc(doc(db, 'prescriptions', normalizedHash));
+      if (snap.exists()) {
+        return snap.data() as OfficialPrescription;
+      }
+    } catch (e) {
+      console.warn('Firebase getPrescriptionByHash notice:', e);
+    }
+  }
+
+  // 3. Fallback Local Storage (Prescriptions, Archives et Files d'attente)
   const prescriptions = getLocalPrescriptions();
-  return prescriptions.find(p => p.hash.toLowerCase() === normalizedHash) || null;
+  const found = prescriptions.find(p => p.hash.toLowerCase().trim() === normalizedHash);
+  if (found) return found;
+
+  const archive = getLocalArchive();
+  const archFound = archive.find(p => p.prescription?.hash.toLowerCase().trim() === normalizedHash);
+  if (archFound?.prescription) return archFound.prescription;
+
+  const queue = getLocalQueue();
+  const queueFound = queue.find(p => p.prescription?.hash.toLowerCase().trim() === normalizedHash);
+  if (queueFound?.prescription) return queueFound.prescription;
+
+  return null;
 }
 
 /**

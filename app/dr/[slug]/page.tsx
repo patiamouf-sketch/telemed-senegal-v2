@@ -16,6 +16,7 @@ import {
   Clock,
   Video,
   User,
+  Users,
   Phone,
   FileText,
   CheckCircle2,
@@ -49,11 +50,21 @@ export default function PatientRoomPage() {
   const [step, setStep] = useState<'form' | 'payment' | 'waiting' | 'consultation'>('form');
 
   // Form states
+  const [forWho, setForWho] = useState<'self' | 'other'>('self');
   const [patientName, setPatientName] = useState('');
-  const [patientNin, setPatientNin] = useState('1989041200456');
   const [gender, setGender] = useState<'M' | 'F'>('M');
-  const [age, setAge] = useState('32');
+  const [age, setAge] = useState('30');
   const [patientPhone, setPatientPhone] = useState('+221 ');
+  const [patientAddress, setPatientAddress] = useState('Dakar');
+  const [patientWeight, setPatientWeight] = useState('');
+
+  // Pour quelqu'un d'autre
+  const [beneficiaryName, setBeneficiaryName] = useState('');
+  const [beneficiaryAge, setBeneficiaryAge] = useState('');
+  const [beneficiaryGender, setBeneficiaryGender] = useState<'M' | 'F'>('F');
+  const [beneficiaryAddress, setBeneficiaryAddress] = useState('Dakar');
+  const [beneficiaryWeight, setBeneficiaryWeight] = useState('');
+
   const [reason, setReason] = useState('');
   const [serviceType, setServiceType] = useState<ServiceType>('visio_consultation');
   const [paymentMethod, setPaymentMethod] = useState<'wave' | 'orange_money'>('wave');
@@ -110,12 +121,32 @@ export default function PatientRoomPage() {
     e.preventDefault();
     setError(null);
 
-    if (!patientName.trim()) {
-      setError('Veuillez renseigner votre Nom et Prénom.');
-      return;
+    if (forWho === 'other') {
+      if (!beneficiaryName.trim()) {
+        setError('Veuillez renseigner le Nom et Prénom de la personne à consulter.');
+        return;
+      }
+      if (!beneficiaryAge || Number(beneficiaryAge) < 0) {
+        setError('Veuillez renseigner l’âge de la personne à consulter.');
+        return;
+      }
+      if (!beneficiaryAddress.trim()) {
+        setError('Veuillez renseigner l’adresse de résidence de la personne.');
+        return;
+      }
+    } else {
+      if (!patientName.trim()) {
+        setError('Veuillez renseigner votre Nom et Prénom.');
+        return;
+      }
+      if (!age || Number(age) < 1) {
+        setError('Veuillez renseigner votre âge.');
+        return;
+      }
     }
-    if (!patientPhone || patientPhone.trim().length < 9) {
-      setError('Veuillez renseigner un numéro de téléphone valide.');
+
+    if (!patientPhone || patientPhone.trim().length < 8) {
+      setError('Veuillez renseigner un numéro de téléphone de contact valide.');
       return;
     }
     if (!reason.trim()) {
@@ -133,14 +164,23 @@ export default function PatientRoomPage() {
       ? (doctor?.avisMedicalFee || 3000)
       : (doctor?.visioConsultationFee || 7000);
 
+    const effectiveName = forWho === 'other' ? beneficiaryName.trim() : patientName.trim();
+    const effectiveAge = forWho === 'other' ? (Number(beneficiaryAge) || 1) : (Number(age) || 30);
+    const effectiveGender = forWho === 'other' ? beneficiaryGender : gender;
+
     try {
       const item = await addPatientToQueue({
         doctorSlug: slug,
-        patientName,
-        patientNin: patientNin.trim() || `SN-${Date.now().toString().slice(-8)}`,
-        patientPhone,
-        gender,
-        age: Number(age) || 30,
+        patientName: effectiveName,
+        patientPhone: patientPhone.trim(),
+        gender: effectiveGender,
+        age: effectiveAge,
+        forWho,
+        beneficiaryName: forWho === 'other' ? beneficiaryName.trim() : undefined,
+        beneficiaryAge: forWho === 'other' ? Number(beneficiaryAge) : undefined,
+        beneficiaryGender: forWho === 'other' ? beneficiaryGender : undefined,
+        beneficiaryAddress: forWho === 'other' ? beneficiaryAddress.trim() : patientAddress.trim(),
+        beneficiaryWeight: forWho === 'other' ? (beneficiaryWeight.trim() || undefined) : (patientWeight.trim() || undefined),
         serviceType,
         amountPaid: amount,
         paymentMethod,
@@ -307,64 +347,212 @@ export default function PatientRoomPage() {
             )}
 
             <form onSubmit={handleProceedToPayment} className="space-y-5 text-xs sm:text-sm">
-              {/* Patient Identification */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block font-bold text-[#0F172A] mb-1.5 flex items-center gap-1.5 text-xs">
-                    <User className="w-3.5 h-3.5 text-[#3B82F6]" /> Nom & Prénom du Patient *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Ex: Mamadou Diallo"
-                    value={patientName}
-                    onChange={e => setPatientName(e.target.value)}
-                    className="w-full px-4 py-3 rounded-[20px] bg-white border border-slate-200/80 focus:border-[#3B82F6] focus:outline-none focus:ring-4 focus:ring-blue-500/10 text-[#0F172A] shadow-sm"
-                  />
-                </div>
-
+              {/* Choix du Bénéficiaire */}
+              <div className="space-y-2">
+                <label className="block font-bold text-[#0F172A] text-xs">
+                  Pour qui est cette consultation ? *
+                </label>
                 <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block font-bold text-[#0F172A] mb-1.5 text-xs">Sexe *</label>
-                    <select
-                      value={gender}
-                      onChange={e => setGender(e.target.value as 'M' | 'F')}
-                      className="w-full px-3.5 py-3 rounded-[20px] bg-white border border-slate-200/80 focus:border-[#3B82F6] focus:outline-none focus:ring-4 focus:ring-blue-500/10 text-[#0F172A] shadow-sm"
-                    >
-                      <option value="M">Homme</option>
-                      <option value="F">Femme</option>
-                    </select>
+                  <button
+                    type="button"
+                    onClick={() => setForWho('self')}
+                    className={`py-3 px-4 rounded-[20px] border-2 font-bold text-xs flex items-center justify-center gap-2 transition-all ${
+                      forWho === 'self'
+                        ? 'bg-blue-50 border-[#3B82F6] text-[#3B82F6] shadow-sm ring-2 ring-blue-500/10'
+                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    <User className="w-4 h-4" />
+                    <span>Pour moi</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setForWho('other')}
+                    className={`py-3 px-4 rounded-[20px] border-2 font-bold text-xs flex items-center justify-center gap-2 transition-all ${
+                      forWho === 'other'
+                        ? 'bg-blue-50 border-[#3B82F6] text-[#3B82F6] shadow-sm ring-2 ring-blue-500/10'
+                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    <Users className="w-4 h-4" />
+                    <span>Pour quelqu'un d'autre</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Si pour quelqu'un d'autre (enfant, parent, proche) */}
+              {forWho === 'other' ? (
+                <div className="p-4 rounded-[24px] bg-gradient-to-br from-blue-50/60 to-sky-50/30 border border-blue-100 space-y-4">
+                  <span className="text-[11px] font-extrabold text-[#3B82F6] uppercase tracking-wider block">
+                    Informations du Patient Bénéficiaire :
+                  </span>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block font-bold text-[#0F172A] mb-1 text-xs">
+                        Nom & Prénom de la personne *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Ex: Awa Diallo (ma fille)"
+                        value={beneficiaryName}
+                        onChange={e => setBeneficiaryName(e.target.value)}
+                        className="w-full px-3.5 py-2.5 rounded-[16px] bg-white border border-slate-200 focus:border-[#3B82F6] text-xs text-[#0F172A]"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block font-bold text-[#0F172A] mb-1 text-xs">Sexe *</label>
+                        <select
+                          value={beneficiaryGender}
+                          onChange={e => setBeneficiaryGender(e.target.value as 'M' | 'F')}
+                          className="w-full px-3 py-2.5 rounded-[16px] bg-white border border-slate-200 text-xs text-[#0F172A]"
+                        >
+                          <option value="F">Femme / Fille</option>
+                          <option value="M">Homme / Garçon</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block font-bold text-[#0F172A] mb-1 text-xs">Âge *</label>
+                        <input
+                          type="number"
+                          min="0"
+                          max="120"
+                          required
+                          placeholder="Ex: 5"
+                          value={beneficiaryAge}
+                          onChange={e => setBeneficiaryAge(e.target.value)}
+                          className="w-full px-3 py-2.5 rounded-[16px] bg-white border border-slate-200 text-xs text-[#0F172A]"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block font-bold text-[#0F172A] mb-1 text-xs">
+                        Adresse / Ville de résidence *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Ex: Dakar, Grand Yoff"
+                        value={beneficiaryAddress}
+                        onChange={e => setBeneficiaryAddress(e.target.value)}
+                        className="w-full px-3.5 py-2.5 rounded-[16px] bg-white border border-slate-200 text-xs text-[#0F172A]"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block font-bold text-[#0F172A] mb-1 text-xs">
+                        Poids en kg <span className="text-slate-400 font-normal">(optionnel)</span>
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Ex: 16 kg"
+                        value={beneficiaryWeight}
+                        onChange={e => setBeneficiaryWeight(e.target.value)}
+                        className="w-full px-3.5 py-2.5 rounded-[16px] bg-white border border-slate-200 text-xs text-[#0F172A]"
+                      />
+                    </div>
                   </div>
 
                   <div>
-                    <label className="block font-bold text-[#0F172A] mb-1.5 text-xs">Âge *</label>
+                    <label className="block font-bold text-[#0F172A] mb-1 text-xs flex items-center gap-1.5">
+                      <Phone className="w-3.5 h-3.5 text-[#3B82F6]" /> Numéro de Téléphone du Responsable (WhatsApp/SMS) *
+                    </label>
                     <input
-                      type="number"
-                      min="1"
-                      max="120"
+                      type="tel"
                       required
-                      placeholder="Ex: 32"
-                      value={age}
-                      onChange={e => setAge(e.target.value)}
-                      className="w-full px-3.5 py-3 rounded-[20px] bg-white border border-slate-200/80 focus:border-[#3B82F6] focus:outline-none focus:ring-4 focus:ring-blue-500/10 text-[#0F172A] shadow-sm"
+                      placeholder="+221 77 123 45 67"
+                      value={patientPhone}
+                      onChange={e => setPatientPhone(e.target.value)}
+                      className="w-full px-3.5 py-2.5 rounded-[16px] bg-white border border-slate-200 text-xs text-[#0F172A]"
                     />
                   </div>
                 </div>
-              </div>
+              ) : (
+                /* Si pour moi-même */
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block font-bold text-[#0F172A] mb-1.5 flex items-center gap-1.5 text-xs">
+                        <User className="w-3.5 h-3.5 text-[#3B82F6]" /> Nom & Prénom *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Ex: Mamadou Diallo"
+                        value={patientName}
+                        onChange={e => setPatientName(e.target.value)}
+                        className="w-full px-4 py-3 rounded-[20px] bg-white border border-slate-200/80 focus:border-[#3B82F6] text-[#0F172A] shadow-sm text-xs"
+                      />
+                    </div>
 
-              <div>
-                <label className="block font-bold text-[#0F172A] mb-1.5 flex items-center gap-1.5 text-xs">
-                  <Phone className="w-3.5 h-3.5 text-[#3B82F6]" /> Numéro de Téléphone (WhatsApp / SMS) *
-                </label>
-                <input
-                  type="tel"
-                  required
-                  placeholder="+221 77 123 45 67"
-                  value={patientPhone}
-                  onChange={e => setPatientPhone(e.target.value)}
-                  className="w-full px-4 py-3 rounded-[20px] bg-white border border-slate-200/80 focus:border-[#3B82F6] focus:outline-none focus:ring-4 focus:ring-blue-500/10 text-[#0F172A] shadow-sm"
-                />
-              </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block font-bold text-[#0F172A] mb-1.5 text-xs">Sexe *</label>
+                        <select
+                          value={gender}
+                          onChange={e => setGender(e.target.value as 'M' | 'F')}
+                          className="w-full px-3.5 py-3 rounded-[20px] bg-white border border-slate-200/80 text-[#0F172A] shadow-sm text-xs"
+                        >
+                          <option value="M">Homme</option>
+                          <option value="F">Femme</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block font-bold text-[#0F172A] mb-1.5 text-xs">Âge *</label>
+                        <input
+                          type="number"
+                          min="1"
+                          max="120"
+                          required
+                          placeholder="Ex: 32"
+                          value={age}
+                          onChange={e => setAge(e.target.value)}
+                          className="w-full px-3.5 py-3 rounded-[20px] bg-white border border-slate-200/80 text-[#0F172A] shadow-sm text-xs"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block font-bold text-[#0F172A] mb-1.5 flex items-center gap-1.5 text-xs">
+                        <Phone className="w-3.5 h-3.5 text-[#3B82F6]" /> Numéro de Téléphone (WhatsApp / SMS) *
+                      </label>
+                      <input
+                        type="tel"
+                        required
+                        placeholder="+221 77 123 45 67"
+                        value={patientPhone}
+                        onChange={e => setPatientPhone(e.target.value)}
+                        className="w-full px-4 py-3 rounded-[20px] bg-white border border-slate-200/80 text-[#0F172A] shadow-sm text-xs"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block font-bold text-[#0F172A] mb-1.5 text-xs">
+                        Adresse / Ville *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Ex: Dakar, Mermoz"
+                        value={patientAddress}
+                        onChange={e => setPatientAddress(e.target.value)}
+                        className="w-full px-4 py-3 rounded-[20px] bg-white border border-slate-200/80 text-[#0F172A] shadow-sm text-xs"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Service Selection Cards */}
               <div>

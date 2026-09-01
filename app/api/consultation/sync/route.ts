@@ -53,7 +53,12 @@ export async function GET(req: NextRequest) {
   }
 
   if (hash) {
-    const presc = prescriptions.find(p => p.hash.toLowerCase() === hash.toLowerCase().trim()) || null;
+    const targetHash = decodeURIComponent(hash).toLowerCase().trim();
+    const presc =
+      prescriptions.find(p => p.hash.toLowerCase().trim() === targetHash) ||
+      archive.find(p => p.prescription?.hash.toLowerCase().trim() === targetHash)?.prescription ||
+      queue.find(p => p.prescription?.hash.toLowerCase().trim() === targetHash)?.prescription ||
+      null;
     return NextResponse.json({ success: true, prescription: presc });
   }
 

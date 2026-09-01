@@ -55,6 +55,12 @@ export interface PatientQueueItem {
   patientPhone: string;
   age: number;
   gender: 'M' | 'F';
+  forWho?: 'self' | 'other';
+  beneficiaryName?: string;
+  beneficiaryAge?: number;
+  beneficiaryGender?: 'M' | 'F';
+  beneficiaryAddress?: string;
+  beneficiaryWeight?: string;
   serviceType: ServiceType; // 'avis_medical' | 'visio_consultation'
   amountPaid: number; // Montant en FCFA
   paymentMethod: 'wave' | 'orange_money';
