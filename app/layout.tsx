@@ -18,8 +18,8 @@ const poppins = Poppins({
 });
 
 export const metadata: Metadata = {
-  title: 'TéléMed Sénégal V2 • Thiam Global Business',
-  description: 'Plateforme SaaS de télémédecine nouvelle génération pour jeunes médecins libéraux au Sénégal.',
+  title: 'TELEMED SENEGAL • Plateforme Médicale',
+  description: 'Plateforme de télémédecine pour praticiens et patients au Sénégal.',
 };
 
 export default function RootLayout({

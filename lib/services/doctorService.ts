@@ -1,5 +1,5 @@
 import { DoctorProfile, PatientQueueItem, ChatMessage } from '../types/doctor';
-import { OfficialPrescription } from '../types/prescription';
+import { OfficialPrescription, PendingMedication } from '../types/prescription';
 import { db, isFirebaseConfigured } from '../firebase';
 import {
   getLocalDoctors,
@@ -644,4 +644,133 @@ export async function archiveConsultationSession(
 export async function getDoctorArchive(doctorSlug: string): Promise<PatientQueueItem[]> {
   const archive = getLocalArchive();
   return archive.filter(item => item.doctorSlug.toLowerCase() === doctorSlug.toLowerCase());
+}
+
+/**
+ * Soumission d'un médicament personnalisé pour approbation par l'administrateur
+ */
+export async function submitPendingMedication(med: {
+  name: string;
+  dosage?: string;
+  form?: string;
+  duration?: string;
+  doctorName: string;
+  doctorId: string;
+}): Promise<PendingMedication> {
+  const item: PendingMedication = {
+    id: `pmed-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+    name: med.name.trim(),
+    dosage: med.dosage,
+    form: med.form,
+    duration: med.duration,
+    doctorName: med.doctorName,
+    doctorId: med.doctorId,
+    createdAt: new Date().toISOString(),
+    status: 'pending',
+  };
+
+  if (typeof window !== 'undefined') {
+    try {
+      fetch('/api/consultation/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'submit_pending_med', payload: item }),
+      }).catch(e => {});
+
+      // Sauvegarde locale de secours
+      const local = getLocalPendingMeds();
+      local.unshift(item);
+      localStorage.setItem('telemed_pending_meds', JSON.stringify(local));
+    } catch (e) {}
+  }
+
+  return item;
+}
+
+export function getLocalPendingMeds(): PendingMedication[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem('telemed_pending_meds');
+    return raw ? JSON.parse(raw) : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+export async function getPendingMedications(): Promise<PendingMedication[]> {
+  if (typeof window !== 'undefined') {
+    try {
+      const res = await fetch('/api/consultation/sync?type=pending_meds');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.pendingMeds && data.pendingMeds.length > 0) {
+          return data.pendingMeds;
+        }
+      }
+    } catch (e) {}
+  }
+  return getLocalPendingMeds();
+}
+
+export async function approvePendingMedication(medId: string, drugEntry: {
+  dci: string;
+  brandNames: string[];
+  category: string;
+  ammCode: string;
+  defaultForm: string;
+  defaultDosage: string;
+  defaultDuration: string;
+  defaultChd?: string;
+}): Promise<boolean> {
+  if (typeof window !== 'undefined') {
+    try {
+      // Sauvegarder dans la base locale approuvée
+      const raw = localStorage.getItem('telemed_custom_drugs');
+      const list = raw ? JSON.parse(raw) : [];
+      list.unshift(drugEntry);
+      localStorage.setItem('telemed_custom_drugs', JSON.stringify(list));
+
+      // Mettre à jour le statut dans l'API sync
+      await fetch('/api/consultation/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'approve_pending_med', payload: { medId } }),
+      });
+
+      // Mettre à jour le statut local
+      const local = getLocalPendingMeds();
+      const idx = local.findIndex(m => m.id === medId);
+      if (idx >= 0) {
+        local[idx].status = 'approved';
+        localStorage.setItem('telemed_pending_meds', JSON.stringify(local));
+      }
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+  return false;
+}
+
+export async function rejectPendingMedication(medId: string): Promise<boolean> {
+  if (typeof window !== 'undefined') {
+    try {
+      await fetch('/api/consultation/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'reject_pending_med', payload: { medId } }),
+      });
+
+      const local = getLocalPendingMeds();
+      const idx = local.findIndex(m => m.id === medId);
+      if (idx >= 0) {
+        local[idx].status = 'rejected';
+        localStorage.setItem('telemed_pending_meds', JSON.stringify(local));
+      }
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+  return false;
 }

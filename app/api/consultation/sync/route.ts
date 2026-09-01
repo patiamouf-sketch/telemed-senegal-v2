@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { PatientQueueItem, ChatMessage } from '@/lib/types/doctor';
-import { OfficialPrescription } from '@/lib/types/prescription';
+import { OfficialPrescription, PendingMedication } from '@/lib/types/prescription';
 
 // Global in-memory shared store for serverless runtime fallback
 declare global {
   var __telemedGlobalQueue: PatientQueueItem[] | undefined;
   var __telemedGlobalArchive: PatientQueueItem[] | undefined;
   var __telemedGlobalPrescriptions: OfficialPrescription[] | undefined;
+  var __telemedGlobalPendingMeds: PendingMedication[] | undefined;
 }
 
 if (!global.__telemedGlobalQueue) {
@@ -18,16 +19,25 @@ if (!global.__telemedGlobalArchive) {
 if (!global.__telemedGlobalPrescriptions) {
   global.__telemedGlobalPrescriptions = [];
 }
+if (!global.__telemedGlobalPendingMeds) {
+  global.__telemedGlobalPendingMeds = [];
+}
 
 const queue = global.__telemedGlobalQueue;
 const archive = global.__telemedGlobalArchive;
 const prescriptions = global.__telemedGlobalPrescriptions;
+const pendingMeds = global.__telemedGlobalPendingMeds;
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id');
   const slug = searchParams.get('slug');
   const hash = searchParams.get('hash');
+  const type = searchParams.get('type');
+
+  if (type === 'pending_meds') {
+    return NextResponse.json({ success: true, pendingMeds });
+  }
 
   if (id) {
     const patient = queue.find(p => p.id === id) || archive.find(p => p.id === id) || null;
@@ -153,6 +163,37 @@ export async function POST(req: NextRequest) {
           prescriptions.unshift(presc);
         }
         return NextResponse.json({ success: true, prescription: presc });
+      }
+
+      case 'submit_pending_med': {
+        const med: PendingMedication = payload;
+        const exists = pendingMeds.findIndex(m => m.id === med.id || m.name.toLowerCase() === med.name.toLowerCase());
+        if (exists >= 0) {
+          pendingMeds[exists] = med;
+        } else {
+          pendingMeds.unshift(med);
+        }
+        return NextResponse.json({ success: true, medication: med });
+      }
+
+      case 'approve_pending_med': {
+        const { medId } = payload;
+        const idx = pendingMeds.findIndex(m => m.id === medId);
+        if (idx >= 0) {
+          pendingMeds[idx].status = 'approved';
+          return NextResponse.json({ success: true, medication: pendingMeds[idx] });
+        }
+        return NextResponse.json({ success: false, error: 'Medication not found' }, { status: 404 });
+      }
+
+      case 'reject_pending_med': {
+        const { medId } = payload;
+        const idx = pendingMeds.findIndex(m => m.id === medId);
+        if (idx >= 0) {
+          pendingMeds[idx].status = 'rejected';
+          return NextResponse.json({ success: true, medication: pendingMeds[idx] });
+        }
+        return NextResponse.json({ success: false, error: 'Medication not found' }, { status: 404 });
       }
 
       default:

@@ -200,11 +200,33 @@ export const DCI_DATABASE: DrugEntry[] = [
   }
 ];
 
+export function getApprovedCustomDrugs(): DrugEntry[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem('telemed_custom_drugs');
+    return raw ? JSON.parse(raw) : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+export function saveApprovedCustomDrug(drug: DrugEntry): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const existing = getApprovedCustomDrugs();
+    if (!existing.some(d => d.dci.toLowerCase() === drug.dci.toLowerCase())) {
+      existing.unshift(drug);
+      localStorage.setItem('telemed_custom_drugs', JSON.stringify(existing));
+    }
+  } catch (e) {}
+}
+
 export function searchDrugs(query: string): DrugEntry[] {
   if (!query || query.trim().length < 2) return [];
   const q = query.toLowerCase().trim();
+  const allDrugs = [...DCI_DATABASE, ...getApprovedCustomDrugs()];
 
-  return DCI_DATABASE.filter(drug => {
+  return allDrugs.filter(drug => {
     const matchDci = drug.dci.toLowerCase().includes(q);
     const matchBrand = drug.brandNames.some(b => b.toLowerCase().includes(q));
     const matchCat = drug.category.toLowerCase().includes(q);

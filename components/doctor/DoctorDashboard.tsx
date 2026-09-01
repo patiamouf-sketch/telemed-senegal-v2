@@ -265,7 +265,7 @@ export function DoctorDashboard() {
                 <span className="text-xs font-medium text-slate-500">{newPaymentAlert.gender === 'F' ? 'Femme' : 'Homme'} • {newPaymentAlert.age} ans</span>
               </div>
               <p className="text-sm font-bold text-[#0F172A] mt-1">
-                Paiement déclaré par <span className="text-[#3B82F6] font-extrabold">{newPaymentAlert.patientName}</span>, NIN: <span className="font-mono text-slate-900 font-extrabold">{newPaymentAlert.patientNin}</span>
+                Paiement déclaré par <span className="text-[#3B82F6] font-extrabold">{newPaymentAlert.patientName}</span>, Tél: <span className="font-mono text-slate-900 font-extrabold">{newPaymentAlert.patientPhone}</span>
               </p>
               <p className="text-xs text-slate-500 mt-0.5">
                 Montant : <strong className="text-[#0F172A]">{newPaymentAlert.amountPaid.toLocaleString('fr-FR')} FCFA</strong> via <strong>{newPaymentAlert.paymentMethod.toUpperCase()}</strong> • {newPaymentAlert.serviceType === 'visio_consultation' ? 'Visio HD' : 'Avis Médical'}

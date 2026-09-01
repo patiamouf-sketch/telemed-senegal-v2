@@ -8,9 +8,21 @@ export interface PrescriptionItem {
   instructions?: string;
 }
 
+export interface PendingMedication {
+  id: string;
+  name: string;
+  dosage?: string;
+  form?: string;
+  duration?: string;
+  doctorName: string;
+  doctorId: string;
+  createdAt: string;
+  status: 'pending' | 'approved' | 'rejected';
+}
+
 export interface OfficialPrescription {
   id: string;
-  hash: string;            // Condensat cryptographique SHA-256 unique
+  hash: string;            // Condensat unique
   doctorId: string;
   doctorName: string;
   doctorSpeciality: string;
@@ -21,13 +33,13 @@ export interface OfficialPrescription {
   doctorSignatureStampUrl?: string; // Tampon & signature officielle
   patientId: string;
   patientName: string;
-  patientNin: string;      // NIN pour traçabilité légale
+  patientNin?: string;     // Optionnel
   patientAge: number;
   patientGender: 'M' | 'F';
-  patientPhone: string;
+  patientPhone: string;    // Numéro de téléphone du patient
   items: PrescriptionItem[];
   dietaryAdvice: string;   // Conseils Hygiéno-Diététiques (CHD)
-  sealedAt: string;        // Date & Heure ISO du scellement
+  sealedAt: string;        // Date & Heure ISO
   verificationUrl: string; // URL vers /verify/[hash]
   status: 'valid' | 'dispensed' | 'revoked';
 }

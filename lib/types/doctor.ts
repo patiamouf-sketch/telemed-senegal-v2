@@ -51,7 +51,7 @@ export interface PatientQueueItem {
   id: string;
   doctorSlug: string;
   patientName: string;
-  patientNin: string; // Numéro d'Identification Nationale pour traçabilité médicale
+  patientNin?: string; // Optionnel
   patientPhone: string;
   age: number;
   gender: 'M' | 'F';

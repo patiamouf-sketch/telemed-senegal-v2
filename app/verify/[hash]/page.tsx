@@ -10,13 +10,9 @@ import { Badge } from '@/components/ui/Badge';
 import {
   ShieldCheck,
   CheckCircle2,
-  Lock,
   Printer,
-  Copy,
-  Check,
   Stethoscope,
   Clock,
-  AlertTriangle,
   ArrowLeft,
   Heart,
   Activity
@@ -30,24 +26,34 @@ export default function VerifyHashPage() {
 
   const [prescription, setPrescription] = useState<OfficialPrescription | null>(null);
   const [loading, setLoading] = useState(true);
-  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    async function fetchPrescription() {
-      if (!hash) return;
-      setLoading(true);
-      const res = await getPrescriptionByHash(hash);
-      setPrescription(res);
-      setLoading(false);
-    }
-    fetchPrescription();
-  }, [hash]);
+    async function loadPrescription() {
+      if (!hash) {
+        setLoading(false);
+        setError('Aucun identifiant d\'ordonnance fourni.');
+        return;
+      }
 
-  const copyHash = () => {
-    navigator.clipboard.writeText(hash);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
+      setLoading(true);
+      try {
+        const found = await getPrescriptionByHash(hash);
+        if (found) {
+          setPrescription(found);
+        } else {
+          setError('Aucune ordonnance trouvée correspondant à cette référence.');
+        }
+      } catch (err) {
+        console.error('Error fetching prescription:', err);
+        setError('Impossible de charger les données de vérification.');
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadPrescription();
+  }, [hash]);
 
   const handlePrint = () => {
     window.print();
@@ -58,23 +64,21 @@ export default function VerifyHashPage() {
       <div className="min-h-screen flex items-center justify-center p-4 font-sans">
         <GlassCard className="p-8 text-center bg-white/80 max-w-sm shadow-soft-float">
           <Activity className="w-8 h-8 text-[#3B82F6] animate-spin mx-auto mb-3" />
-          <p className="text-sm font-bold text-[#0F172A]">Vérification du sceau cryptographique...</p>
+          <p className="text-sm font-bold text-[#0F172A]">Vérification de l'ordonnance...</p>
         </GlassCard>
       </div>
     );
   }
 
-  if (!prescription) {
+  if (error || !prescription) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4 font-sans">
-        <GlassCard className="p-8 text-center bg-white/95 max-w-md space-y-4 shadow-soft-float">
-          <div className="w-12 h-12 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center mx-auto">
-            <AlertTriangle className="w-6 h-6" />
+        <GlassCard className="p-8 text-center bg-white/90 max-w-md space-y-4 shadow-soft-float">
+          <div className="w-12 h-12 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center mx-auto">
+            <Clock className="w-6 h-6" />
           </div>
-          <h2 className="text-xl font-bold text-[#0F172A]">Certificat Introuvable</h2>
-          <p className="text-xs text-slate-500">
-            Le condensat SHA-256 <span className="font-mono text-slate-700 font-bold">{hash}</span> n'a pas pu être validé dans le registre officiel.
-          </p>
+          <h2 className="text-xl font-bold text-[#0F172A]">Ordonnance Introuvable</h2>
+          <p className="text-xs text-slate-500">{error}</p>
           <Link href="/">
             <GlassButton variant="primary" size="sm">
               Retour à l'accueil
@@ -86,10 +90,10 @@ export default function VerifyHashPage() {
   }
 
   return (
-    <div className="min-h-screen py-10 px-4 sm:px-6 lg:px-8 font-sans">
+    <div className="min-h-screen py-8 px-4 sm:px-6 lg:px-8 font-sans">
       <div className="max-w-3xl mx-auto space-y-6">
-        {/* Navigation */}
-        <div className="flex items-center justify-between">
+        {/* Navigation / Header */}
+        <div className="flex items-center justify-between no-print">
           <Link
             href="/"
             className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-[#3B82F6] font-semibold"
@@ -100,59 +104,13 @@ export default function VerifyHashPage() {
 
           <GlassButton variant="secondary" size="sm" onClick={handlePrint} className="text-xs">
             <Printer className="w-3.5 h-3.5" />
-            <span>Imprimer le Certificat PDF</span>
+            <span>Imprimer l'Ordonnance</span>
           </GlassButton>
         </div>
 
-        {/* Verification Status Banner */}
-        <GlassCard className="p-6 sm:p-7 bg-gradient-to-r from-emerald-500/10 via-white to-teal-500/10 border-2 border-emerald-400/80 shadow-soft-float space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div className="flex items-center gap-3.5">
-              <div className="w-12 h-12 rounded-full bg-emerald-500 text-white flex items-center justify-center shadow-lg shadow-emerald-500/30 flex-shrink-0">
-                <CheckCircle2 className="w-6 h-6" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <h1 className="text-lg sm:text-xl font-extrabold text-emerald-950">
-                    Sceau Cryptographique SHA-256 Conforme
-                  </h1>
-                  <Badge variant="emerald" size="sm">
-                    Certifié Authentique
-                  </Badge>
-                </div>
-                <p className="text-xs text-emerald-800/80 mt-0.5">
-                  Document officiel inaltérable émis sous l'accréditation de l'Ordre des Médecins du Sénégal (ONMS).
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Hash details */}
-          <div className="p-3 bg-white rounded-[20px] border border-emerald-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
-            <div className="space-y-0.5 overflow-hidden">
-              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">
-                Condensat Numérique SHA-256 [NIN_Patient + ID_Medecin + Date + Liste_Medocs] :
-              </span>
-              <p className="font-mono text-[11px] text-slate-800 break-all font-semibold select-all">
-                {prescription.hash}
-              </p>
-            </div>
-
-            <GlassButton
-              variant={copied ? 'success' : 'secondary'}
-              size="sm"
-              onClick={copyHash}
-              className="flex-shrink-0 text-xs"
-            >
-              {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-              <span>{copied ? 'Copié' : 'Copier Hash'}</span>
-            </GlassButton>
-          </div>
-        </GlassCard>
-
-        {/* Printable Official Document */}
+        {/* Printable Official Medical Document */}
         <div className="p-8 sm:p-10 rounded-[32px] bg-white border border-slate-200/90 shadow-2xl space-y-6">
-          {/* Header with Thiam Global Business */}
+          {/* Header */}
           <div className="flex flex-col sm:flex-row items-start justify-between border-b-2 border-slate-900 pb-5 gap-4">
             <div>
               <div className="flex items-center gap-2 mb-1">
@@ -160,15 +118,15 @@ export default function VerifyHashPage() {
                   +
                 </div>
                 <div>
-                  <h2 className="text-base font-extrabold text-[#0F172A] tracking-tight">
-                    THIAM GLOBAL BUSINESS
-                  </h2>
-                  <span className="text-[10px] text-slate-500 block uppercase tracking-wider font-bold">
-                    Direction Médicale • TéléMed Sénégal V2
+                  <h1 className="text-base font-extrabold text-[#0F172A] tracking-tight">
+                    TELEMED SENEGAL
+                  </h1>
+                  <span className="text-[10px] text-slate-500 block uppercase tracking-wider font-semibold">
+                    Direction Médicale • Service de Téléconsultation
                   </span>
                 </div>
               </div>
-              <div className="text-xs text-slate-700 space-y-0.5 mt-2">
+              <div className="text-xs text-slate-700 space-y-0.5 mt-3">
                 <p className="font-bold text-slate-900 text-sm">{prescription.doctorName}</p>
                 <p className="text-[#3B82F6] font-semibold">{prescription.doctorSpeciality}</p>
                 <p className="font-mono text-emerald-800 font-bold">N° ONMS : {prescription.doctorOnms}</p>
@@ -182,31 +140,31 @@ export default function VerifyHashPage() {
                 ORDONNANCE OFFICIELLE
               </div>
               <p className="text-[11px] text-slate-500">
-                Scellée le : <strong>{new Date(prescription.sealedAt).toLocaleDateString('fr-FR')}</strong> à {new Date(prescription.sealedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                Délivrée le : <strong>{new Date(prescription.sealedAt).toLocaleDateString('fr-FR')}</strong> à {new Date(prescription.sealedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
               </p>
             </div>
           </div>
 
-          {/* Patient Identification Block with NIN */}
+          {/* Patient Identity Box */}
           <div className="p-4 rounded-[20px] bg-slate-50 border border-slate-200 text-xs grid grid-cols-2 sm:grid-cols-3 gap-3">
             <div>
               <span className="text-slate-400 text-[10px] block font-semibold">Patient(e) :</span>
               <strong className="text-[#0F172A] font-extrabold text-sm">{prescription.patientName}</strong>
             </div>
             <div>
-              <span className="text-slate-400 text-[10px] block font-semibold">NIN (Traçabilité Légale) :</span>
-              <strong className="text-slate-900 font-mono">{prescription.patientNin}</strong>
+              <span className="text-slate-400 text-[10px] block font-semibold">Téléphone :</span>
+              <span className="font-mono text-slate-900 font-bold">{prescription.patientPhone}</span>
             </div>
             <div>
               <span className="text-slate-400 text-[10px] block font-semibold">Sexe & Âge :</span>
-              <span className="text-slate-800">{prescription.patientGender === 'F' ? 'Femme' : 'Homme'}, {prescription.patientAge} ans</span>
+              <strong className="text-slate-800">{prescription.patientGender === 'F' ? 'Femme' : 'Homme'}, {prescription.patientAge} ans</strong>
             </div>
           </div>
 
-          {/* Prescribed Items */}
+          {/* Medications list */}
           <div className="space-y-4 py-2">
             <span className="text-xs font-extrabold text-[#0F172A] uppercase tracking-wider border-b border-slate-200 pb-1 block">
-              Molécules & Posologies Prescrites (ARP Sénégal) :
+              Molécules & Posologies Prescrites :
             </span>
             <ol className="space-y-3.5 list-decimal list-inside text-xs">
               {prescription.items.map((item, idx) => (
@@ -221,7 +179,7 @@ export default function VerifyHashPage() {
             </ol>
           </div>
 
-          {/* Dietary Advice */}
+          {/* Dietary advice */}
           {prescription.dietaryAdvice && (
             <div className="p-4 rounded-[20px] bg-blue-50/60 border border-blue-100 text-xs space-y-1">
               <strong className="text-[#3B82F6] font-bold block text-[11px] uppercase tracking-wider flex items-center gap-1.5">
@@ -244,15 +202,14 @@ export default function VerifyHashPage() {
               <div className="text-xs text-slate-500">
                 <span className="font-bold text-slate-900 block">{prescription.doctorName}</span>
                 <span className="text-[10px] block">Signature & Cachet Numérique ONMS</span>
-                <span className="font-mono text-[9px] text-emerald-800 block">NIN Médecin : {prescription.doctorId}</span>
               </div>
             </div>
 
             <div className="flex items-center gap-3 text-right">
               <div>
-                <span className="text-[10px] text-slate-400 block font-semibold">Vérification Instantanée</span>
-                <strong className="text-xs text-slate-800 font-bold block">TéléMed Sénégal V2</strong>
-                <span className="text-[9px] font-mono text-slate-500 block">Sceau SHA-256</span>
+                <span className="text-[10px] text-slate-400 block font-semibold">Vérification Numérique</span>
+                <strong className="text-xs text-slate-800 font-bold block">TELEMED SENEGAL</strong>
+                <span className="text-[9px] text-emerald-700 font-semibold block">Scan de conformité</span>
               </div>
               <div className="p-1.5 bg-white rounded-xl border border-slate-200 shadow-sm flex-shrink-0">
                 <LocalQRCode value={prescription.verificationUrl || `https://telemed.sn/verify/${prescription.hash}`} size={64} />

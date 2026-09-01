@@ -26,14 +26,11 @@ export function Navbar({ onOpenLogin, onOpenSignup }: NavbarProps) {
           <div>
             <div className="flex items-center gap-1.5">
               <span className="font-extrabold text-base sm:text-lg tracking-tight text-[#0F172A]">
-                TéléMed <span className="text-[#3B82F6]">Sénégal</span>
-              </span>
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-100">
-                V2
+                TELEMED <span className="text-[#3B82F6]">SENEGAL</span>
               </span>
             </div>
             <p className="text-[9px] font-bold text-slate-400 tracking-wider uppercase">
-              Thiam Global Business
+              Plateforme Médicale Agréée
             </p>
           </div>
         </Link>

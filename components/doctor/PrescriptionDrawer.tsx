@@ -6,7 +6,7 @@ import { OfficialPrescription, PrescriptionItem } from '@/lib/types/prescription
 import { searchDrugs, DrugEntry } from '@/lib/data/dciDatabase';
 import { generatePrescriptionHash } from '@/lib/utils/cryptoSeal';
 import { isDoctorLicenseValid } from '@/lib/utils/license';
-import { GlassCard } from '../ui/GlassCard';
+import { submitPendingMedication } from '@/lib/services/doctorService';
 import { GlassButton } from '../ui/GlassButton';
 import { Badge } from '../ui/Badge';
 import {
@@ -16,15 +16,14 @@ import {
   Plus,
   Trash2,
   ShieldCheck,
-  Sparkles,
-  QrCode,
   Printer,
   CheckCircle2,
-  Lock,
   Stethoscope,
   Heart,
   Eye,
-  Edit3
+  Edit3,
+  Clock,
+  Sparkles
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import confetti from 'canvas-confetti';
@@ -94,6 +93,25 @@ export function PrescriptionDrawer({
     setSearchResults([]);
   };
 
+  // Saisie libre d'un nouveau médicament non répertorié
+  const handleAddCustomDrug = (customName?: string) => {
+    const nameToAdd = (customName || searchQuery).trim();
+    if (!nameToAdd) return;
+
+    const newItem: PrescriptionItem = {
+      id: `rx-custom-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
+      medication: nameToAdd,
+      ammCode: 'EN-ATTENTE-REF',
+      form: 'Comprimé / Gélule / Sirop',
+      dosage: '1 prise 2 à 3 fois par jour',
+      duration: '5 à 7 jours',
+    };
+
+    setItems(prev => [...prev, newItem]);
+    setSearchQuery('');
+    setSearchResults([]);
+  };
+
   const handleRemoveItem = (id: string) => {
     setItems(prev => prev.filter(i => i.id !== id));
   };
@@ -104,7 +122,7 @@ export function PrescriptionDrawer({
     );
   };
 
-  // Signer et Clôturer (SHA-256: [NIN_Patient + ID_Medecin + Date + Liste_Medocs])
+  // Signer et Clôturer
   const handleSignAndClose = async () => {
     // Vérification de sécurité de la licence médicale
     const licenseCheck = isDoctorLicenseValid(doctor);
@@ -121,9 +139,23 @@ export function PrescriptionDrawer({
     setIsSealing(true);
     const timestamp = new Date().toISOString();
 
-    // SHA-256 strict: [NIN_Patient + ID_Medecin + Date + Liste_Medocs]
+    // Soumission automatique des médicaments personnalisés en attente de validation admin
+    for (const item of items) {
+      if (item.ammCode === 'EN-ATTENTE-REF' || !item.ammCode) {
+        submitPendingMedication({
+          name: item.medication,
+          dosage: item.dosage,
+          form: item.form,
+          duration: item.duration,
+          doctorName: doctor.fullName,
+          doctorId: doctor.id,
+        }).catch(e => console.warn('Pending med submission notice:', e));
+      }
+    }
+
+    // SHA-256 condensat
     const hash = await generatePrescriptionHash({
-      patientNin: patient.patientNin || 'NIN-SN-999999',
+      patientNin: patient.patientPhone || patient.patientNin || 'TEL-SN',
       doctorId: doctor.id,
       timestamp,
       items,
@@ -144,10 +176,9 @@ export function PrescriptionDrawer({
       doctorCity: doctor.city,
       patientId: patient.id,
       patientName: patient.patientName,
-      patientNin: patient.patientNin,
+      patientPhone: patient.patientPhone,
       patientAge: patient.age,
       patientGender: patient.gender,
-      patientPhone: patient.patientPhone,
       items,
       dietaryAdvice,
       sealedAt: timestamp,
@@ -194,14 +225,14 @@ export function PrescriptionDrawer({
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-lg sm:text-xl font-extrabold text-[#0F172A]">
-                  Moteur de Prescription ARP Sénégal
+                  Rédiger une Ordonnance Médicale
                 </h2>
                 <Badge variant="emerald" size="sm">
-                  SHA-256 Certifié
+                  TELEMED SENEGAL
                 </Badge>
               </div>
               <p className="text-xs text-slate-500">
-                Liste DCI/AMM validée par l'Agence de Régulation Pharmaceutique & ONMS.
+                Base DCI / AMM avec autocomplétion et saisie libre autorisée.
               </p>
             </div>
           </div>
@@ -214,14 +245,14 @@ export function PrescriptionDrawer({
           </button>
         </div>
 
-        {/* Patient Identity Badge with Mandatory NIN for Legal Traceability */}
+        {/* Patient Identity Badge */}
         <div className="p-4 rounded-[24px] bg-gradient-to-r from-sky-50/80 via-white to-blue-50/70 border border-sky-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
           <div className="space-y-0.5">
             <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Patient Pris en Charge</span>
             <div className="flex items-center gap-2 flex-wrap">
               <strong className="text-sm font-extrabold text-[#0F172A]">{patient.patientName}</strong>
-              <span className="font-mono text-xs font-bold text-slate-900 bg-white px-2.5 py-0.5 rounded-full border border-slate-200 shadow-sm">
-                NIN: {patient.patientNin}
+              <span className="font-mono text-xs font-bold text-blue-900 bg-white px-2.5 py-0.5 rounded-full border border-slate-200 shadow-sm">
+                Tél : {patient.patientPhone}
               </span>
               <Badge variant="blue" size="sm">
                 {patient.gender === 'F' ? 'Femme' : 'Homme'} • {patient.age} ans
@@ -232,11 +263,11 @@ export function PrescriptionDrawer({
           <div className="text-right sm:text-right">
             <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Médecin Prescripteur</span>
             <strong className="text-xs font-bold text-[#0F172A]">{doctor.fullName}</strong>
-            <span className="text-[11px] text-emerald-700 font-mono font-semibold block">ONMS: {doctor.onmsNumber}</span>
+            <span className="text-[11px] text-emerald-700 font-mono font-semibold block">ONMS : {doctor.onmsNumber}</span>
           </div>
         </div>
 
-        {/* Tabs: Édition vs Aperçu Temps Réel */}
+        {/* Tabs: Édition vs Aperçu */}
         {!sealedPrescription && (
           <div className="flex items-center gap-2 border-b border-slate-100 pb-2">
             <button
@@ -260,7 +291,7 @@ export function PrescriptionDrawer({
               }`}
             >
               <Eye className="w-3.5 h-3.5" />
-              2. Aperçu avec Cachet & Signature ({items.length})
+              2. Aperçu avec Cachet ({items.length})
             </button>
           </div>
         )}
@@ -268,26 +299,51 @@ export function PrescriptionDrawer({
         {/* VIEW 1: EDITOR FORM */}
         {!sealedPrescription && activeTab === 'editor' && (
           <div className="space-y-5 text-xs sm:text-sm">
-            {/* DCI/AMM Autocomplete Search */}
-            <div className="relative">
-              <label className="block text-xs font-bold text-[#0F172A] mb-1.5 flex items-center gap-1.5">
+            {/* DCI/AMM Autocomplete & Free Text Search */}
+            <div className="relative space-y-1.5">
+              <label className="block text-xs font-bold text-[#0F172A] flex items-center gap-1.5">
                 <Search className="w-3.5 h-3.5 text-[#3B82F6]" />
-                Recherche Intelligente DCI / AMM (ARP Sénégal) :
+                Recherche de Médicament (DCI / Nom Commercial ou Saisie Libre) :
               </label>
-              <div className="relative">
-                <input
-                  type="text"
-                  placeholder="Tapez un nom ou une DCI (ex: Paracétamol, Doliprane, Amoxicilline, Augmentin, Ventoline, Coartem...)"
-                  value={searchQuery}
-                  onChange={handleSearchChange}
-                  className="w-full pl-10 pr-4 py-3 rounded-[20px] bg-white border border-slate-200/80 focus:border-[#3B82F6] focus:outline-none focus:ring-4 focus:ring-blue-500/10 text-xs text-[#0F172A] shadow-sm"
-                />
-                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+              <div className="relative flex gap-2">
+                <div className="relative flex-1">
+                  <input
+                    type="text"
+                    placeholder="Tapez le nom du médicament (ex: Paracétamol, Doliprane, Amoxicilline, ou tout autre médicament personnalisé...)"
+                    value={searchQuery}
+                    onChange={handleSearchChange}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' && searchQuery.trim()) {
+                        e.preventDefault();
+                        if (searchResults.length > 0) {
+                          handleSelectDrug(searchResults[0]);
+                        } else {
+                          handleAddCustomDrug();
+                        }
+                      }
+                    }}
+                    className="w-full pl-10 pr-4 py-3 rounded-[20px] bg-white border border-slate-200/80 focus:border-[#3B82F6] focus:outline-none focus:ring-4 focus:ring-blue-500/10 text-xs text-[#0F172A] shadow-sm"
+                  />
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+                </div>
+
+                {searchQuery.trim().length > 0 && (
+                  <GlassButton
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => handleAddCustomDrug()}
+                    className="rounded-[20px] text-xs font-bold whitespace-nowrap"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Ajouter "{searchQuery.trim()}"</span>
+                  </GlassButton>
+                )}
               </div>
 
-              {/* Autocomplete Dropdown */}
-              {searchResults.length > 0 && (
-                <div className="absolute top-full left-0 right-0 mt-1.5 bg-white rounded-[24px] border border-slate-200/80 shadow-2xl z-30 max-h-60 overflow-y-auto divide-y divide-slate-100">
+              {/* Autocomplete Dropdown with Free-text option */}
+              {searchQuery.trim().length >= 2 && (
+                <div className="absolute top-full left-0 right-0 mt-1.5 bg-white rounded-[24px] border border-slate-200/80 shadow-2xl z-30 max-h-64 overflow-y-auto divide-y divide-slate-100">
                   {searchResults.map((drug, idx) => (
                     <div
                       key={idx}
@@ -311,6 +367,27 @@ export function PrescriptionDrawer({
                       <Plus className="w-4 h-4 text-[#3B82F6] flex-shrink-0" />
                     </div>
                   ))}
+
+                  {/* Option de saisie libre */}
+                  <div
+                    onClick={() => handleAddCustomDrug()}
+                    className="p-3.5 bg-amber-50/60 hover:bg-amber-100/70 cursor-pointer flex items-center justify-between transition-colors"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                      <div>
+                        <p className="text-xs font-bold text-amber-900">
+                          Prescrire comme nouveau médicament : <span className="underline">"{searchQuery.trim()}"</span>
+                        </p>
+                        <span className="text-[10px] text-amber-700">
+                          Sera ajouté à l'ordonnance et soumis à l'approbation de l'administrateur.
+                        </span>
+                      </div>
+                    </div>
+                    <Badge variant="amber" size="sm">
+                      Nouveau Référencement
+                    </Badge>
+                  </div>
                 </div>
               )}
             </div>
@@ -323,7 +400,7 @@ export function PrescriptionDrawer({
 
               {items.length === 0 ? (
                 <div className="p-6 text-center rounded-[20px] bg-slate-50 border border-dashed border-slate-200 text-slate-400 text-xs">
-                  Recherchez et ajoutez des molécules ci-dessus.
+                  Recherchez ou saisissez librement des médicaments ci-dessus.
                 </div>
               ) : (
                 <div className="space-y-2.5">
@@ -333,16 +410,20 @@ export function PrescriptionDrawer({
                       className="p-4 rounded-[20px] bg-white border border-slate-100 shadow-sm space-y-2.5"
                     >
                       <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span className="w-5 h-5 rounded-full bg-blue-50 text-[#3B82F6] flex items-center justify-center font-bold text-[11px]">
                             {index + 1}
                           </span>
                           <strong className="text-xs font-extrabold text-[#0F172A]">{item.medication}</strong>
-                          {item.ammCode && (
+                          {item.ammCode === 'EN-ATTENTE-REF' ? (
+                            <span className="text-[9px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
+                              En attente de référencement
+                            </span>
+                          ) : item.ammCode ? (
                             <span className="text-[9px] font-mono text-slate-400 bg-slate-100 px-2 py-0.5 rounded">
                               {item.ammCode}
                             </span>
-                          )}
+                          ) : null}
                         </div>
                         <button
                           type="button"
@@ -414,7 +495,7 @@ export function PrescriptionDrawer({
                 className="shadow-pill"
               >
                 <ShieldCheck className="w-4 h-4" />
-                <span>Signer et Clôturer (SHA-256)</span>
+                <span>Valider et Signer l'Ordonnance</span>
               </GlassButton>
             </div>
           </div>
@@ -424,7 +505,7 @@ export function PrescriptionDrawer({
         {(activeTab === 'preview' || sealedPrescription) && (
           <div className="space-y-6 text-xs sm:text-sm">
             <div className="p-6 sm:p-8 rounded-[28px] bg-white border border-slate-200/90 shadow-lg space-y-6 relative overflow-hidden">
-              {/* Header with Thiam Global Business Logo */}
+              {/* Header with TELEMED SENEGAL Logo */}
               <div className="flex flex-col sm:flex-row items-start justify-between border-b-2 border-slate-900 pb-4 gap-4">
                 <div>
                   <div className="flex items-center gap-2 mb-1">
@@ -433,10 +514,10 @@ export function PrescriptionDrawer({
                     </div>
                     <div>
                       <h1 className="text-base font-extrabold text-[#0F172A] tracking-tight">
-                        THIAM GLOBAL BUSINESS
+                        TELEMED SENEGAL
                       </h1>
                       <span className="text-[10px] text-slate-500 block uppercase tracking-wider font-bold">
-                        Direction Médicale • TéléMed Sénégal V2
+                        Direction Médicale • Service de Téléconsultation
                       </span>
                     </div>
                   </div>
@@ -459,18 +540,18 @@ export function PrescriptionDrawer({
                 </div>
               </div>
 
-              {/* Patient Block with NIN */}
+              {/* Patient Block with Phone Number */}
               <div className="p-3.5 rounded-[18px] bg-slate-50 text-xs grid grid-cols-2 sm:grid-cols-3 gap-3 border border-slate-200/60">
                 <div>
-                  <span className="text-slate-400 text-[10px] block">Patient(e) :</span>
+                  <span className="text-slate-400 text-[10px] block font-semibold">Patient(e) :</span>
                   <strong className="text-slate-900 font-bold text-sm">{patient.patientName}</strong>
                 </div>
                 <div>
-                  <span className="text-slate-400 text-[10px] block">NIN (Identité) :</span>
-                  <strong className="text-slate-900 font-mono">{patient.patientNin}</strong>
+                  <span className="text-slate-400 text-[10px] block font-semibold">Téléphone :</span>
+                  <strong className="text-slate-900 font-mono">{patient.patientPhone}</strong>
                 </div>
                 <div>
-                  <span className="text-slate-400 text-[10px] block">Sexe & Âge :</span>
+                  <span className="text-slate-400 text-[10px] block font-semibold">Sexe & Âge :</span>
                   <span className="text-slate-800">{patient.gender === 'F' ? 'Femme' : 'Homme'}, {patient.age} ans</span>
                 </div>
               </div>
@@ -503,7 +584,7 @@ export function PrescriptionDrawer({
                 </div>
               )}
 
-              {/* Stamp, Signature & SHA-256 QR Code */}
+              {/* Stamp, Signature & Discreet QR Code */}
               <div className="pt-4 border-t-2 border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-4">
                 {/* Official Stamp & Signature */}
                 <div className="flex items-center gap-3">
@@ -523,11 +604,9 @@ export function PrescriptionDrawer({
                 {sealedPrescription ? (
                   <div className="flex items-center gap-3 text-right">
                     <div className="space-y-0.5">
-                      <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">Sceau Cryptographique SHA-256</span>
-                      <div className="text-[9px] font-mono text-slate-600 bg-slate-100 px-2 py-1 rounded max-w-xs break-all text-left">
-                        {sealedPrescription.hash}
-                      </div>
-                      <span className="text-[9px] text-emerald-700 font-semibold block">Preuve d'intégrité /verify/[hash]</span>
+                      <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">Vérification Numérique</span>
+                      <strong className="text-xs text-slate-800 font-bold block">TELEMED SENEGAL</strong>
+                      <span className="text-[9px] text-emerald-700 font-semibold block">Scan de conformité</span>
                     </div>
 
                     <div className="p-1 bg-white rounded-lg border border-slate-200 shadow-sm flex-shrink-0">
@@ -536,7 +615,7 @@ export function PrescriptionDrawer({
                   </div>
                 ) : (
                   <div className="text-right text-slate-400 text-xs italic">
-                    Le QR Code et le sceau SHA-256 apparaîtront dès la signature.
+                    Le QR Code de vérification apparaîtra dès la signature.
                   </div>
                 )}
               </div>
@@ -565,7 +644,7 @@ export function PrescriptionDrawer({
                     className="w-full sm:w-auto text-xs shadow-pill"
                   >
                     <ShieldCheck className="w-4 h-4" />
-                    <span>Signer et Clôturer (SHA-256)</span>
+                    <span>Valider et Signer l'Ordonnance</span>
                   </GlassButton>
                 </>
               ) : (
