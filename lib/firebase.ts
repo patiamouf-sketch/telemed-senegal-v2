@@ -13,24 +13,22 @@ const firebaseConfig = {
 
 // Vérifie si la configuration est active avec de véritables clés
 export const isFirebaseConfigured = Boolean(
-  process.env.NEXT_PUBLIC_FIREBASE_API_KEY && 
-  process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID &&
-  process.env.NEXT_PUBLIC_FIREBASE_API_KEY !== 'your-api-key' &&
-  process.env.NEXT_PUBLIC_FIREBASE_API_KEY !== 'demo-api-key'
+  firebaseConfig.apiKey && 
+  firebaseConfig.projectId &&
+  firebaseConfig.apiKey !== 'your-api-key' &&
+  firebaseConfig.apiKey !== 'demo-api-key'
 );
 
 let app: FirebaseApp | undefined;
 let auth: Auth | undefined;
 let db: Firestore | undefined;
 
-if (typeof window !== 'undefined' || isFirebaseConfigured) {
-  try {
-    app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
-    auth = getAuth(app);
-    db = getFirestore(app);
-  } catch (error) {
-    console.warn('Firebase initialization notice:', error);
-  }
+try {
+  app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+  auth = getAuth(app);
+  db = getFirestore(app);
+} catch (error) {
+  console.warn('Firebase initialization notice:', error);
 }
 
 export { app, auth, db };
