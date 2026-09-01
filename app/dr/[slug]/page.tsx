@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import { getDoctorBySlug, addPatientToQueue, getPatientById, sendConsultationMessage, listenToPatient } from '@/lib/services/doctorService';
 import { DoctorProfile, PatientQueueItem, ServiceType, ChatMessage } from '@/lib/types/doctor';
@@ -38,6 +38,7 @@ import {
   Pause,
   Volume2,
   Image as ImageIcon,
+  RefreshCw,
   ExternalLink,
   Printer
 } from 'lucide-react';
@@ -266,16 +267,21 @@ export default function PatientRoomPage() {
     }
   };
 
-  useEffect(() => {
-    async function loadDoctor() {
-      if (!slug) return;
-      setLoading(true);
-      const docProfile = await getDoctorBySlug(slug);
-      setDoctor(docProfile);
-      setLoading(false);
-    }
-    loadDoctor();
+  const loadDoctorData = useCallback(async (silent: boolean = false) => {
+    if (!slug) return;
+    if (!silent) setLoading(true);
+    const docProfile = await getDoctorBySlug(slug);
+    setDoctor(docProfile);
+    if (!silent) setLoading(false);
   }, [slug]);
+
+  useEffect(() => {
+    loadDoctorData();
+    const interval = setInterval(() => {
+      loadDoctorData(true);
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [loadDoctorData]);
 
   // Écouteur temps réel dès que la session patient est créée
   useEffect(() => {
@@ -453,11 +459,17 @@ export default function PatientRoomPage() {
           <p className="text-xs text-slate-500">
             {licenseCheck.message || 'Ce praticien n\'est pas disponible pour le moment ou est en cours de validation par la direction médicale.'}
           </p>
-          <Link href="/">
-            <GlassButton variant="primary" size="sm">
-              Retour à l'accueil
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-2 pt-2">
+            <GlassButton variant="primary" size="sm" onClick={() => loadDoctorData(false)}>
+              <RefreshCw className="w-3.5 h-3.5" />
+              Actualiser le statut
             </GlassButton>
-          </Link>
+            <Link href="/">
+              <GlassButton variant="secondary" size="sm">
+                Retour à l'accueil
+              </GlassButton>
+            </Link>
+          </div>
         </GlassCard>
       </div>
     );

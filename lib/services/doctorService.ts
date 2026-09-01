@@ -262,46 +262,74 @@ export function listenToDoctorProfile(
 }
 
 export async function getDoctorBySlug(slug: string): Promise<DoctorProfile | null> {
-  const normalizedSlug = slug.toLowerCase().trim();
+  if (!slug) return null;
+  const normalizedSlug = slug.toLowerCase().trim().replace(/^dr\.?\s*/i, 'dr-').replace(/^-+|-+$/g, '');
 
-  // 1. Essai Firestore en premier
+  let candidate: DoctorProfile | null = null;
+
+  // 1. FIRESTORE DATABASE DIRECT
   if (isFirebaseConfigured && db) {
     try {
       const q = query(collection(db, 'doctors'), where('slug', '==', normalizedSlug));
       const snap = await getDocs(q);
       if (!snap.empty) {
-        const docData = snap.docs[0].data() as DoctorProfile;
-        syncDoctorToLocal(docData);
-        return docData;
+        candidate = snap.docs[0].data() as DoctorProfile;
+      }
+
+      if (!candidate) {
+        const qId = query(collection(db, 'doctors'), where('id', '==', normalizedSlug));
+        const idSnap = await getDocs(qId);
+        if (!idSnap.empty) {
+          candidate = idSnap.docs[0].data() as DoctorProfile;
+        }
       }
     } catch (e) {
       console.warn('Firebase getDoctorBySlug notice:', e);
     }
   }
 
-  // 2. Fallback Local Storage
-  const doctors = getLocalDoctors();
-  const matched = doctors.find(d => d.slug.toLowerCase() === normalizedSlug);
-  if (matched) return matched;
-
-  // 3. Essai API Serverless Cloud
-  if (typeof window !== 'undefined') {
+  // 2. API SERVERLESS CLOUD (SYNCHRONISATION MULTI-POSTES EN TEMPS RÉEL)
+  if (typeof window !== 'undefined' && (!candidate || candidate.status !== 'active')) {
     try {
       const res = await fetch('/api/consultation/sync?type=doctors');
       if (res.ok) {
         const data = await res.json();
         if (data.doctors && Array.isArray(data.doctors)) {
-          const match = data.doctors.find((d: DoctorProfile) => d.slug?.toLowerCase().trim() === normalizedSlug);
+          const match = data.doctors.find((d: DoctorProfile) =>
+            d.slug?.toLowerCase().trim() === normalizedSlug ||
+            d.id?.toLowerCase() === normalizedSlug ||
+            d.slug?.toLowerCase().replace(/^dr\.?\s*/i, 'dr-') === normalizedSlug
+          );
           if (match) {
-            syncDoctorToLocal(match);
-            return match;
+            if (!candidate || match.status === 'active') {
+              candidate = match;
+            }
           }
         }
       }
     } catch (e) {}
   }
 
-  return null;
+  // 3. CACHE LOCAL
+  const doctors = getLocalDoctors();
+  const matchedLocal = doctors.find(d =>
+    d.slug?.toLowerCase().trim() === normalizedSlug ||
+    d.id?.toLowerCase() === normalizedSlug ||
+    d.slug?.toLowerCase().replace(/^dr\.?\s*/i, 'dr-') === normalizedSlug
+  );
+  if (matchedLocal) {
+    if (!candidate) {
+      candidate = matchedLocal;
+    } else if (matchedLocal.status === 'active' && candidate.status !== 'active') {
+      candidate = { ...candidate, status: 'active', licenseExpiresAt: matchedLocal.licenseExpiresAt };
+    }
+  }
+
+  if (candidate) {
+    syncDoctorToLocal(candidate);
+  }
+
+  return candidate;
 }
 
 export async function updateDoctorProfile(id: string, updates: Partial<DoctorProfile>): Promise<DoctorProfile | null> {
