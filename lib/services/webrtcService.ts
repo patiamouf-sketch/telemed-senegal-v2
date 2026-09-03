@@ -1,5 +1,5 @@
 import { db, isFirebaseConfigured } from '../firebase';
-import { doc, setDoc, onSnapshot } from 'firebase/firestore';
+import { doc, setDoc, updateDoc, onSnapshot, arrayUnion } from 'firebase/firestore';
 
 export const ICE_SERVERS: RTCConfiguration = {
   iceServers: [
@@ -7,6 +7,7 @@ export const ICE_SERVERS: RTCConfiguration = {
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun2.l.google.com:19302' },
     { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun4.l.google.com:19302' },
   ],
 };
 
@@ -29,6 +30,7 @@ export class WebRTCManager {
   private unsubSignal: (() => void) | null = null;
   private pollInterval: any = null;
   private isCleanedUp = false;
+  private processedCandidates = new Set<string>();
 
   constructor(patientId: string, isCaller: boolean, callbacks: WebRTCSessionCallbacks) {
     this.patientId = patientId;
@@ -142,9 +144,13 @@ export class WebRTCManager {
       // Appliquer les candidats ICE du médecin
       if (data.doctorCandidates && Array.isArray(data.doctorCandidates)) {
         for (const candidateData of data.doctorCandidates) {
-          try {
-            await this.peerConnection?.addIceCandidate(new RTCIceCandidate(candidateData));
-          } catch (e) {}
+          const key = JSON.stringify(candidateData);
+          if (candidateData && !this.processedCandidates.has(key)) {
+            this.processedCandidates.add(key);
+            try {
+              await this.peerConnection?.addIceCandidate(new RTCIceCandidate(candidateData));
+            } catch (e) {}
+          }
         }
       }
     });
@@ -170,16 +176,20 @@ export class WebRTCManager {
       // Appliquer les candidats ICE du patient
       if (data.patientCandidates && Array.isArray(data.patientCandidates)) {
         for (const candidateData of data.patientCandidates) {
-          try {
-            await this.peerConnection?.addIceCandidate(new RTCIceCandidate(candidateData));
-          } catch (e) {}
+          const key = JSON.stringify(candidateData);
+          if (candidateData && !this.processedCandidates.has(key)) {
+            this.processedCandidates.add(key);
+            try {
+              await this.peerConnection?.addIceCandidate(new RTCIceCandidate(candidateData));
+            } catch (e) {}
+          }
         }
       }
     });
   }
 
   /**
-   * Envoi d'un candidat ICE
+   * Envoi d'un candidat ICE avec arrayUnion et fallback
    */
   private async sendIceCandidate(candidate: RTCIceCandidate): Promise<void> {
     const candidatePayload = candidate.toJSON();
@@ -188,14 +198,19 @@ export class WebRTCManager {
     if (isFirebaseConfigured && db) {
       try {
         const signalDocRef = doc(db, 'webrtc_sessions', this.patientId);
-        await setDoc(
-          signalDocRef,
-          {
-            [fieldName]: [candidatePayload],
-            updatedAt: new Date().toISOString(),
-          },
-          { merge: true }
-        );
+        await updateDoc(signalDocRef, {
+          [fieldName]: arrayUnion(candidatePayload),
+          updatedAt: new Date().toISOString(),
+        }).catch(async () => {
+          await setDoc(
+            signalDocRef,
+            {
+              [fieldName]: [candidatePayload],
+              updatedAt: new Date().toISOString(),
+            },
+            { merge: true }
+          );
+        });
       } catch (e) {}
     }
 

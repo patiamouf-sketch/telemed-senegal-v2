@@ -42,6 +42,7 @@ import {
   Printer
 } from 'lucide-react';
 import { WebRTCManager } from '@/lib/services/webrtcService';
+import { uploadMedia } from '@/lib/services/storageService';
 import confetti from 'canvas-confetti';
 import Link from 'next/link';
 
@@ -293,6 +294,45 @@ export default function PatientRoomPage() {
     }
   };
 
+  // Envoi de message texte par le patient
+  const handleSendPatientMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!chatInput.trim() || !createdPatient?.id) return;
+
+    const text = chatInput.trim();
+    setChatInput('');
+
+    try {
+      const msg = await sendConsultationMessage(createdPatient.id, {
+        sender: 'patient',
+        type: 'text',
+        text,
+      });
+      setChatMessages(prev => (prev.some(m => m.id === msg.id) ? prev : [...prev, msg]));
+    } catch (err) {
+      console.warn('Erreur envoi message patient:', err);
+    }
+  };
+
+  // Envoi de document / photo par le patient
+  const handlePatientImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !createdPatient?.id) return;
+
+    try {
+      const imageUrl = await uploadMedia(file, `consultations/${createdPatient.id}/${Date.now()}_${file.name}`);
+      const msg = await sendConsultationMessage(createdPatient.id, {
+        sender: 'patient',
+        type: 'image',
+        text: `Document médical / Bilan transmis (${file.name})`,
+        imageUrl,
+      });
+      setChatMessages(prev => (prev.some(m => m.id === msg.id) ? prev : [...prev, msg]));
+    } catch (err) {
+      console.warn('Erreur upload document patient:', err);
+    }
+  };
+
   const loadDoctorData = useCallback(async (silent: boolean = false) => {
     if (!slug) return;
     if (!silent) setLoading(true);
@@ -419,40 +459,6 @@ export default function PatientRoomPage() {
     } catch (err: any) {
       setError(err.message || 'Erreur lors de la déclaration du paiement.');
     }
-  };
-
-  // Handle patient sending a text message
-  const handleSendPatientMessage = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!chatInput.trim() || !createdPatient) return;
-
-    const msg = await sendConsultationMessage(createdPatient.id, {
-      sender: 'patient',
-      type: 'text',
-      text: chatInput.trim(),
-    });
-
-    setChatMessages(prev => [...prev, msg]);
-    setChatInput('');
-  };
-
-  // Handle patient uploading a medical photo
-  const handlePatientImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !createdPatient) return;
-
-    const reader = new FileReader();
-    reader.onload = async event => {
-      const imageUrl = event.target?.result as string;
-      const msg = await sendConsultationMessage(createdPatient.id, {
-        sender: 'patient',
-        type: 'image',
-        text: `Photo / Bilan transmis par le patient (${file.name})`,
-        imageUrl,
-      });
-      setChatMessages(prev => [...prev, msg]);
-    };
-    reader.readAsDataURL(file);
   };
 
   const copyDoctorNumber = (num: string) => {

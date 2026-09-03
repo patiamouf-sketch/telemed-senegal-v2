@@ -813,7 +813,6 @@ export async function getPrescriptionByHash(hash: string): Promise<OfficialPresc
     }
   }
 
-  // 3. Fallback Local Storage (Prescriptions, Archives et Files d'attente)
   const prescriptions = getLocalPrescriptions();
   const found = prescriptions.find(p => p.hash.toLowerCase().trim() === normalizedHash);
   if (found) return found;
@@ -825,6 +824,17 @@ export async function getPrescriptionByHash(hash: string): Promise<OfficialPresc
   const queue = getLocalQueue();
   const queueFound = queue.find(p => p.prescription?.hash.toLowerCase().trim() === normalizedHash);
   if (queueFound?.prescription) return queueFound.prescription;
+
+  // Recherche dans les messages
+  for (const item of [...queue, ...archive]) {
+    if (item.messages) {
+      for (const m of item.messages) {
+        if (m.prescriptionData && m.prescriptionData.hash?.toLowerCase().trim() === normalizedHash) {
+          return m.prescriptionData;
+        }
+      }
+    }
+  }
 
   return null;
 }

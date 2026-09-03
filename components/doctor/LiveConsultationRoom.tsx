@@ -28,7 +28,7 @@ import {
   AlertTriangle,
   Lock,
 } from 'lucide-react';
-import { sendConsultationMessage, archiveConsultationSession, listenToPatient } from '@/lib/services/doctorService';
+import { sendConsultationMessage, archiveConsultationSession, listenToPatient, createOfficialPrescription } from '@/lib/services/doctorService';
 import { isDoctorLicenseValid } from '@/lib/utils/license';
 import { WebRTCManager } from '@/lib/services/webrtcService';
 import { uploadMedia } from '@/lib/services/storageService';
@@ -328,6 +328,9 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
   // Prescription Sealed callback
   const handlePrescriptionSealed = async (prescription: OfficialPrescription) => {
     setLatestPrescription(prescription);
+
+    // Enregistrement officiel dans le registre national (Firestore + API Sync + Local)
+    await createOfficialPrescription(prescription);
 
     const msg = await sendConsultationMessage(patient.id, {
       sender: 'doctor',

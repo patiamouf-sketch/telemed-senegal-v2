@@ -74,12 +74,27 @@ export async function GET(req: NextRequest) {
 
   if (hash) {
     const targetHash = decodeURIComponent(hash).toLowerCase().trim();
-    const presc =
+    let presc: OfficialPrescription | null =
       prescriptions.find(p => p.hash.toLowerCase().trim() === targetHash) ||
       archive.find(p => p.prescription?.hash.toLowerCase().trim() === targetHash)?.prescription ||
       queue.find(p => p.prescription?.hash.toLowerCase().trim() === targetHash)?.prescription ||
       null;
-    return NextResponse.json({ success: true, prescription: presc });
+
+    if (!presc) {
+      for (const item of [...queue, ...archive]) {
+        if (item.messages) {
+          for (const m of item.messages) {
+            if (m.prescriptionData && m.prescriptionData.hash?.toLowerCase().trim() === targetHash) {
+              presc = m.prescriptionData;
+              break;
+            }
+          }
+        }
+        if (presc) break;
+      }
+    }
+
+    return NextResponse.json({ success: true, prescription: presc || null });
   }
 
   return NextResponse.json({ success: true, queue, archive, doctors });

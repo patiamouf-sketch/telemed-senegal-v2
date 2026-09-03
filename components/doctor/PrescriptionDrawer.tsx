@@ -6,7 +6,7 @@ import { OfficialPrescription, PrescriptionItem } from '@/lib/types/prescription
 import { searchDrugs, DrugEntry } from '@/lib/data/dciDatabase';
 import { generatePrescriptionHash } from '@/lib/utils/cryptoSeal';
 import { isDoctorLicenseValid } from '@/lib/utils/license';
-import { submitPendingMedication } from '@/lib/services/doctorService';
+import { submitPendingMedication, createOfficialPrescription } from '@/lib/services/doctorService';
 import { downloadPrescriptionPDF } from '@/lib/utils/pdfGenerator';
 import { GlassButton } from '../ui/GlassButton';
 import { Badge } from '../ui/Badge';
@@ -226,6 +226,9 @@ export function PrescriptionDrawer({
       verificationUrl,
       status: 'valid',
     };
+
+    // Sauvegarde immédiate dans le registre officiel (Firestore + API Sync + Local)
+    await createOfficialPrescription(newPrescription);
 
     setSealedPrescription(newPrescription);
     setIsSealing(false);
