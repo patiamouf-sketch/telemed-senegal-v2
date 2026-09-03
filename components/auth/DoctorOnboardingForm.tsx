@@ -8,6 +8,7 @@ import { Badge } from '../ui/Badge';
 import { 
   Stethoscope, 
   ShieldAlert, 
+  ShieldCheck,
   Phone, 
   CreditCard, 
   User, 
@@ -16,12 +17,12 @@ import {
   Lock, 
   CheckCircle2, 
   Sparkles, 
-  X,
-  UploadCloud,
-  Camera,
-  Image as ImageIcon,
-  Check,
-  AlertCircle,
+  X, 
+  UploadCloud, 
+  Camera, 
+  Image as ImageIcon, 
+  Check, 
+  AlertCircle, 
 } from 'lucide-react';
 import { uploadMedia } from '@/lib/services/storageService';
 import confetti from 'canvas-confetti';
@@ -71,6 +72,15 @@ export function DoctorOnboardingForm({ onClose, onSuccess }: DoctorOnboardingFor
   const [verificationDocName, setVerificationDocName] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Photo de profil & Cachet / Signature du médecin
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [avatarName, setAvatarName] = useState<string | null>(null);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+
+  const [stampUrl, setStampUrl] = useState<string | null>(null);
+  const [stampName, setStampName] = useState<string | null>(null);
+  const stampInputRef = useRef<HTMLInputElement>(null);
+
   const [formData, setFormData] = useState({
     fullName: '',
     email: '',
@@ -91,6 +101,34 @@ export function DoctorOnboardingForm({ onClose, onSuccess }: DoctorOnboardingFor
       .replace(/^dr\.?\s*/i, 'dr-')
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '');
+  };
+
+  // Upload Photo de Profil (Firebase Storage avec compression)
+  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setAvatarName(file.name);
+    try {
+      const url = await uploadMedia(file, `doctor_avatars/${Date.now()}_${file.name}`);
+      setAvatarUrl(url);
+    } catch (err) {
+      console.warn('Erreur upload photo de profil:', err);
+    }
+  };
+
+  // Upload Cachet & Signature (Firebase Storage avec compression)
+  const handleStampChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setStampName(file.name);
+    try {
+      const url = await uploadMedia(file, `doctor_stamps/${Date.now()}_${file.name}`);
+      setStampUrl(url);
+    } catch (err) {
+      console.warn('Erreur upload cachet médical:', err);
+    }
   };
 
   // Compresseur d'image et upload média via storageService
@@ -162,6 +200,8 @@ export function DoctorOnboardingForm({ onClose, onSuccess }: DoctorOnboardingFor
           waveNumber: formData.phone,
           omNumber: formData.phone,
           bio: formData.bio || `Médecin spécialiste en ${formData.speciality}`,
+          avatarUrl: avatarUrl || undefined,
+          signatureStampUrl: stampUrl || undefined,
           verificationDocumentUrl: verificationDocUrl,
           verificationDocumentType: isRegisteredOnms ? 'onms_card' : 'id_card',
           availableForTeleconsult: true,
@@ -460,6 +500,117 @@ export function DoctorOnboardingForm({ onClose, onSuccess }: DoctorOnboardingFor
                 </span>
               </button>
             )}
+          </div>
+
+          {/* Upload Optionnel Photo de Profil & Cachet Médical */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* 1. Photo de profil */}
+            <div className="p-4 rounded-[24px] bg-slate-50 border border-slate-200 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-bold text-[#0F172A] flex items-center gap-1.5">
+                  <User className="w-3.5 h-3.5 text-[#3B82F6]" />
+                  Photo de Profil Praticien
+                </label>
+                <Badge variant={avatarUrl ? 'emerald' : 'blue'} size="sm">
+                  {avatarUrl ? 'Photo intégrée' : 'Recommandé'}
+                </Badge>
+              </div>
+              <p className="text-[10px] text-slate-500">
+                Incrustée dans votre QR Code et sur votre cabinet numérique.
+              </p>
+              <input
+                type="file"
+                accept="image/*"
+                ref={avatarInputRef}
+                onChange={handleAvatarChange}
+                className="hidden"
+              />
+              {avatarUrl ? (
+                <div className="flex items-center gap-3 bg-white p-2 rounded-[16px] border border-slate-200">
+                  <img
+                    src={avatarUrl}
+                    alt="Profil"
+                    className="w-12 h-12 rounded-full object-cover border border-[#3B82F6]"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[11px] font-bold text-[#0F172A] truncate">Photo enregistrée</p>
+                    <span className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
+                      <Check className="w-3 h-3" /> Intégrée au QR Code
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => avatarInputRef.current?.click()}
+                    className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2.5 py-1 rounded-full"
+                  >
+                    Changer
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => avatarInputRef.current?.click()}
+                  className="w-full py-2.5 px-3 rounded-[16px] border border-dashed border-slate-300 hover:border-blue-400 bg-white text-xs font-bold text-slate-700 flex items-center justify-center gap-2 transition-all shadow-sm"
+                >
+                  <Camera className="w-4 h-4 text-[#3B82F6]" />
+                  <span>Importer ma photo</span>
+                </button>
+              )}
+            </div>
+
+            {/* 2. Cachet & Signature */}
+            <div className="p-4 rounded-[24px] bg-slate-50 border border-slate-200 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-bold text-[#0F172A] flex items-center gap-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                  Cachet & Signature
+                </label>
+                <Badge variant={stampUrl ? 'emerald' : 'blue'} size="sm">
+                  {stampUrl ? 'Cachet scellé' : 'Recommandé'}
+                </Badge>
+              </div>
+              <p className="text-[10px] text-slate-500">
+                Incrusté automatiquement sur vos ordonnances certifiées.
+              </p>
+              <input
+                type="file"
+                accept="image/*"
+                ref={stampInputRef}
+                onChange={handleStampChange}
+                className="hidden"
+              />
+              {stampUrl ? (
+                <div className="flex items-center gap-3 bg-white p-2 rounded-[16px] border border-slate-200">
+                  <img
+                    src={stampUrl}
+                    alt="Cachet"
+                    className="h-12 w-16 object-contain rounded-[8px] border border-slate-100 bg-slate-50"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[11px] font-bold text-[#0F172A] truncate">Tampon scellé</p>
+                    <span className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
+                      <Check className="w-3 h-3" /> Ordonnances officielles
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => stampInputRef.current?.click()}
+                    className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2.5 py-1 rounded-full"
+                  >
+                    Changer
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => stampInputRef.current?.click()}
+                  className="w-full py-2.5 px-3 rounded-[16px] border border-dashed border-slate-300 hover:border-emerald-400 bg-white text-xs font-bold text-slate-700 flex items-center justify-center gap-2 transition-all shadow-sm"
+                >
+                  <UploadCloud className="w-4 h-4 text-emerald-600" />
+                  <span>Importer mon cachet</span>
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Note sur la validation Super-Admin */}

@@ -538,21 +538,30 @@ export function listenToPatient(
     }
   }
 
-  // 2. Polling API Serverless régulier pour garantir la synchronisation multi-appareils
+  // 2. Polling API Serverless & Cache Local haute fréquence (800ms) pour garantir la synchronisation multi-appareils
   const interval = setInterval(async () => {
     if (isUnsubscribed) return;
     try {
+      // 2a. Vérification API Sync
       const res = await fetch(`/api/consultation/sync?id=${encodeURIComponent(patientId)}`);
       if (res.ok) {
         const data = await res.json();
         if (data.patient && !isUnsubscribed) {
           callback(data.patient);
+          return;
         }
       }
-    } catch (e) {
-      // Silently continue
-    }
-  }, 2000);
+    } catch (e) {}
+
+    // 2b. Fallback local
+    try {
+      const q = getLocalQueue();
+      const localP = q.find(p => p.id === patientId);
+      if (localP && !isUnsubscribed) {
+        callback(localP);
+      }
+    } catch (e) {}
+  }, 800);
 
   // Fonction de nettoyage
   return () => {
@@ -711,29 +720,36 @@ export async function sendConsultationMessage(
     isPrescription: message.isPrescription || Boolean(message.prescriptionData),
   };
 
-  // 1. Envoi temps réel Firestore
+  // 1. Envoi temps réel Firestore (avec merge pour supporter tout état de document)
   if (isFirebaseConfigured && db) {
     try {
-      await updateDoc(doc(db, 'patient_queues', patientId), {
-        messages: arrayUnion(newMsg)
-      });
+      await setDoc(
+        doc(db, 'patient_queues', patientId),
+        {
+          id: patientId,
+          messages: arrayUnion(newMsg)
+        },
+        { merge: true }
+      );
     } catch (e) {
       console.warn('Firebase sendConsultationMessage failed:', e);
     }
   }
 
-  // 2. Envoi API Serverless Vercel
+  // 2. Envoi API Serverless Vercel (AWAIT obligatoire pour transmission immédiate)
   if (typeof window !== 'undefined') {
     try {
-      fetch('/api/consultation/sync', {
+      await fetch('/api/consultation/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'send_message',
           payload: { patientId, message: newMsg }
         })
-      }).catch(e => console.warn('API send_message notice:', e));
-    } catch (e) {}
+      });
+    } catch (e) {
+      console.warn('API send_message notice:', e);
+    }
   }
 
   // 3. Mise à jour Cache Local

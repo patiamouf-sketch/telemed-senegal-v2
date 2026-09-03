@@ -717,7 +717,7 @@ export function PrescriptionDrawer({
                     </div>
 
                     <div className="p-1 bg-white rounded-lg border border-slate-200 shadow-sm flex-shrink-0">
-                      <LocalQRCode value={sealedPrescription.verificationUrl} size={64} />
+                      <LocalQRCode value={sealedPrescription.verificationUrl} size={64} avatarUrl={doctor.avatarUrl} />
                     </div>
                   </div>
                 ) : (

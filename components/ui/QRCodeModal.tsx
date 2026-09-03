@@ -14,6 +14,7 @@ interface QRCodeModalProps {
   onmsNumber: string;
   slug: string;
   url: string;
+  avatarUrl?: string;
   onClose: () => void;
 }
 
@@ -23,6 +24,7 @@ export function QRCodeModal({
   onmsNumber,
   slug,
   url,
+  avatarUrl,
   onClose
 }: QRCodeModalProps) {
   const [copied, setCopied] = React.useState(false);
@@ -57,10 +59,10 @@ export function QRCodeModal({
           </p>
         </div>
 
-        {/* QR Code Container (100% Local) */}
+        {/* QR Code Container (100% Local avec Photo Praticien) */}
         <div className="p-5 rounded-[24px] bg-gradient-to-b from-sky-50 to-white border border-sky-100/90 shadow-inner flex flex-col items-center justify-center">
           <div className="p-3 bg-white rounded-[20px] shadow-md border border-slate-100 mb-3 flex items-center justify-center">
-            <LocalQRCode value={url} size={200} />
+            <LocalQRCode value={url} size={200} avatarUrl={avatarUrl} />
           </div>
 
           <div className="text-center space-y-0.5">

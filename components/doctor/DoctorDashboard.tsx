@@ -744,6 +744,7 @@ export function DoctorDashboard() {
           onmsNumber={doctorProfile?.onmsNumber || 'SN-ONMS-4829'}
           slug={doctorSlug}
           url={patientLink}
+          avatarUrl={doctorProfile?.avatarUrl}
           onClose={() => setShowQRModal(false)}
         />
       )}

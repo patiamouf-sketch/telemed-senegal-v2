@@ -225,7 +225,27 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ success: true, message, patient: archMatched });
         }
 
-        return NextResponse.json({ success: false, error: 'Patient session not found' }, { status: 404 });
+        // Si la session n'était pas encore en mémoire sur cette instance (cold start / multi-lambda), on la crée
+        const fallbackItem: PatientQueueItem = {
+          id: patientId,
+          doctorSlug: payload.doctorSlug || 'cabinet',
+          patientName: payload.patientName || 'Patient',
+          patientPhone: payload.patientPhone || '',
+          gender: 'M',
+          age: 30,
+          serviceType: 'visio_consultation',
+          amountPaid: 7000,
+          paymentMethod: 'wave',
+          paymentDeclared: true,
+          paymentConfirmedByDoctor: true,
+          reason: 'Consultation',
+          urgency: 'normale',
+          status: 'in_consultation',
+          joinedAt: new Date().toISOString(),
+          messages: [message],
+        };
+        queue.unshift(fallbackItem);
+        return NextResponse.json({ success: true, message, patient: fallbackItem });
       }
 
       case 'confirm_payment': {

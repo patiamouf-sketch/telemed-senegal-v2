@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useAuth } from '@/lib/context/AuthContext';
 import { DoctorProfile } from '@/lib/types/doctor';
 import { updateDoctorProfile } from '@/lib/services/doctorService';
+import { uploadMedia } from '@/lib/services/storageService';
 import { GlassCard } from '../ui/GlassCard';
 import { GlassButton } from '../ui/GlassButton';
 import { Badge } from '../ui/Badge';
@@ -21,7 +22,7 @@ import {
   UploadCloud, 
   Sliders, 
   Eye, 
-  Image as ImageIcon,
+  Image as ImageIcon, 
   Check
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
@@ -130,9 +131,16 @@ export function DoctorProfileModal({ isOpen, onClose }: DoctorProfileModalProps)
     img.src = imageSrc;
   };
 
-  const handleStampUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleStampUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    try {
+      const storageUrl = await uploadMedia(file, `doctor_stamps/${Date.now()}_${file.name}`);
+      setProcessedStampUrl(storageUrl);
+    } catch (err) {
+      console.warn('Storage upload notice, using local canvas:', err);
+    }
 
     const reader = new FileReader();
     reader.onload = (event) => {
@@ -143,9 +151,16 @@ export function DoctorProfileModal({ isOpen, onClose }: DoctorProfileModalProps)
     reader.readAsDataURL(file);
   };
 
-  const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    try {
+      const storageUrl = await uploadMedia(file, `doctor_avatars/${Date.now()}_${file.name}`);
+      setAvatarUrl(storageUrl);
+    } catch (err) {
+      console.warn('Avatar storage upload notice, using canvas:', err);
+    }
 
     const reader = new FileReader();
     reader.onload = (event) => {
@@ -157,13 +172,12 @@ export function DoctorProfileModal({ isOpen, onClose }: DoctorProfileModalProps)
         canvas.height = dim;
         const ctx = canvas.getContext('2d');
         if (ctx) {
-          // Recadrage centré carré
           const minSide = Math.min(img.width, img.height);
           const sx = (img.width - minSide) / 2;
           const sy = (img.height - minSide) / 2;
           ctx.drawImage(img, sx, sy, minSide, minSide, 0, 0, dim, dim);
           const result = canvas.toDataURL('image/jpeg', 0.85);
-          setAvatarUrl(result);
+          setAvatarUrl(prev => prev || result);
         }
       };
       img.src = event.target?.result as string;
