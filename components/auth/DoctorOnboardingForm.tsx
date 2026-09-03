@@ -21,8 +21,9 @@ import {
   Camera,
   Image as ImageIcon,
   Check,
-  AlertCircle
+  AlertCircle,
 } from 'lucide-react';
+import { uploadMedia } from '@/lib/services/storageService';
 import confetti from 'canvas-confetti';
 
 const MEDICAL_SPECIALITIES = [
@@ -92,41 +93,18 @@ export function DoctorOnboardingForm({ onClose, onSuccess }: DoctorOnboardingFor
       .replace(/^-+|-+$/g, '');
   };
 
-  // Compresseur d'image client pour un upload ultra-léger et rapide
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Compresseur d'image et upload média via storageService
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setVerificationDocName(file.name);
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const maxDim = 1000;
-        let width = img.width;
-        let height = img.height;
-
-        if (width > height && width > maxDim) {
-          height = Math.round((height * maxDim) / width);
-          width = maxDim;
-        } else if (height > maxDim) {
-          width = Math.round((width * maxDim) / height);
-          height = maxDim;
-        }
-
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.drawImage(img, 0, 0, width, height);
-          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.75);
-          setVerificationDocUrl(compressedDataUrl);
-        }
-      };
-      img.src = event.target?.result as string;
-    };
-    reader.readAsDataURL(file);
+    try {
+      const url = await uploadMedia(file, `doctor_verification/${Date.now()}_${file.name}`);
+      setVerificationDocUrl(url);
+    } catch (err) {
+      console.warn('Erreur de traitement image justificatif:', err);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {

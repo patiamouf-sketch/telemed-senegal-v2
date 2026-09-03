@@ -7,6 +7,7 @@ import { searchDrugs, DrugEntry } from '@/lib/data/dciDatabase';
 import { generatePrescriptionHash } from '@/lib/utils/cryptoSeal';
 import { isDoctorLicenseValid } from '@/lib/utils/license';
 import { submitPendingMedication } from '@/lib/services/doctorService';
+import { downloadPrescriptionPDF } from '@/lib/utils/pdfGenerator';
 import { GlassButton } from '../ui/GlassButton';
 import { Badge } from '../ui/Badge';
 import {
@@ -23,7 +24,8 @@ import {
   Eye,
   Edit3,
   Sparkles,
-  AlertCircle
+  AlertCircle,
+  Download
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import confetti from 'canvas-confetti';
@@ -752,13 +754,23 @@ export function PrescriptionDrawer({
               ) : (
                 <>
                   <GlassButton
+                    variant="primary"
+                    size="md"
+                    onClick={() => sealedPrescription && downloadPrescriptionPDF(sealedPrescription)}
+                    className="w-full sm:w-auto text-xs shadow-pill"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span>Télécharger PDF Direct</span>
+                  </GlassButton>
+
+                  <GlassButton
                     variant="secondary"
                     size="md"
                     onClick={handlePrint}
                     className="w-full sm:w-auto text-xs"
                   >
                     <Printer className="w-4 h-4" />
-                    <span>Imprimer le PDF Officiel</span>
+                    <span>Imprimer</span>
                   </GlassButton>
 
                   <GlassButton

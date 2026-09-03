@@ -836,6 +836,62 @@ export async function getPrescriptionByHash(hash: string): Promise<OfficialPresc
 }
 
 /**
+ * Délivrance d'une ordonnance en pharmacie (Verrouillage anti-fraude)
+ */
+export async function dispensePrescription(
+  hash: string,
+  pharmacyData: { pharmacyName: string; pharmacistName?: string }
+): Promise<OfficialPrescription | null> {
+  const normalizedHash = decodeURIComponent(hash).toLowerCase().trim();
+  const timestamp = new Date().toISOString();
+  const updates: Partial<OfficialPrescription> = {
+    dispensed: true,
+    dispensedAt: timestamp,
+    dispensedByPharmacy: pharmacyData.pharmacyName,
+    dispensedPharmacistName: pharmacyData.pharmacistName || 'Docteur en Pharmacie',
+    status: 'dispensed',
+  };
+
+  // 1. Firestore
+  if (isFirebaseConfigured && db) {
+    try {
+      await updateDoc(doc(db, 'prescriptions', normalizedHash), updates);
+    } catch (e) {
+      console.warn('Firebase dispensePrescription failed:', e);
+    }
+  }
+
+  // 2. API Sync
+  if (typeof window !== 'undefined') {
+    try {
+      await fetch('/api/consultation/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'dispense_prescription',
+          payload: {
+            hash: normalizedHash,
+            pharmacyName: pharmacyData.pharmacyName,
+            pharmacistName: pharmacyData.pharmacistName,
+          },
+        }),
+      });
+    } catch (e) {}
+  }
+
+  // 3. LocalStorage
+  const prescriptions = getLocalPrescriptions();
+  const pIdx = prescriptions.findIndex(p => p.hash.toLowerCase().trim() === normalizedHash);
+  if (pIdx >= 0) {
+    prescriptions[pIdx] = { ...prescriptions[pIdx], ...updates };
+    saveLocalPrescriptions(prescriptions);
+    return prescriptions[pIdx];
+  }
+
+  return null;
+}
+
+/**
  * Clôture et archivage de la session de consultation
  */
 export async function archiveConsultationSession(

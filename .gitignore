@@ -24,6 +24,9 @@
 # Vercel
 .vercel
 
+# Firebase
+.firebase/
+
 # TypeScript
 *.tsbuildinfo
 next-env.d.ts

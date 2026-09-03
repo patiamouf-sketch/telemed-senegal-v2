@@ -3,7 +3,8 @@
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { OfficialPrescription } from '@/lib/types/prescription';
-import { getPrescriptionByHash } from '@/lib/services/doctorService';
+import { getPrescriptionByHash, dispensePrescription } from '@/lib/services/doctorService';
+import { downloadPrescriptionPDF } from '@/lib/utils/pdfGenerator';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { GlassButton } from '@/components/ui/GlassButton';
 import { Badge } from '@/components/ui/Badge';
@@ -20,9 +21,15 @@ import {
   Heart,
   Loader2,
   MapPin,
-  Phone
+  Phone,
+  Download,
+  Building2,
+  Check,
+  ShieldAlert,
+  Lock
 } from 'lucide-react';
 import Link from 'next/link';
+import confetti from 'canvas-confetti';
 
 export default function VerifyPrescriptionPage() {
   const params = useParams();
@@ -32,6 +39,12 @@ export default function VerifyPrescriptionPage() {
   const [prescription, setPrescription] = useState<OfficialPrescription | null>(null);
   const [loading, setLoading] = useState(true);
   const [verified, setVerified] = useState(false);
+
+  // Pharmacy dispensation state
+  const [showDispenseForm, setShowDispenseForm] = useState(false);
+  const [pharmacyName, setPharmacyName] = useState('Pharmacie Principale');
+  const [pharmacistName, setPharmacistName] = useState('Dr. Pharmacien Responsable');
+  const [dispensing, setDispensing] = useState(false);
 
   useEffect(() => {
     async function verify() {
@@ -54,6 +67,35 @@ export default function VerifyPrescriptionPage() {
 
   const handlePrint = () => {
     window.print();
+  };
+
+  const handleDownloadPDF = async () => {
+    if (prescription) {
+      await downloadPrescriptionPDF(prescription);
+    }
+  };
+
+  const handleDispense = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!prescription || !pharmacyName.trim()) return;
+
+    setDispensing(true);
+    const updated = await dispensePrescription(prescription.hash, {
+      pharmacyName: pharmacyName.trim(),
+      pharmacistName: pharmacistName.trim(),
+    });
+
+    if (updated) {
+      setPrescription(updated);
+      setShowDispenseForm(false);
+      confetti({
+        particleCount: 80,
+        spread: 60,
+        origin: { y: 0.6 },
+        colors: ['#10B981', '#059669', '#3B82F6']
+      });
+    }
+    setDispensing(false);
   };
 
   const isOnmsRegistered = Boolean(
@@ -105,7 +147,7 @@ export default function VerifyPrescriptionPage() {
     <div className="min-h-screen py-8 px-4 sm:px-6 lg:px-8 font-sans">
       <div className="max-w-3xl mx-auto space-y-6">
         {/* Navigation / Header */}
-        <div className="flex items-center justify-between no-print">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 no-print">
           <Link
             href="/"
             className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-[#3B82F6] font-semibold"
@@ -114,11 +156,135 @@ export default function VerifyPrescriptionPage() {
             Retour à l'accueil
           </Link>
 
-          <GlassButton variant="secondary" size="sm" onClick={handlePrint} className="text-xs">
-            <Printer className="w-3.5 h-3.5" />
-            <span>Imprimer l'Ordonnance</span>
-          </GlassButton>
+          <div className="flex items-center gap-2">
+            <GlassButton variant="primary" size="sm" onClick={handleDownloadPDF} className="text-xs shadow-pill">
+              <Download className="w-3.5 h-3.5" />
+              <span>Télécharger PDF Direct</span>
+            </GlassButton>
+
+            <GlassButton variant="secondary" size="sm" onClick={handlePrint} className="text-xs">
+              <Printer className="w-3.5 h-3.5" />
+              <span>Imprimer</span>
+            </GlassButton>
+          </div>
         </div>
+
+        {/* Anti-Fraud Banner if ALREADY DISPENSED */}
+        {prescription.dispensed ? (
+          <div className="p-4 rounded-[24px] bg-rose-50 border-2 border-rose-300 text-rose-900 text-xs shadow-md space-y-1">
+            <div className="flex items-center gap-2">
+              <ShieldAlert className="w-5 h-5 text-rose-600 flex-shrink-0" />
+              <strong className="text-sm font-extrabold uppercase">
+                ⚠️ Ordonnance Déjà Délivrée & Verrouillée
+              </strong>
+            </div>
+            <p className="text-rose-700 pl-7 leading-relaxed">
+              Ce document a été exécuté le <strong>{prescription.dispensedAt ? new Date(prescription.dispensedAt).toLocaleDateString('fr-FR') : 'Date archivée'}</strong> par{' '}
+              <strong>{prescription.dispensedByPharmacy || 'Une officine de pharmacie'}</strong> ({prescription.dispensedPharmacistName || 'Pharmacien'}).
+              <br />
+              <strong>CE DOCUMENT NE PEUT PLUS ÊTRE DÉLIVRÉ UNE SECONDE FOIS.</strong>
+            </p>
+          </div>
+        ) : (
+          <div className="p-4 rounded-[24px] bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm no-print">
+            <div className="flex items-center gap-2.5">
+              <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0" />
+              <div>
+                <strong className="text-emerald-950 font-bold block">Document Médical Valide & Conforme</strong>
+                <span className="text-emerald-700">Ordonnance certifiée par signature électronique SHA-256 non encore délivrée.</span>
+              </div>
+            </div>
+
+            {!showDispenseForm && (
+              <GlassButton
+                variant="success"
+                size="sm"
+                onClick={() => setShowDispenseForm(true)}
+                className="text-xs whitespace-nowrap shadow-sm"
+              >
+                <Building2 className="w-3.5 h-3.5" />
+                <span>Espace Pharmacie : Délivrer</span>
+              </GlassButton>
+            )}
+          </div>
+        )}
+
+        {/* Pharmacist Dispense Action Box */}
+        {showDispenseForm && !prescription.dispensed && (
+          <div className="p-5 rounded-[28px] bg-white border-2 border-blue-200 shadow-xl space-y-3 animate-fade-in no-print">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Building2 className="w-5 h-5 text-[#3B82F6]" />
+                <h4 className="font-bold text-[#0F172A] text-sm">
+                  Délivrance de l'Ordonnance en Officine
+                </h4>
+              </div>
+              <button
+                onClick={() => setShowDispenseForm(false)}
+                className="text-slate-400 hover:text-slate-700 text-xs font-semibold"
+              >
+                Annuler
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-500">
+              En confirmant la délivrance, cette ordonnance sera enregistrée et scellée dans le registre national pour empêcher toute réutilisation multiple.
+            </p>
+
+            <form onSubmit={handleDispense} className="space-y-3 pt-1">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-[#0F172A] mb-1">
+                    Nom de l'Officine / Pharmacie *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={pharmacyName}
+                    onChange={e => setPharmacyName(e.target.value)}
+                    placeholder="Ex: Pharmacie Guigon Dakar"
+                    className="w-full px-3.5 py-2 rounded-[16px] bg-slate-50 border border-slate-200 text-xs text-[#0F172A] focus:bg-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-[#0F172A] mb-1">
+                    Nom du Pharmacien Responsable
+                  </label>
+                  <input
+                    type="text"
+                    value={pharmacistName}
+                    onChange={e => setPharmacistName(e.target.value)}
+                    placeholder="Ex: Dr. Awa Diop"
+                    className="w-full px-3.5 py-2 rounded-[16px] bg-slate-50 border border-slate-200 text-xs text-[#0F172A] focus:bg-white"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-1">
+                <GlassButton
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => setShowDispenseForm(false)}
+                  className="text-xs"
+                >
+                  Fermer
+                </GlassButton>
+                <GlassButton
+                  type="submit"
+                  size="sm"
+                  variant="success"
+                  isLoading={dispensing}
+                  className="text-xs shadow-pill-emerald font-bold"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Confirmer la Délivrance & Verrouiller</span>
+                </GlassButton>
+              </div>
+            </form>
+          </div>
+        )}
 
         {/* Printable Official Medical Document */}
         <div className="p-8 sm:p-10 rounded-[32px] bg-white border border-slate-200/90 shadow-2xl space-y-6">
@@ -269,7 +435,7 @@ export default function VerifyPrescriptionPage() {
                 <span className="text-[9px] text-emerald-700 font-semibold block">Scan de conformité</span>
               </div>
               <div className="p-1.5 bg-white rounded-xl border border-slate-200 shadow-sm flex-shrink-0">
-                <LocalQRCode value={prescription.verificationUrl || `https://telemed-senegal-v2.vercel.app/verify-rx/${prescription.hash}`} size={64} />
+                <LocalQRCode value={prescription.verificationUrl || `https://telemed-senegal-v2.vercel.app/verify/${prescription.hash}`} size={64} />
               </div>
             </div>
           </div>

@@ -41,6 +41,7 @@ import {
   ExternalLink,
   Printer
 } from 'lucide-react';
+import { WebRTCManager } from '@/lib/services/webrtcService';
 import confetti from 'canvas-confetti';
 import Link from 'next/link';
 
@@ -94,9 +95,12 @@ export default function PatientRoomPage() {
   const audioChunksRef = useRef<Blob[]>([]);
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
 
-  // Visio WebRTC local stream states
+  // Visio WebRTC streams
   const localVideoRef = useRef<HTMLVideoElement>(null);
+  const remoteDoctorVideoRef = useRef<HTMLVideoElement>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
+  const webrtcRef = useRef<WebRTCManager | null>(null);
+  const [hasDoctorVideo, setHasDoctorVideo] = useState(false);
   const [isVideoMuted, setIsVideoMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
 
@@ -111,9 +115,9 @@ export default function PatientRoomPage() {
     return () => clearInterval(interval);
   }, [isRecordingVoice]);
 
-  // Video camera stream effect when patient enters visio
+  // Video camera stream effect & WebRTC connection when patient enters visio
   useEffect(() => {
-    if (step === 'consultation' && serviceType === 'visio_consultation' && typeof navigator !== 'undefined' && navigator.mediaDevices) {
+    if (step === 'consultation' && serviceType === 'visio_consultation' && createdPatient?.id && typeof navigator !== 'undefined' && navigator.mediaDevices) {
       navigator.mediaDevices
         .getUserMedia({ video: true, audio: true })
         .then(stream => {
@@ -121,18 +125,41 @@ export default function PatientRoomPage() {
           if (localVideoRef.current) {
             localVideoRef.current.srcObject = stream;
           }
+
+          // Initialiser WebRTC (Callee = Patient)
+          const manager = new WebRTCManager(createdPatient.id, false, {
+            onRemoteStream: (remoteStream) => {
+              if (remoteDoctorVideoRef.current) {
+                remoteDoctorVideoRef.current.srcObject = remoteStream;
+                setHasDoctorVideo(true);
+              }
+            },
+            onConnectionStateChange: (state) => {
+              if (state === 'connected') {
+                setHasDoctorVideo(true);
+              } else if (state === 'disconnected' || state === 'failed') {
+                setHasDoctorVideo(false);
+              }
+            },
+          });
+          webrtcRef.current = manager;
+          manager.start(stream).catch(err => console.warn('WebRTC patient start notice:', err));
         })
         .catch(err => {
           console.warn('Patient camera access notice:', err);
         });
 
       return () => {
+        if (webrtcRef.current) {
+          webrtcRef.current.destroy();
+          webrtcRef.current = null;
+        }
         if (mediaStreamRef.current) {
           mediaStreamRef.current.getTracks().forEach(t => t.stop());
         }
       };
     }
-  }, [step, serviceType]);
+  }, [step, serviceType, createdPatient?.id]);
 
   // Toggle Video Track
   const toggleVideoTrack = () => {
@@ -992,15 +1019,24 @@ export default function PatientRoomPage() {
               <div className="h-64 sm:h-72 bg-slate-950 p-4 rounded-[28px] border border-slate-800 flex flex-col justify-between relative overflow-hidden flex-shrink-0">
                 <div className="flex-1 rounded-[20px] bg-slate-900 border border-slate-800 relative flex items-center justify-center overflow-hidden">
                   {/* Doctor Remote Stream */}
-                  <div className="text-center space-y-2 p-4">
-                    <div className="w-16 h-16 rounded-full bg-gradient-to-tr from-blue-600 to-sky-400 text-white flex items-center justify-center text-2xl font-extrabold mx-auto shadow-2xl ring-4 ring-sky-400/30 animate-pulse">
-                      Dr
+                  <video
+                    ref={remoteDoctorVideoRef}
+                    autoPlay
+                    playsInline
+                    className={`w-full h-full object-cover ${hasDoctorVideo ? 'block' : 'hidden'}`}
+                  />
+
+                  {!hasDoctorVideo && (
+                    <div className="text-center space-y-2 p-4">
+                      <div className="w-16 h-16 rounded-full bg-gradient-to-tr from-blue-600 to-sky-400 text-white flex items-center justify-center text-2xl font-extrabold mx-auto shadow-2xl ring-4 ring-sky-400/30 animate-pulse">
+                        Dr
+                      </div>
+                      <div>
+                        <h4 className="text-base font-bold text-white">{doctor.fullName}</h4>
+                        <p className="text-[11px] text-sky-400 font-mono">Médecin en direct • Négociation WebRTC HD...</p>
+                      </div>
                     </div>
-                    <div>
-                      <h4 className="text-base font-bold text-white">{doctor.fullName}</h4>
-                      <p className="text-[11px] text-sky-400 font-mono">Médecin en direct • Téléconsultation Chiffrée</p>
-                    </div>
-                  </div>
+                  )}
 
                   {/* Patient Local Camera Pip */}
                   <div className="absolute bottom-3 right-3 w-28 h-20 sm:w-32 sm:h-24 rounded-[16px] bg-slate-800 border-2 border-white/20 shadow-2xl flex flex-col items-center justify-center overflow-hidden">

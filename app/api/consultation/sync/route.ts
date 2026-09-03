@@ -11,6 +11,7 @@ declare global {
   var __telemedGlobalPrescriptions: OfficialPrescription[] | undefined;
   var __telemedGlobalPendingMeds: PendingMedication[] | undefined;
   var __telemedGlobalDoctors: DoctorProfile[] | undefined;
+  var __telemedGlobalWebRTCSessions: Record<string, any> | undefined;
 }
 
 if (!global.__telemedGlobalQueue) {
@@ -28,12 +29,16 @@ if (!global.__telemedGlobalPendingMeds) {
 if (!global.__telemedGlobalDoctors) {
   global.__telemedGlobalDoctors = [...INITIAL_DOCTORS];
 }
+if (!global.__telemedGlobalWebRTCSessions) {
+  global.__telemedGlobalWebRTCSessions = {};
+}
 
 const queue = global.__telemedGlobalQueue;
 const archive = global.__telemedGlobalArchive;
 const prescriptions = global.__telemedGlobalPrescriptions;
 const pendingMeds = global.__telemedGlobalPendingMeds;
 const doctors = global.__telemedGlobalDoctors;
+const webrtcSessions = global.__telemedGlobalWebRTCSessions;
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -48,6 +53,10 @@ export async function GET(req: NextRequest) {
 
   if (type === 'pending_meds') {
     return NextResponse.json({ success: true, pendingMeds });
+  }
+
+  if (type === 'webrtc' && id) {
+    return NextResponse.json({ success: true, session: webrtcSessions[id] || null });
   }
 
   if (id) {
@@ -297,6 +306,50 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ success: true, medication: pendingMeds[idx] });
         }
         return NextResponse.json({ success: false, error: 'Medication not found' }, { status: 404 });
+      }
+
+      // Signalisation WebRTC P2P
+      case 'webrtc_signal': {
+        const { patientId, type, signal } = payload;
+        if (!webrtcSessions[patientId]) {
+          webrtcSessions[patientId] = {};
+        }
+        webrtcSessions[patientId][type] = signal;
+        webrtcSessions[patientId].updatedAt = new Date().toISOString();
+        return NextResponse.json({ success: true, session: webrtcSessions[patientId] });
+      }
+
+      case 'webrtc_candidate': {
+        const { patientId, isCaller, candidate } = payload;
+        if (!webrtcSessions[patientId]) {
+          webrtcSessions[patientId] = {};
+        }
+        const field = isCaller ? 'doctorCandidates' : 'patientCandidates';
+        if (!webrtcSessions[patientId][field]) {
+          webrtcSessions[patientId][field] = [];
+        }
+        webrtcSessions[patientId][field].push(candidate);
+        webrtcSessions[patientId].updatedAt = new Date().toISOString();
+        return NextResponse.json({ success: true, session: webrtcSessions[patientId] });
+      }
+
+      // Délivrance d'ordonnance en pharmacie
+      case 'dispense_prescription': {
+        const { hash, pharmacyName, pharmacistName } = payload;
+        const targetHash = decodeURIComponent(hash).toLowerCase().trim();
+        const presc =
+          prescriptions.find(p => p.hash.toLowerCase().trim() === targetHash) ||
+          archive.find(p => p.prescription?.hash.toLowerCase().trim() === targetHash)?.prescription ||
+          queue.find(p => p.prescription?.hash.toLowerCase().trim() === targetHash)?.prescription;
+
+        if (presc) {
+          presc.dispensed = true;
+          presc.dispensedAt = new Date().toISOString();
+          presc.dispensedByPharmacy = pharmacyName || 'Pharmacie Partenaire';
+          presc.dispensedPharmacistName = pharmacistName || 'Docteur en Pharmacie';
+          return NextResponse.json({ success: true, prescription: presc });
+        }
+        return NextResponse.json({ success: false, error: 'Prescription not found' }, { status: 404 });
       }
 
       default:

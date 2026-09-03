@@ -19,6 +19,7 @@ export interface DoctorProfile {
   city?: string;
   slug: string;       // Utilisé pour la route /dr/[slug]
   status: DoctorStatus;
+  role?: 'doctor' | 'admin';
   rejectionReason?: string;
   banReason?: string;
   licenseExpiresAt?: string; // ISO date string (ex: +30 jours)

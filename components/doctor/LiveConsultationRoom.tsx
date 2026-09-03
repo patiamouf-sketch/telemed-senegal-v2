@@ -26,10 +26,12 @@ import {
   Volume2,
   Image as ImageIcon,
   AlertTriangle,
-  Lock
+  Lock,
 } from 'lucide-react';
 import { sendConsultationMessage, archiveConsultationSession, listenToPatient } from '@/lib/services/doctorService';
 import { isDoctorLicenseValid } from '@/lib/utils/license';
+import { WebRTCManager } from '@/lib/services/webrtcService';
+import { uploadMedia } from '@/lib/services/storageService';
 import confetti from 'canvas-confetti';
 
 interface LiveConsultationRoomProps {
@@ -44,6 +46,7 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
   const [isVideoMuted, setIsVideoMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
   const [callSeconds, setCallSeconds] = useState(0);
+  const [hasRemoteVideo, setHasRemoteVideo] = useState(false);
 
   // Synchronisation temps réel des messages & ordonnance
   useEffect(() => {
@@ -72,9 +75,11 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
   const audioChunksRef = useRef<Blob[]>([]);
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
 
-  // Video stream ref
+  // Video stream refs & WebRTC
   const localVideoRef = useRef<HTMLVideoElement>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
+  const webrtcRef = useRef<WebRTCManager | null>(null);
 
   // Image preview state
   const [previewImage, setPreviewImage] = useState<string | null>(null);
@@ -84,7 +89,7 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
   // License check
   const licenseCheck = isDoctorLicenseValid(doctor);
 
-  // Real Camera Stream setup for Visio
+  // Real Camera Stream & WebRTC P2P setup for Visio
   useEffect(() => {
     if (patient.serviceType === 'visio_consultation' && typeof navigator !== 'undefined' && navigator.mediaDevices) {
       navigator.mediaDevices
@@ -94,18 +99,41 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
           if (localVideoRef.current) {
             localVideoRef.current.srcObject = stream;
           }
+
+          // Initialiser WebRTC (Caller = Doctor)
+          const manager = new WebRTCManager(patient.id, true, {
+            onRemoteStream: (remoteStream) => {
+              if (remoteVideoRef.current) {
+                remoteVideoRef.current.srcObject = remoteStream;
+                setHasRemoteVideo(true);
+              }
+            },
+            onConnectionStateChange: (state) => {
+              if (state === 'connected') {
+                setHasRemoteVideo(true);
+              } else if (state === 'disconnected' || state === 'failed') {
+                setHasRemoteVideo(false);
+              }
+            },
+          });
+          webrtcRef.current = manager;
+          manager.start(stream).catch(e => console.warn('WebRTC start notice:', e));
         })
         .catch(err => {
           console.warn('Camera access not granted or not available (using simulation):', err);
         });
 
       return () => {
+        if (webrtcRef.current) {
+          webrtcRef.current.destroy();
+          webrtcRef.current = null;
+        }
         if (mediaStreamRef.current) {
           mediaStreamRef.current.getTracks().forEach(track => track.stop());
         }
       };
     }
-  }, [patient.serviceType]);
+  }, [patient.id, patient.serviceType]);
 
   // Timer for Visio
   useEffect(() => {
@@ -283,9 +311,8 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = async event => {
-      const imageUrl = event.target?.result as string;
+    try {
+      const imageUrl = await uploadMedia(file, `consultations/${patient.id}/${Date.now()}_${file.name}`);
       const msg = await sendConsultationMessage(patient.id, {
         sender: 'doctor',
         type: 'image',
@@ -293,8 +320,9 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
         imageUrl,
       });
       setMessages(prev => [...prev, msg]);
-    };
-    reader.readAsDataURL(file);
+    } catch (err) {
+      console.warn('Erreur téléversement image:', err);
+    }
   };
 
   // Prescription Sealed callback
@@ -357,9 +385,11 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
                 <Badge variant="blue" size="sm">
                   {patient.gender === 'F' ? 'Femme' : 'Homme'} • {patient.age} ans
                 </Badge>
-                <span className="font-mono text-xs font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded-full border border-slate-200">
-                  NIN: {patient.patientNin}
-                </span>
+                {patient.patientNin && (
+                  <span className="font-mono text-xs font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded-full border border-slate-200">
+                    NIN: {patient.patientNin}
+                  </span>
+                )}
                 <Badge variant={patient.serviceType === 'visio_consultation' ? 'sky' : 'emerald'} size="sm">
                   {patient.serviceType === 'visio_consultation' ? 'Visio HD' : 'Avis Médical'}
                 </Badge>
@@ -424,15 +454,24 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
             <div className="h-64 sm:h-72 bg-slate-950 p-4 border-b border-slate-800 flex flex-col justify-between relative overflow-hidden flex-shrink-0">
               <div className="flex-1 rounded-[24px] bg-slate-900 border border-slate-800 relative flex items-center justify-center overflow-hidden">
                 {/* Remote Patient Video Stream */}
-                <div className="text-center space-y-2 p-4">
-                  <div className="w-16 h-16 rounded-full bg-gradient-to-tr from-blue-500 to-sky-400 text-white flex items-center justify-center text-2xl font-extrabold mx-auto shadow-2xl ring-4 ring-sky-400/30 animate-pulse">
-                    {patient.patientName.charAt(0)}
+                <video
+                  ref={remoteVideoRef}
+                  autoPlay
+                  playsInline
+                  className={`w-full h-full object-cover ${hasRemoteVideo ? 'block' : 'hidden'}`}
+                />
+
+                {!hasRemoteVideo && (
+                  <div className="text-center space-y-2 p-4">
+                    <div className="w-16 h-16 rounded-full bg-gradient-to-tr from-blue-500 to-sky-400 text-white flex items-center justify-center text-2xl font-extrabold mx-auto shadow-2xl ring-4 ring-sky-400/30 animate-pulse">
+                      {patient.patientName.charAt(0)}
+                    </div>
+                    <div>
+                      <h3 className="text-base font-bold text-white">{patient.patientName}</h3>
+                      <p className="text-[11px] text-sky-400 font-mono">Patient en direct • Négociation WebRTC P2P...</p>
+                    </div>
                   </div>
-                  <div>
-                    <h3 className="text-base font-bold text-white">{patient.patientName}</h3>
-                    <p className="text-[11px] text-sky-400 font-mono">Patient en direct • Flux WebRTC Chiffré</p>
-                  </div>
-                </div>
+                )}
 
                 {/* Picture in Picture (Doctor Local Camera Video) */}
                 <div className="absolute bottom-3 right-3 w-32 h-24 rounded-[18px] bg-slate-800 border-2 border-white/20 shadow-2xl flex flex-col items-center justify-center overflow-hidden">

@@ -50,4 +50,9 @@ export interface OfficialPrescription {
   sealedAt: string;        // Date & Heure ISO
   verificationUrl: string; // URL vers /verify/[hash]
   status: 'valid' | 'dispensed' | 'revoked';
+  dispensed?: boolean;     // Marqué comme délivré en pharmacie
+  dispensedAt?: string;    // Date de délivrance
+  dispensedByPharmacy?: string; // Nom de l'officine de pharmacie
+  dispensedPharmacistName?: string; // Nom du pharmacien
 }
+
