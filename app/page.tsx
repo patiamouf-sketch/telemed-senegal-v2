@@ -107,20 +107,7 @@ export default function HomePage() {
     );
   }
 
-  // 3. If logged in & status is PENDING -> "En attente de validation"
-  if (doctorProfile?.status === 'pending') {
-    return (
-      <div className="min-h-screen flex flex-col justify-between pt-2">
-        <Navbar />
-        <main className="flex-1">
-          <PendingApprovalView />
-        </main>
-        <Footer />
-      </div>
-    );
-  }
-
-  // 4. If logged in & status is REJECTED -> Notice
+  // 3. If logged in & status is REJECTED -> Notice
   if (doctorProfile?.status === 'rejected') {
     return (
       <div className="min-h-screen flex flex-col justify-between pt-2">

@@ -7,8 +7,21 @@ import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, on
 import { doc, setDoc } from 'firebase/firestore';
 import { getDoctorById, createDoctorProfile, listenToDoctorProfile } from '../services/doctorService';
 import { INITIAL_DOCTORS, getLocalDoctors } from '../services/mockData';
+import { addDays } from 'date-fns';
 
 const ADMIN_EMAIL = (process.env.NEXT_PUBLIC_ADMIN_EMAIL || 'pati.amouf@gmail.com').toLowerCase();
+
+function normalizeDoctorStatus(profile: DoctorProfile | null): DoctorProfile | null {
+  if (!profile) return null;
+  if (profile.status === 'banned' || profile.status === 'blocked' || profile.status === 'rejected') {
+    return profile;
+  }
+  return {
+    ...profile,
+    status: 'active',
+    licenseExpiresAt: profile.licenseExpiresAt || addDays(new Date(), 90).toISOString(),
+  };
+}
 
 interface AuthContextType {
   user: { uid: string; email: string; displayName?: string } | null;
@@ -38,7 +51,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setDoctorProfile(null);
       return;
     }
-    const profile = await getDoctorById(doctorProfile?.id || user.uid) || await getDoctorById(user.email);
+    const rawProfile = await getDoctorById(doctorProfile?.id || user.uid) || await getDoctorById(user.email);
+    const profile = normalizeDoctorStatus(rawProfile);
     if (profile) {
       setDoctorProfile(profile);
       if (typeof window !== 'undefined') {
@@ -55,9 +69,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const unsub = listenToDoctorProfile(targetKey, (updatedProfile) => {
       if (updatedProfile) {
-        setDoctorProfile(updatedProfile);
+        const normalized = normalizeDoctorStatus(updatedProfile);
+        setDoctorProfile(normalized);
         if (typeof window !== 'undefined') {
-          localStorage.setItem('telemed_session_v2', JSON.stringify({ user, profile: updatedProfile }));
+          localStorage.setItem('telemed_session_v2', JSON.stringify({ user, profile: normalized }));
         }
       }
     });
@@ -77,7 +92,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             if (parsed.user) {
               setUser(parsed.user);
               const freshProfile = await getDoctorById(parsed.user.uid) || await getDoctorById(parsed.user.email) || parsed.profile;
-              setDoctorProfile(freshProfile);
+              setDoctorProfile(normalizeDoctorStatus(freshProfile));
             }
           }
         } catch (e) {}
@@ -93,9 +108,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             };
             setUser(currentUser);
             const profile = await getDoctorById(firebaseUser.uid) || await getDoctorById(firebaseUser.email || '');
-            setDoctorProfile(profile);
+            const normalized = normalizeDoctorStatus(profile);
+            setDoctorProfile(normalized);
             if (typeof window !== 'undefined') {
-              localStorage.setItem('telemed_session_v2', JSON.stringify({ user: currentUser, profile }));
+              localStorage.setItem('telemed_session_v2', JSON.stringify({ user: currentUser, profile: normalized }));
             }
           }
           setLoading(false);

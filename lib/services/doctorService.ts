@@ -1,6 +1,7 @@
 import { DoctorProfile, PatientQueueItem, ChatMessage } from '../types/doctor';
 import { OfficialPrescription, PendingMedication } from '../types/prescription';
 import { db, isFirebaseConfigured } from '../firebase';
+import { addDays } from 'date-fns';
 import {
   getLocalDoctors,
   saveLocalDoctors,
@@ -25,17 +26,19 @@ import {
 } from 'firebase/firestore';
 
 /**
- * Création ou mise à jour d'un profil médecin
+ * Création ou mise à jour d'un profil médecin (Actif immédiatement avec 90 jours d'accès gratuit)
  */
 export async function createDoctorProfile(
   profileData: Omit<DoctorProfile, 'id' | 'status' | 'createdAt'>,
   userId?: string
 ): Promise<DoctorProfile> {
   const id = userId || `doc-${Date.now()}`;
+  const licenseExpiresAt = profileData.licenseExpiresAt || addDays(new Date(), 90).toISOString();
   const newDoctor: DoctorProfile = {
     ...profileData,
     id,
-    status: 'pending',
+    status: 'active', // Immédiatement actif pour supprimer tout blocage d'attente
+    licenseExpiresAt,
     createdAt: new Date().toISOString(),
     consultationFee: profileData.consultationFee || 7000,
     avisMedicalFee: profileData.avisMedicalFee || 3000,
@@ -82,26 +85,24 @@ function syncDoctorToLocal(docData: DoctorProfile) {
   try {
     const local = getLocalDoctors();
     const idx = local.findIndex(l => l.id === docData.id || l.email.toLowerCase() === docData.email.toLowerCase());
+    const incomingStatus = docData.status;
+    const isExplicitlyBlocked = incomingStatus === 'banned' || incomingStatus === 'blocked' || incomingStatus === 'rejected';
+    const finalStatus = isExplicitlyBlocked ? incomingStatus : 'active';
+    const finalLicense = docData.licenseExpiresAt || addDays(new Date(), 90).toISOString();
+
+    const normalizedDoc: DoctorProfile = {
+      ...docData,
+      status: finalStatus,
+      licenseExpiresAt: finalLicense,
+    };
+
     if (idx >= 0) {
-      const existingStatus = local[idx].status;
-      const incomingStatus = docData.status;
-      const finalStatus = (existingStatus === 'active' || incomingStatus === 'active')
-        ? 'active'
-        : (existingStatus === 'rejected' || incomingStatus === 'rejected')
-          ? 'rejected'
-          : incomingStatus || existingStatus || 'pending';
-
-      const finalLicense = (finalStatus === 'active' ? (local[idx].licenseExpiresAt || docData.licenseExpiresAt) : docData.licenseExpiresAt) ||
-        docData.licenseExpiresAt || local[idx].licenseExpiresAt;
-
       local[idx] = {
         ...local[idx],
-        ...docData,
-        status: finalStatus,
-        licenseExpiresAt: finalLicense,
+        ...normalizedDoc,
       };
     } else {
-      local.unshift(docData);
+      local.unshift(normalizedDoc);
     }
     saveLocalDoctors(local);
 
@@ -115,16 +116,9 @@ function syncDoctorToLocal(docData: DoctorProfile) {
           parsed.user?.uid === docData.id ||
           parsed.user?.email?.toLowerCase() === docData.email.toLowerCase()
         ) {
-          const currentStatus = parsed.profile?.status;
-          const targetStatus = (currentStatus === 'active' || docData.status === 'active')
-            ? 'active'
-            : docData.status || currentStatus;
-
           parsed.profile = {
             ...parsed.profile,
-            ...docData,
-            status: targetStatus,
-            licenseExpiresAt: targetStatus === 'active' ? (parsed.profile?.licenseExpiresAt || docData.licenseExpiresAt) : docData.licenseExpiresAt
+            ...normalizedDoc,
           };
           localStorage.setItem('telemed_session_v2', JSON.stringify(parsed));
         }

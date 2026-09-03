@@ -308,6 +308,116 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ success: false, error: 'Medication not found' }, { status: 404 });
       }
 
+      case 'register_doctor': {
+        const docProfile: DoctorProfile = {
+          ...payload,
+          status: (payload.status === 'banned' || payload.status === 'blocked' || payload.status === 'rejected') ? payload.status : 'active',
+          licenseExpiresAt: payload.licenseExpiresAt || addDays(new Date(), 90).toISOString(),
+        };
+        const dIdx = doctors.findIndex(d => d.id === docProfile.id || d.email.toLowerCase() === docProfile.email.toLowerCase());
+        if (dIdx >= 0) {
+          doctors[dIdx] = docProfile;
+        } else {
+          doctors.unshift(docProfile);
+        }
+        return NextResponse.json({ success: true, doctor: docProfile });
+      }
+
+      case 'approve_doctor': {
+        const { doctorId, email } = payload;
+        const targetKey = (email || doctorId || '').toLowerCase().trim();
+        const dIdx = doctors.findIndex(d => d.id === doctorId || d.email.toLowerCase().trim() === targetKey);
+        const licenseExpiresAt = addDays(new Date(), 90).toISOString();
+        if (dIdx >= 0) {
+          doctors[dIdx] = {
+            ...doctors[dIdx],
+            status: 'active',
+            licenseExpiresAt,
+            rejectionReason: undefined,
+            banReason: undefined,
+          };
+          return NextResponse.json({ success: true, doctor: doctors[dIdx] });
+        }
+        return NextResponse.json({ success: false, error: 'Doctor not found' }, { status: 404 });
+      }
+
+      case 'reject_doctor': {
+        const { doctorId, email, reason } = payload;
+        const targetKey = (email || doctorId || '').toLowerCase().trim();
+        const dIdx = doctors.findIndex(d => d.id === doctorId || d.email.toLowerCase().trim() === targetKey);
+        if (dIdx >= 0) {
+          doctors[dIdx] = {
+            ...doctors[dIdx],
+            status: 'rejected',
+            rejectionReason: reason || 'Dossier non validé',
+          };
+          return NextResponse.json({ success: true, doctor: doctors[dIdx] });
+        }
+        return NextResponse.json({ success: false, error: 'Doctor not found' }, { status: 404 });
+      }
+
+      case 'ban_doctor': {
+        const { doctorId, email, reason } = payload;
+        const targetKey = (email || doctorId || '').toLowerCase().trim();
+        const dIdx = doctors.findIndex(d => d.id === doctorId || d.email.toLowerCase().trim() === targetKey);
+        if (dIdx >= 0) {
+          doctors[dIdx] = {
+            ...doctors[dIdx],
+            status: 'banned',
+            banReason: reason || 'Suspendu par la Direction',
+          };
+          return NextResponse.json({ success: true, doctor: doctors[dIdx] });
+        }
+        return NextResponse.json({ success: false, error: 'Doctor not found' }, { status: 404 });
+      }
+
+      case 'unban_doctor': {
+        const { doctorId, email } = payload;
+        const targetKey = (email || doctorId || '').toLowerCase().trim();
+        const dIdx = doctors.findIndex(d => d.id === doctorId || d.email.toLowerCase().trim() === targetKey);
+        if (dIdx >= 0) {
+          doctors[dIdx] = {
+            ...doctors[dIdx],
+            status: 'active',
+            banReason: undefined,
+            rejectionReason: undefined,
+          };
+          return NextResponse.json({ success: true, doctor: doctors[dIdx] });
+        }
+        return NextResponse.json({ success: false, error: 'Doctor not found' }, { status: 404 });
+      }
+
+      case 'renew_doctor_license': {
+        const { doctorId, email, days } = payload;
+        const targetKey = (email || doctorId || '').toLowerCase().trim();
+        const dIdx = doctors.findIndex(d => d.id === doctorId || d.email.toLowerCase().trim() === targetKey);
+        if (dIdx >= 0) {
+          doctors[dIdx] = {
+            ...doctors[dIdx],
+            status: 'active',
+            licenseExpiresAt: addDays(new Date(), days || 30).toISOString(),
+          };
+          return NextResponse.json({ success: true, doctor: doctors[dIdx] });
+        }
+        return NextResponse.json({ success: false, error: 'Doctor not found' }, { status: 404 });
+      }
+
+      case 'update_doctor_status': {
+        const { doctorId, status, licenseExpiresAt, rejectionReason, banReason } = payload;
+        const dIdx = doctors.findIndex(d => d.id === doctorId || d.email.toLowerCase() === doctorId.toLowerCase());
+        if (dIdx >= 0) {
+          doctors[dIdx] = {
+            ...doctors[dIdx],
+            status,
+            licenseExpiresAt: licenseExpiresAt || doctors[dIdx].licenseExpiresAt,
+            rejectionReason,
+            banReason,
+          };
+          return NextResponse.json({ success: true, doctor: doctors[dIdx] });
+        }
+        return NextResponse.json({ success: false, error: 'Doctor not found' }, { status: 404 });
+      }
+
       // Signalisation WebRTC P2P
       case 'webrtc_signal': {
         const { patientId, type, signal } = payload;
