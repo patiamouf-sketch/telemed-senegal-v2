@@ -7,6 +7,7 @@ import { GlassButton } from '../ui/GlassButton';
 import { Badge } from '../ui/Badge';
 import { QRCodeModal } from '../ui/QRCodeModal';
 import { LiveConsultationRoom } from './LiveConsultationRoom';
+import { PrescriptionDrawer } from './PrescriptionDrawer';
 import {
   Stethoscope,
   Link as LinkIcon,
@@ -32,7 +33,8 @@ import {
   Calendar,
   Lock,
   Sliders,
-  User
+  User,
+  FilePlus2,
 } from 'lucide-react';
 import { DoctorProfileModal } from './DoctorProfileModal';
 import {
@@ -59,6 +61,7 @@ export function DoctorDashboard() {
   const [activeConsultation, setActiveConsultation] = useState<PatientQueueItem | null>(null);
   const [showQRModal, setShowQRModal] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
+  const [showDirectPrescription, setShowDirectPrescription] = useState(false);
   const [origin, setOrigin] = useState('');
   const [newPaymentAlert, setNewPaymentAlert] = useState<PatientQueueItem | null>(null);
 
@@ -210,6 +213,16 @@ export function DoctorDashboard() {
 
         {/* Header Actions */}
         <div className="flex items-center gap-2.5 flex-wrap">
+          <GlassButton
+            variant="glass"
+            size="sm"
+            onClick={() => setShowDirectPrescription(true)}
+            className="text-emerald-900 bg-emerald-50/90 hover:bg-emerald-100 border border-emerald-200 shadow-sm font-bold"
+          >
+            <FilePlus2 className="w-4 h-4 text-emerald-600" />
+            <span>Rédiger une Ordonnance Directe</span>
+          </GlassButton>
+
           <GlassButton
             variant="glass"
             size="sm"
@@ -764,6 +777,18 @@ export function DoctorDashboard() {
           doctor={doctorProfile}
           onClose={() => {
             setActiveConsultation(null);
+            getDoctorArchive(doctorSlug).then(arch => setArchive(arch));
+          }}
+        />
+      )}
+
+      {/* Standalone / Direct Prescription Drawer (Hors Consultation) */}
+      {showDirectPrescription && doctorProfile && (
+        <PrescriptionDrawer
+          doctor={doctorProfile}
+          patient={null}
+          onClose={() => setShowDirectPrescription(false)}
+          onPrescriptionSealed={() => {
             getDoctorArchive(doctorSlug).then(arch => setArchive(arch));
           }}
         />

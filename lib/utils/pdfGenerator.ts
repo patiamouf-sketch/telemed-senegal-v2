@@ -162,19 +162,25 @@ export async function downloadPrescriptionPDF(prescription: OfficialPrescription
       </div>
     </div>
 
-    <div class="patient-box">
+    <div class="patient-box" style="grid-template-columns: ${prescription.patientAddress ? '1.2fr 1fr 1fr 1.2fr' : '1fr 1fr 1fr'};">
       <div>
         <span style="color: #94a3b8; font-size: 11px; display: block; font-weight: 600;">PATIENT(E) :</span>
         <strong>${prescription.patientName}</strong>
       </div>
       <div>
         <span style="color: #94a3b8; font-size: 11px; display: block; font-weight: 600;">TÉLÉPHONE / CONTACT :</span>
-        <strong style="font-family: monospace;">${prescription.patientPhone}</strong>
+        <strong style="font-family: monospace;">${prescription.patientPhone || 'Non renseigné'}</strong>
       </div>
       <div>
         <span style="color: #94a3b8; font-size: 11px; display: block; font-weight: 600;">SEXE & ÂGE :</span>
         <strong>${prescription.patientGender === 'F' ? 'Femme' : 'Homme'}, ${prescription.patientAge} ans</strong>
       </div>
+      ${prescription.patientAddress ? `
+      <div>
+        <span style="color: #94a3b8; font-size: 11px; display: block; font-weight: 600;">ADRESSE / RÉSIDENCE :</span>
+        <strong>${prescription.patientAddress}</strong>
+      </div>
+      ` : ''}
     </div>
 
     <div class="section-title">Prescription Médicale</div>

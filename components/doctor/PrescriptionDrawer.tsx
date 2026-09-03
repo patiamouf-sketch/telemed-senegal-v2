@@ -25,7 +25,12 @@ import {
   Edit3,
   Sparkles,
   AlertCircle,
-  Download
+  Download,
+  User,
+  Smartphone,
+  Share2,
+  MapPin,
+  Phone,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import confetti from 'canvas-confetti';
@@ -33,7 +38,7 @@ import { LocalQRCode } from '../ui/LocalQRCode';
 
 interface PrescriptionDrawerProps {
   doctor: DoctorProfile;
-  patient: PatientQueueItem;
+  patient?: PatientQueueItem | null;
   onClose: () => void;
   onPrescriptionSealed: (prescription: OfficialPrescription) => void;
 }
@@ -48,6 +53,13 @@ export function PrescriptionDrawer({
   const [searchResults, setSearchResults] = useState<DrugEntry[]>([]);
   const [activeTab, setActiveTab] = useState<'editor' | 'preview'>('editor');
   const [formError, setFormError] = useState<string | null>(null);
+
+  // Informations patient (automatiques si consultation en cours, ou saisies librement si mode direct)
+  const [patientName, setPatientName] = useState(patient?.patientName || '');
+  const [patientAge, setPatientAge] = useState(patient?.age ? String(patient.age) : '');
+  const [patientAddress, setPatientAddress] = useState(patient?.beneficiaryAddress || '');
+  const [patientPhone, setPatientPhone] = useState(patient?.patientPhone || '');
+  const [patientGender, setPatientGender] = useState<'M' | 'F'>(patient?.gender || 'M');
 
   // Lignes d'ordonnance initiales harmonisées (Médicament en MAJUSCULES, posologie & durée en minuscules)
   const [items, setItems] = useState<PrescriptionItem[]>([
@@ -151,13 +163,27 @@ export function PrescriptionDrawer({
       return;
     }
 
-    // 2. Vérification de la présence de médicaments
+    // 2. Validation des informations OBLIGATOIRES du patient
+    if (!patientName.trim()) {
+      setFormError('Le NOM & PRÉNOM du patient est obligatoire.');
+      return;
+    }
+    if (!patientAge || Number(patientAge) < 0) {
+      setFormError('L’ÂGE du patient est obligatoire.');
+      return;
+    }
+    if (!patientAddress.trim()) {
+      setFormError('L’ADRESSE de résidence du patient est obligatoire (ex: Ville, Quartier).');
+      return;
+    }
+
+    // 3. Vérification de la présence de médicaments
     if (items.length === 0) {
       setFormError('Veuillez ajouter au moins un médicament sur l’ordonnance.');
       return;
     }
 
-    // 3. Validation des 3 champs OBLIGATOIRES pour chaque ligne
+    // 4. Validation des 3 champs OBLIGATOIRES pour chaque ligne de médicament
     for (let idx = 0; idx < items.length; idx++) {
       const it = items[idx];
       if (!it.medication.trim()) {
@@ -193,7 +219,7 @@ export function PrescriptionDrawer({
 
     // Calcul du condensat
     const hash = await generatePrescriptionHash({
-      patientNin: patient.patientPhone || 'TEL-SN',
+      patientNin: patientPhone || patientName || 'TEL-SN',
       doctorId: doctor.id,
       timestamp,
       items,
@@ -204,6 +230,7 @@ export function PrescriptionDrawer({
       : 'https://telemed-senegal-v2.vercel.app';
     const verificationUrl = `${origin}/verify-rx/${hash}`;
 
+    const effectivePatientId = patient?.id || `ext-pat-${Date.now()}`;
     const newPrescription: OfficialPrescription = {
       id: `presc-${Date.now()}`,
       hash,
@@ -215,11 +242,12 @@ export function PrescriptionDrawer({
       doctorPhone: doctor.phone,
       doctorCity: doctor.city,
       doctorSignatureStampUrl: doctor.signatureStampUrl,
-      patientId: patient.id,
-      patientName: patient.patientName,
-      patientPhone: patient.patientPhone,
-      patientAge: patient.age,
-      patientGender: patient.gender,
+      patientId: effectivePatientId,
+      patientName: patientName.trim(),
+      patientPhone: patientPhone.trim(),
+      patientAge: Number(patientAge) || 30,
+      patientGender: patientGender,
+      patientAddress: patientAddress.trim(),
       items,
       dietaryAdvice,
       sealedAt: timestamp,
@@ -289,27 +317,121 @@ export function PrescriptionDrawer({
           </button>
         </div>
 
-        {/* Patient Identity Badge */}
-        <div className="p-4 rounded-[24px] bg-gradient-to-r from-sky-50/80 via-white to-blue-50/70 border border-sky-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-          <div className="space-y-0.5">
-            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Patient Pris en Charge</span>
-            <div className="flex items-center gap-2 flex-wrap">
-              <strong className="text-sm font-extrabold text-[#0F172A]">{patient.patientName}</strong>
-              <span className="font-mono text-xs font-bold text-blue-900 bg-white px-2.5 py-0.5 rounded-full border border-slate-200 shadow-sm">
-                Tél : {patient.patientPhone}
-              </span>
-              <Badge variant="blue" size="sm">
-                {patient.gender === 'F' ? 'Femme' : 'Homme'} • {patient.age} ans
-              </Badge>
+        {/* Patient Identity Section (Mode Consultation ou Mode Direct Hors Consultation) */}
+        {patient ? (
+          <div className="p-4 rounded-[24px] bg-gradient-to-r from-sky-50/80 via-white to-blue-50/70 border border-sky-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+            <div className="space-y-0.5">
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Patient Pris en Charge</span>
+              <div className="flex items-center gap-2 flex-wrap">
+                <strong className="text-sm font-extrabold text-[#0F172A]">{patientName}</strong>
+                <span className="font-mono text-xs font-bold text-blue-900 bg-white px-2.5 py-0.5 rounded-full border border-slate-200 shadow-sm">
+                  Tél : {patientPhone || 'Non renseigné'}
+                </span>
+                <Badge variant="blue" size="sm">
+                  {patientGender === 'F' ? 'Femme' : 'Homme'} • {patientAge} ans
+                </Badge>
+                {patientAddress && (
+                  <span className="text-[11px] text-slate-500 font-medium flex items-center gap-1">
+                    <MapPin className="w-3 h-3 text-slate-400" /> {patientAddress}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="text-right sm:text-right">
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Médecin Prescripteur</span>
+              <strong className="text-xs font-bold text-[#0F172A]">{doctor.fullName}</strong>
+              <span className="text-[11px] text-emerald-700 font-mono font-semibold block">ONMS : {doctor.onmsNumber}</span>
             </div>
           </div>
+        ) : (
+          <div className="p-4 rounded-[24px] bg-gradient-to-r from-blue-50/80 via-white to-sky-50/80 border border-blue-100 space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-extrabold text-[#0F172A] flex items-center gap-1.5">
+                <User className="w-4 h-4 text-[#3B82F6]" />
+                Informations Obligatoires du Malade (Mode Hors Consultation)
+              </h3>
+              <Badge variant="blue" size="sm">
+                Édition Directe
+              </Badge>
+            </div>
 
-          <div className="text-right sm:text-right">
-            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Médecin Prescripteur</span>
-            <strong className="text-xs font-bold text-[#0F172A]">{doctor.fullName}</strong>
-            <span className="text-[11px] text-emerald-700 font-mono font-semibold block">ONMS : {doctor.onmsNumber}</span>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+              <div>
+                <label className="block text-[10px] font-bold text-slate-700 mb-1">
+                  Nom et Prénom du Malade *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ex: Fatou Diop"
+                  value={patientName}
+                  onChange={e => setPatientName(e.target.value)}
+                  className="w-full px-3.5 py-2 rounded-[14px] bg-white border border-slate-200 text-xs font-bold text-[#0F172A] focus:outline-none focus:border-[#3B82F6]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-700 mb-1">
+                  Âge du Malade (ans) *
+                </label>
+                <input
+                  type="number"
+                  required
+                  min="0"
+                  max="120"
+                  placeholder="Ex: 34"
+                  value={patientAge}
+                  onChange={e => setPatientAge(e.target.value)}
+                  className="w-full px-3.5 py-2 rounded-[14px] bg-white border border-slate-200 text-xs font-bold text-[#0F172A] focus:outline-none focus:border-[#3B82F6]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-700 mb-1">
+                  Sexe du Malade
+                </label>
+                <select
+                  value={patientGender}
+                  onChange={e => setPatientGender(e.target.value as 'M' | 'F')}
+                  className="w-full px-3.5 py-2 rounded-[14px] bg-white border border-slate-200 text-xs text-[#0F172A] focus:outline-none focus:border-[#3B82F6]"
+                >
+                  <option value="F">Femme</option>
+                  <option value="M">Homme</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <div>
+                <label className="block text-[10px] font-bold text-slate-700 mb-1">
+                  Adresse de Résidence du Malade *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ex: Dakar, Mermoz Pyrotechnie ou Thiès"
+                  value={patientAddress}
+                  onChange={e => setPatientAddress(e.target.value)}
+                  className="w-full px-3.5 py-2 rounded-[14px] bg-white border border-slate-200 text-xs text-[#0F172A] focus:outline-none focus:border-[#3B82F6]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-700 mb-1">
+                  Téléphone WhatsApp / Contact (Pour envoi direct)
+                </label>
+                <input
+                  type="tel"
+                  placeholder="+221 77 000 00 00"
+                  value={patientPhone}
+                  onChange={e => setPatientPhone(e.target.value)}
+                  className="w-full px-3.5 py-2 rounded-[14px] bg-white border border-slate-200 text-xs font-mono text-[#0F172A] focus:outline-none focus:border-[#3B82F6]"
+                />
+              </div>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Tabs: Édition vs Aperçu */}
         {!sealedPrescription && (
@@ -622,20 +744,26 @@ export function PrescriptionDrawer({
                 </div>
               </div>
 
-              {/* Patient Block with Phone Number */}
-              <div className="p-3.5 rounded-[18px] bg-slate-50 text-xs grid grid-cols-2 sm:grid-cols-3 gap-3 border border-slate-200/60">
+              {/* Patient Block with Phone Number & Address */}
+              <div className="p-3.5 rounded-[18px] bg-slate-50 text-xs grid grid-cols-2 sm:grid-cols-4 gap-3 border border-slate-200/60">
                 <div>
                   <span className="text-slate-400 text-[10px] block font-semibold">Patient(e) :</span>
-                  <strong className="text-slate-900 font-bold text-sm">{patient.patientName}</strong>
+                  <strong className="text-slate-900 font-bold text-sm">{patientName || 'Non spécifié'}</strong>
                 </div>
                 <div>
                   <span className="text-slate-400 text-[10px] block font-semibold">Téléphone :</span>
-                  <strong className="text-slate-900 font-mono">{patient.patientPhone}</strong>
+                  <strong className="text-slate-900 font-mono">{patientPhone || 'Non spécifié'}</strong>
                 </div>
                 <div>
                   <span className="text-slate-400 text-[10px] block font-semibold">Sexe & Âge :</span>
-                  <span className="text-slate-800">{patient.gender === 'F' ? 'Femme' : 'Homme'}, {patient.age} ans</span>
+                  <span className="text-slate-800">{patientGender === 'F' ? 'Femme' : 'Homme'}, {patientAge || '30'} ans</span>
                 </div>
+                {patientAddress && (
+                  <div>
+                    <span className="text-slate-400 text-[10px] block font-semibold">Adresse :</span>
+                    <span className="text-slate-800 font-medium truncate block">{patientAddress}</span>
+                  </div>
+                )}
               </div>
 
               {/* Prescribed Items (Médicaments en MAJUSCULES, posologies & durées en minuscules) */}
@@ -766,6 +894,20 @@ export function PrescriptionDrawer({
                     <span>Télécharger PDF Direct</span>
                   </GlassButton>
 
+                  {patientPhone && (
+                    <a
+                      href={`https://wa.me/${patientPhone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(
+                        `Bonjour ${patientName},\n\nVoici votre ordonnance médicale officielle émise par le ${doctor.fullName} :\n${sealedPrescription.verificationUrl}\n\nVous pouvez télécharger votre ordonnance au format PDF certifié ou la présenter directement en pharmacie.`
+                      )}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md transition-all w-full sm:w-auto"
+                    >
+                      <Smartphone className="w-4 h-4" />
+                      <span>Envoyer par WhatsApp</span>
+                    </a>
+                  )}
+
                   <GlassButton
                     variant="secondary"
                     size="md"
@@ -783,7 +925,7 @@ export function PrescriptionDrawer({
                     className="w-full sm:w-auto text-xs"
                   >
                     <CheckCircle2 className="w-4 h-4" />
-                    <span>Transmettre & Fermer</span>
+                    <span>Terminer</span>
                   </GlassButton>
                 </>
               )}
