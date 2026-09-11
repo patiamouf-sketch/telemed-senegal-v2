@@ -146,27 +146,33 @@ export async function getDoctorById(id: string): Promise<DoctorProfile | null> {
       const docRef = doc(db, 'doctors', cleanId);
       const snap = await getDoc(docRef);
       if (snap.exists()) {
-        candidate = snap.data() as DoctorProfile;
+        const data = snap.data() as DoctorProfile;
+        candidate = { ...data, id: data.id || snap.id };
       }
 
-      // Essai B : Si pas trouvé ou si statut n'est pas actif, recherche par Email
+      // Essai B : Si cleanId ressemble à un email OU si le document n'est pas encore actif
       if (!candidate || candidate.status !== 'active') {
-        const qEmail = query(collection(db, 'doctors'), where('email', '==', lowerId));
-        const emailSnap = await getDocs(qEmail);
-        if (!emailSnap.empty) {
-          const docData = emailSnap.docs[0].data() as DoctorProfile;
-          if (!candidate || docData.status === 'active') {
-            candidate = docData;
+        const isEmail = lowerId.includes('@');
+        const targetEmail = isEmail ? lowerId : (candidate?.email?.toLowerCase().trim() || '');
+        if (targetEmail) {
+          const qEmail = query(collection(db, 'doctors'), where('email', '==', targetEmail));
+          const emailSnap = await getDocs(qEmail);
+          if (!emailSnap.empty) {
+            const activeDoc = emailSnap.docs.find(d => (d.data() as DoctorProfile).status === 'active') || emailSnap.docs[0];
+            const docData = activeDoc.data() as DoctorProfile;
+            candidate = { ...docData, id: docData.id || activeDoc.id };
           }
         }
       }
 
-      // Essai C : Si toujours pas trouvé, recherche par champ id
-      if (!candidate) {
+      // Essai C : Si toujours pas trouvé ou pas actif, recherche par champ 'id'
+      if (!candidate || candidate.status !== 'active') {
         const qId = query(collection(db, 'doctors'), where('id', '==', cleanId));
         const idSnap = await getDocs(qId);
         if (!idSnap.empty) {
-          candidate = idSnap.docs[0].data() as DoctorProfile;
+          const activeDoc = idSnap.docs.find(d => (d.data() as DoctorProfile).status === 'active') || idSnap.docs[0];
+          const docData = activeDoc.data() as DoctorProfile;
+          candidate = { ...docData, id: docData.id || activeDoc.id };
         }
       }
     } catch (e) {
@@ -177,7 +183,7 @@ export async function getDoctorById(id: string): Promise<DoctorProfile | null> {
   // 2. CACHE LOCAL DE REPLI
   const doctors = getLocalDoctors();
   const matchedLocal = doctors.find(d => d.id === cleanId || d.email.toLowerCase() === lowerId);
-  if (matchedLocal && !candidate) {
+  if (matchedLocal && (!candidate || (matchedLocal.status === 'active' && candidate.status !== 'active'))) {
     candidate = matchedLocal;
   }
 
@@ -196,43 +202,73 @@ export function listenToDoctorProfile(
   const clean = idOrEmail.trim();
   const lower = clean.toLowerCase();
   const firestoreDb = db;
+  const isEmail = lower.includes('@');
+
+  const unsubs: (() => void)[] = [];
 
   // Écouteur en direct Firestore si configuré
   if (isFirebaseConfigured && firestoreDb) {
     try {
+      // 1. Écouteur sur le document direct
       const docRef = doc(firestoreDb, 'doctors', clean);
       const unsubDoc = onSnapshot(docRef, (docSnap) => {
         if (docSnap.exists()) {
-          const profile = docSnap.data() as DoctorProfile;
+          const data = docSnap.data() as DoctorProfile;
+          const profile = { ...data, id: data.id || docSnap.id };
           syncDoctorToLocal(profile);
           callback(profile);
-        } else {
-          // Si le doc porte un nom différent, recherche par email
-          const q = query(collection(firestoreDb, 'doctors'), where('email', '==', lower));
-          getDocs(q).then((snap) => {
-            if (!snap.empty) {
-              const p = snap.docs[0].data() as DoctorProfile;
-              syncDoctorToLocal(p);
-              callback(p);
-            }
-          }).catch(() => {});
         }
       }, (err) => {
-        console.warn('listenToDoctorProfile error:', err);
+        console.warn('listenToDoctorProfile doc error:', err);
       });
+      unsubs.push(unsubDoc);
 
-      return () => unsubDoc();
+      // 2. Écouteur temps réel sur la requête par email
+      if (isEmail) {
+        const qEmail = query(collection(firestoreDb, 'doctors'), where('email', '==', lower));
+        const unsubEmail = onSnapshot(qEmail, (snap) => {
+          if (!snap.empty) {
+            const activeDoc = snap.docs.find(d => (d.data() as DoctorProfile).status === 'active') || snap.docs[0];
+            const data = activeDoc.data() as DoctorProfile;
+            const profile = { ...data, id: data.id || activeDoc.id };
+            syncDoctorToLocal(profile);
+            callback(profile);
+          }
+        }, (err) => {
+          console.warn('listenToDoctorProfile email query error:', err);
+        });
+        unsubs.push(unsubEmail);
+      } else {
+        // Si clean est un UID / ID, écouter aussi la requête where('id', '==', clean)
+        const qId = query(collection(firestoreDb, 'doctors'), where('id', '==', clean));
+        const unsubId = onSnapshot(qId, (snap) => {
+          if (!snap.empty) {
+            const activeDoc = snap.docs.find(d => (d.data() as DoctorProfile).status === 'active') || snap.docs[0];
+            const data = activeDoc.data() as DoctorProfile;
+            const profile = { ...data, id: data.id || activeDoc.id };
+            syncDoctorToLocal(profile);
+            callback(profile);
+          }
+        }, (err) => {});
+        unsubs.push(unsubId);
+      }
     } catch (e) {
       console.warn('listenToDoctorProfile setup notice:', e);
     }
   }
 
-  // Polling de secours toutes les 3s
+  // Polling de secours toutes les 2s
   const interval = setInterval(async () => {
     const p = await getDoctorById(clean);
     if (p) callback(p);
-  }, 3000);
-  return () => clearInterval(interval);
+  }, 2000);
+
+  return () => {
+    unsubs.forEach(u => {
+      try { u(); } catch (e) {}
+    });
+    clearInterval(interval);
+  };
 }
 
 export async function getDoctorBySlug(slug: string): Promise<DoctorProfile | null> {
@@ -247,14 +283,18 @@ export async function getDoctorBySlug(slug: string): Promise<DoctorProfile | nul
       const q = query(collection(db, 'doctors'), where('slug', '==', normalizedSlug));
       const snap = await getDocs(q);
       if (!snap.empty) {
-        candidate = snap.docs[0].data() as DoctorProfile;
+        const activeDoc = snap.docs.find(d => (d.data() as DoctorProfile).status === 'active') || snap.docs[0];
+        const data = activeDoc.data() as DoctorProfile;
+        candidate = { ...data, id: data.id || activeDoc.id };
       }
 
-      if (!candidate) {
+      if (!candidate || candidate.status !== 'active') {
         const qId = query(collection(db, 'doctors'), where('id', '==', normalizedSlug));
         const idSnap = await getDocs(qId);
         if (!idSnap.empty) {
-          candidate = idSnap.docs[0].data() as DoctorProfile;
+          const activeDoc = idSnap.docs.find(d => (d.data() as DoctorProfile).status === 'active') || idSnap.docs[0];
+          const data = activeDoc.data() as DoctorProfile;
+          candidate = { ...data, id: data.id || activeDoc.id };
         }
       }
     } catch (e) {
@@ -269,7 +309,7 @@ export async function getDoctorBySlug(slug: string): Promise<DoctorProfile | nul
     d.id?.toLowerCase() === normalizedSlug ||
     d.slug?.toLowerCase().replace(/^dr\.?\s*/i, 'dr-') === normalizedSlug
   );
-  if (matchedLocal && !candidate) {
+  if (matchedLocal && (!candidate || (matchedLocal.status === 'active' && candidate.status !== 'active'))) {
     candidate = matchedLocal;
   }
 
