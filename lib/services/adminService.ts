@@ -1,7 +1,7 @@
 import { DoctorProfile, AdminStats } from '../types/doctor';
 import { db, isFirebaseConfigured } from '../firebase';
 import { getLocalDoctors, saveLocalDoctors, getLocalQueue } from './mockData';
-import { doc, getDocs, collection, query, where, setDoc, deleteDoc, deleteField } from 'firebase/firestore';
+import { doc, getDoc, getDocs, collection, query, where, setDoc, deleteDoc, deleteField } from 'firebase/firestore';
 import { addDays } from 'date-fns';
 
 function mergeDoctorRecord(existing: DoctorProfile | undefined, incoming: DoctorProfile): DoctorProfile {
@@ -15,16 +15,18 @@ function mergeDoctorRecord(existing: DoctorProfile | undefined, incoming: Doctor
         ? 'active'
         : (existing.status === 'rejected' || incoming.status === 'rejected')
           ? 'rejected'
-          : incoming.status || existing.status || 'pending';
+          : existing.status || incoming.status || 'pending';
 
   const finalLicense = (existing.status === 'active' ? existing.licenseExpiresAt : incoming.licenseExpiresAt) ||
-    incoming.licenseExpiresAt || existing.licenseExpiresAt;
+    existing.licenseExpiresAt || incoming.licenseExpiresAt;
 
   return {
-    ...existing,
     ...incoming,
+    ...existing,
+    id: existing.id || incoming.id,
     status: finalStatus,
-    banReason: incoming.banReason || existing.banReason,
+    banReason: existing.banReason || incoming.banReason,
+    rejectionReason: existing.rejectionReason || incoming.rejectionReason,
     licenseExpiresAt: finalLicense,
   };
 }
@@ -41,9 +43,13 @@ export async function getAllDoctors(): Promise<DoctorProfile[]> {
       const snap = await getDocs(collection(db, 'doctors'));
       snap.docs.forEach(docSnap => {
         const data = docSnap.data() as DoctorProfile;
-        const key = data.email ? data.email.toLowerCase().trim() : data.id;
+        const docWithId: DoctorProfile = {
+          ...data,
+          id: data.id || docSnap.id,
+        };
+        const key = docWithId.email ? docWithId.email.toLowerCase().trim() : docWithId.id;
         if (key) {
-          emailMap.set(key, mergeDoctorRecord(emailMap.get(key), data));
+          emailMap.set(key, mergeDoctorRecord(emailMap.get(key), docWithId));
         }
       });
     } catch (e) {
@@ -56,7 +62,12 @@ export async function getAllDoctors(): Promise<DoctorProfile[]> {
   local.forEach(d => {
     const key = d.email ? d.email.toLowerCase().trim() : d.id;
     if (key) {
-      emailMap.set(key, mergeDoctorRecord(emailMap.get(key), d));
+      const existing = emailMap.get(key);
+      if (!existing) {
+        emailMap.set(key, d);
+      } else {
+        emailMap.set(key, mergeDoctorRecord(existing, d));
+      }
     }
   });
 
@@ -68,6 +79,60 @@ export async function getAllDoctors(): Promise<DoctorProfile[]> {
 export async function getPendingDoctors(): Promise<DoctorProfile[]> {
   const doctors = await getAllDoctors();
   return doctors.filter(d => d.status === 'pending');
+}
+
+/**
+ * Synchronisation atomique multi-cibles vers Firestore (Doc ID, champ id, champ email)
+ */
+async function syncDoctorUpdateToFirestore(
+  targetId: string,
+  clean: string,
+  targetEmail: string,
+  firestoreUpdates: Record<string, any>
+): Promise<void> {
+  if (!isFirebaseConfigured || !db) return;
+
+  try {
+    // 1. Mise à jour directe sur targetId
+    await setDoc(doc(db, 'doctors', targetId), firestoreUpdates, { merge: true });
+
+    // 2. Si clean !== targetId, mise à jour sur clean
+    if (clean && clean !== targetId) {
+      await setDoc(doc(db, 'doctors', clean), firestoreUpdates, { merge: true });
+    }
+
+    // 3. Déduction de l'email depuis Firestore si non fourni
+    let resolvedEmail = targetEmail;
+    if (!resolvedEmail) {
+      try {
+        const dSnap = await getDoc(doc(db, 'doctors', targetId));
+        if (dSnap.exists()) {
+          const docData = dSnap.data() as DoctorProfile;
+          if (docData.email) resolvedEmail = docData.email.toLowerCase().trim();
+        }
+      } catch (e) {}
+    }
+
+    // 4. Mise à jour de tous les documents correspondant à resolvedEmail
+    if (resolvedEmail) {
+      const qEmail = query(collection(db, 'doctors'), where('email', '==', resolvedEmail));
+      const emailSnap = await getDocs(qEmail);
+      await Promise.all(emailSnap.docs.map(dSnap => setDoc(dSnap.ref, firestoreUpdates, { merge: true })));
+    }
+
+    // 5. Mise à jour de tous les documents dont le champ 'id' correspond à targetId ou clean
+    const qIdTarget = query(collection(db, 'doctors'), where('id', '==', targetId));
+    const idTargetSnap = await getDocs(qIdTarget);
+    await Promise.all(idTargetSnap.docs.map(dSnap => setDoc(dSnap.ref, firestoreUpdates, { merge: true })));
+
+    if (clean && clean !== targetId) {
+      const qIdClean = query(collection(db, 'doctors'), where('id', '==', clean));
+      const idCleanSnap = await getDocs(qIdClean);
+      await Promise.all(idCleanSnap.docs.map(dSnap => setDoc(dSnap.ref, firestoreUpdates, { merge: true })));
+    }
+  } catch (e) {
+    console.warn('syncDoctorUpdateToFirestore notice:', e);
+  }
 }
 
 export async function approveDoctor(doctorId: string): Promise<DoctorProfile | null> {
@@ -89,7 +154,7 @@ export async function approveDoctor(doctorId: string): Promise<DoctorProfile | n
   // 1. Mise à jour LocalStorage et Session immédiate
   let updatedDoc: DoctorProfile | null = null;
   const updatedList = localDocs.map(d => {
-    if (d.id === targetId || (targetEmail && d.email.toLowerCase() === targetEmail)) {
+    if (d.id === targetId || d.id === clean || (targetEmail && d.email.toLowerCase() === targetEmail)) {
       const up = { ...d, ...updates };
       updatedDoc = up;
       return up;
@@ -107,8 +172,10 @@ export async function approveDoctor(doctorId: string): Promise<DoctorProfile | n
         const parsed = JSON.parse(savedSession);
         if (
           parsed.profile?.id === targetId ||
+          parsed.profile?.id === clean ||
           (targetEmail && parsed.profile?.email?.toLowerCase() === targetEmail) ||
           parsed.user?.uid === targetId ||
+          parsed.user?.uid === clean ||
           (targetEmail && parsed.user?.email?.toLowerCase() === targetEmail)
         ) {
           parsed.profile = { ...parsed.profile, ...updates };
@@ -118,28 +185,16 @@ export async function approveDoctor(doctorId: string): Promise<DoctorProfile | n
     } catch (e) {}
   }
 
-  // 2. Mise à jour Firestore Directe (AWAIT TOTAL)
-  if (isFirebaseConfigured && db) {
-    try {
-      const firestoreUpdates = {
-        status: 'active',
-        licenseExpiresAt,
-        rejectionReason: deleteField(),
-        banReason: deleteField(),
-      };
-      await setDoc(doc(db, 'doctors', targetId), firestoreUpdates, { merge: true });
+  // 2. Mise à jour Firestore Multi-Cibles Directe
+  const firestoreUpdates = {
+    status: 'active',
+    licenseExpiresAt,
+    rejectionReason: deleteField(),
+    banReason: deleteField(),
+  };
+  await syncDoctorUpdateToFirestore(targetId, clean, targetEmail, firestoreUpdates);
 
-      if (targetEmail && targetEmail !== targetId) {
-        const q = query(collection(db, 'doctors'), where('email', '==', targetEmail));
-        const snap = await getDocs(q);
-        await Promise.all(snap.docs.map(dSnap => setDoc(dSnap.ref, firestoreUpdates, { merge: true })));
-      }
-    } catch (e) {
-      console.warn('Firebase approveDoctor notice:', e);
-    }
-  }
-
-  return updatedDoc;
+  return updatedDoc || (target ? { ...target, ...updates } : null);
 }
 
 export async function rejectDoctor(
@@ -161,7 +216,7 @@ export async function rejectDoctor(
   // 1. Mise à jour LocalStorage et Session
   let updatedDoc: DoctorProfile | null = null;
   const updatedList = localDocs.map(d => {
-    if (d.id === targetId || (targetEmail && d.email.toLowerCase() === targetEmail)) {
+    if (d.id === targetId || d.id === clean || (targetEmail && d.email.toLowerCase() === targetEmail)) {
       const up = { ...d, ...updates };
       updatedDoc = up;
       return up;
@@ -179,8 +234,10 @@ export async function rejectDoctor(
         const parsed = JSON.parse(savedSession);
         if (
           parsed.profile?.id === targetId ||
+          parsed.profile?.id === clean ||
           (targetEmail && parsed.profile?.email?.toLowerCase() === targetEmail) ||
           parsed.user?.uid === targetId ||
+          parsed.user?.uid === clean ||
           (targetEmail && parsed.user?.email?.toLowerCase() === targetEmail)
         ) {
           parsed.profile = { ...parsed.profile, ...updates };
@@ -190,21 +247,10 @@ export async function rejectDoctor(
     } catch (e) {}
   }
 
-  // 2. Mise à jour Firestore (AWAIT TOTAL)
-  if (isFirebaseConfigured && db) {
-    try {
-      await setDoc(doc(db, 'doctors', targetId), updates, { merge: true });
-      if (targetEmail && targetEmail !== targetId) {
-        const q = query(collection(db, 'doctors'), where('email', '==', targetEmail));
-        const snap = await getDocs(q);
-        await Promise.all(snap.docs.map(dSnap => setDoc(dSnap.ref, updates, { merge: true })));
-      }
-    } catch (e) {
-      console.warn('Firebase rejectDoctor notice:', e);
-    }
-  }
+  // 2. Mise à jour Firestore Multi-Cibles
+  await syncDoctorUpdateToFirestore(targetId, clean, targetEmail, updates);
 
-  return updatedDoc;
+  return updatedDoc || (target ? { ...target, ...updates } : null);
 }
 
 export async function banDoctor(
@@ -226,7 +272,7 @@ export async function banDoctor(
   // 1. Mise à jour LocalStorage et Session
   let updatedDoc: DoctorProfile | null = null;
   const updatedList = localDocs.map(d => {
-    if (d.id === targetId || (targetEmail && d.email.toLowerCase() === targetEmail)) {
+    if (d.id === targetId || d.id === clean || (targetEmail && d.email.toLowerCase() === targetEmail)) {
       const up = { ...d, ...updates };
       updatedDoc = up;
       return up;
@@ -244,8 +290,10 @@ export async function banDoctor(
         const parsed = JSON.parse(savedSession);
         if (
           parsed.profile?.id === targetId ||
+          parsed.profile?.id === clean ||
           (targetEmail && parsed.profile?.email?.toLowerCase() === targetEmail) ||
           parsed.user?.uid === targetId ||
+          parsed.user?.uid === clean ||
           (targetEmail && parsed.user?.email?.toLowerCase() === targetEmail)
         ) {
           parsed.profile = { ...parsed.profile, ...updates };
@@ -255,21 +303,10 @@ export async function banDoctor(
     } catch (e) {}
   }
 
-  // 2. Mise à jour Firestore
-  if (isFirebaseConfigured && db) {
-    try {
-      await setDoc(doc(db, 'doctors', targetId), updates, { merge: true });
-      if (targetEmail && targetEmail !== targetId) {
-        const q = query(collection(db, 'doctors'), where('email', '==', targetEmail));
-        const snap = await getDocs(q);
-        await Promise.all(snap.docs.map(dSnap => setDoc(dSnap.ref, updates, { merge: true })));
-      }
-    } catch (e) {
-      console.warn('Firebase banDoctor notice:', e);
-    }
-  }
+  // 2. Mise à jour Firestore Multi-Cibles
+  await syncDoctorUpdateToFirestore(targetId, clean, targetEmail, updates);
 
-  return updatedDoc;
+  return updatedDoc || (target ? { ...target, ...updates } : null);
 }
 
 export async function unbanDoctor(doctorId: string): Promise<DoctorProfile | null> {
@@ -291,7 +328,7 @@ export async function unbanDoctor(doctorId: string): Promise<DoctorProfile | nul
 
   let updatedDoc: DoctorProfile | null = null;
   const updatedList = localDocs.map(d => {
-    if (d.id === targetId || (targetEmail && d.email.toLowerCase() === targetEmail)) {
+    if (d.id === targetId || d.id === clean || (targetEmail && d.email.toLowerCase() === targetEmail)) {
       const up = { ...d, ...updates };
       updatedDoc = up;
       return up;
@@ -309,8 +346,10 @@ export async function unbanDoctor(doctorId: string): Promise<DoctorProfile | nul
         const parsed = JSON.parse(savedSession);
         if (
           parsed.profile?.id === targetId ||
+          parsed.profile?.id === clean ||
           (targetEmail && parsed.profile?.email?.toLowerCase() === targetEmail) ||
           parsed.user?.uid === targetId ||
+          parsed.user?.uid === clean ||
           (targetEmail && parsed.user?.email?.toLowerCase() === targetEmail)
         ) {
           parsed.profile = { ...parsed.profile, ...updates };
@@ -320,20 +359,9 @@ export async function unbanDoctor(doctorId: string): Promise<DoctorProfile | nul
     } catch (e) {}
   }
 
-  if (isFirebaseConfigured && db) {
-    try {
-      await setDoc(doc(db, 'doctors', targetId), firestoreUpdates, { merge: true });
-      if (targetEmail && targetEmail !== targetId) {
-        const q = query(collection(db, 'doctors'), where('email', '==', targetEmail));
-        const snap = await getDocs(q);
-        await Promise.all(snap.docs.map(dSnap => setDoc(dSnap.ref, firestoreUpdates, { merge: true })));
-      }
-    } catch (e) {
-      console.warn('Firebase unbanDoctor notice:', e);
-    }
-  }
+  await syncDoctorUpdateToFirestore(targetId, clean, targetEmail, firestoreUpdates);
 
-  return updatedDoc;
+  return updatedDoc || (target ? { ...target, ...updates } : null);
 }
 
 export async function deleteDoctorPermanently(doctorId: string): Promise<boolean> {
@@ -345,18 +373,24 @@ export async function deleteDoctorPermanently(doctorId: string): Promise<boolean
   const targetEmail = target?.email?.toLowerCase().trim() || (lower.includes('@') ? lower : '');
 
   // 1. Suppression LocalStorage
-  const filtered = localDocs.filter(d => d.id !== targetId && (!targetEmail || d.email?.toLowerCase() !== targetEmail));
+  const filtered = localDocs.filter(d => d.id !== targetId && d.id !== clean && (!targetEmail || d.email?.toLowerCase() !== targetEmail));
   saveLocalDoctors(filtered);
 
-  // 2. Suppression Firestore
+  // 2. Suppression Firestore Multi-Cibles
   if (isFirebaseConfigured && db) {
     try {
       await deleteDoc(doc(db, 'doctors', targetId));
-      if (targetEmail && targetEmail !== targetId) {
+      if (clean && clean !== targetId) {
+        await deleteDoc(doc(db, 'doctors', clean));
+      }
+      if (targetEmail) {
         const q = query(collection(db, 'doctors'), where('email', '==', targetEmail));
         const snap = await getDocs(q);
         await Promise.all(snap.docs.map(dSnap => deleteDoc(dSnap.ref)));
       }
+      const qId = query(collection(db, 'doctors'), where('id', '==', targetId));
+      const idSnap = await getDocs(qId);
+      await Promise.all(idSnap.docs.map(dSnap => deleteDoc(dSnap.ref)));
     } catch (e) {
       console.warn('Firebase deleteDoctor notice:', e);
     }
@@ -391,7 +425,7 @@ export async function renewDoctorLicense(doctorId: string, days: number = 30): P
   // 1. Mise à jour LocalStorage et Session
   let updatedDoc: DoctorProfile | null = null;
   const updatedList = localDocs.map(d => {
-    if (d.id === targetId || (targetEmail && d.email.toLowerCase() === targetEmail)) {
+    if (d.id === targetId || d.id === clean || (targetEmail && d.email.toLowerCase() === targetEmail)) {
       const up = { ...d, ...updates };
       updatedDoc = up;
       return up;
@@ -409,8 +443,10 @@ export async function renewDoctorLicense(doctorId: string, days: number = 30): P
         const parsed = JSON.parse(savedSession);
         if (
           parsed.profile?.id === targetId ||
+          parsed.profile?.id === clean ||
           (targetEmail && parsed.profile?.email?.toLowerCase() === targetEmail) ||
           parsed.user?.uid === targetId ||
+          parsed.user?.uid === clean ||
           (targetEmail && parsed.user?.email?.toLowerCase() === targetEmail)
         ) {
           parsed.profile = { ...parsed.profile, ...updates };
@@ -420,21 +456,10 @@ export async function renewDoctorLicense(doctorId: string, days: number = 30): P
     } catch (e) {}
   }
 
-  // 2. Mise à jour Firestore (AWAIT TOTAL)
-  if (isFirebaseConfigured && db) {
-    try {
-      await setDoc(doc(db, 'doctors', targetId), firestoreUpdates, { merge: true });
-      if (targetEmail && targetEmail !== targetId) {
-        const q = query(collection(db, 'doctors'), where('email', '==', targetEmail));
-        const snap = await getDocs(q);
-        await Promise.all(snap.docs.map(dSnap => setDoc(dSnap.ref, firestoreUpdates, { merge: true })));
-      }
-    } catch (e) {
-      console.warn('Firebase renewDoctorLicense notice:', e);
-    }
-  }
+  // 2. Mise à jour Firestore Multi-Cibles
+  await syncDoctorUpdateToFirestore(targetId, clean, targetEmail, firestoreUpdates);
 
-  return updatedDoc;
+  return updatedDoc || (docProfile ? { ...docProfile, ...updates } : null);
 }
 
 export async function getAdminStats(): Promise<AdminStats> {
