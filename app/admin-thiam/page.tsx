@@ -36,7 +36,7 @@ import Link from 'next/link';
 import confetti from 'canvas-confetti';
 
 export default function AdminThiamPage() {
-  const { user, doctorProfile } = useAuth();
+  const { user, doctorProfile, isAdmin, loading: authLoading } = useAuth();
   const [doctors, setDoctors] = useState<DoctorProfile[]>([]);
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [pendingMeds, setPendingMeds] = useState<PendingMedication[]>([]);
@@ -57,6 +57,7 @@ export default function AdminThiamPage() {
   const [approveChd, setApproveChd] = useState('Prise au cours des repas avec un grand verre d’eau.');
 
   const loadData = async (silent: boolean = false) => {
+    if (!isAdmin) return;
     if (!silent) setLoading(true);
     const docs = await getAllDoctors();
     const st = await getAdminStats();
@@ -68,13 +69,58 @@ export default function AdminThiamPage() {
   };
 
   useEffect(() => {
+    if (!isAdmin) return;
     loadData();
     // Écoute / rafraîchissement automatique toutes les 4 secondes
     const interval = setInterval(() => {
       loadData(true);
     }, 4000);
     return () => clearInterval(interval);
-  }, []);
+  }, [isAdmin]);
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#F4F9FD]">
+        <GlassCard className="p-8 text-center bg-white/80 max-w-xs shadow-xl">
+          <RefreshCw className="w-10 h-10 text-[#3B82F6] animate-spin mx-auto mb-3" />
+          <p className="text-sm font-semibold text-slate-700">Contrôle d'accréditation...</p>
+        </GlassCard>
+      </div>
+    );
+  }
+
+  if (!user || !isAdmin) {
+    return (
+      <div className="min-h-screen flex flex-col justify-between pt-2 bg-[#F8FAFC]">
+        <Navbar />
+        <main className="flex-1 max-w-md mx-auto px-4 py-20 flex items-center justify-center">
+          <GlassCard className="p-8 text-center bg-white shadow-2xl space-y-5 border-rose-200">
+            <div className="w-16 h-16 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center mx-auto shadow-inner">
+              <ShieldAlert className="w-8 h-8" />
+            </div>
+            <Badge variant="rose" size="md">
+              Zone Sécurisée Restreinte
+            </Badge>
+            <h1 className="text-xl font-extrabold text-slate-900">Accès Réservé à la Direction</h1>
+            <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
+              Cet espace est strictement réservé au Super-Administrateur médical de <strong>TELEMED SENEGAL</strong>.
+            </p>
+            <p className="text-xs text-slate-400">
+              Veuillez vous connecter avec l'adresse accréditée pour accéder aux dossiers d'homologation.
+            </p>
+            <div className="pt-2 flex items-center justify-center gap-3">
+              <Link href="/">
+                <GlassButton variant="primary" size="md">
+                  <ArrowLeft className="w-4 h-4" />
+                  Retour à l'accueil
+                </GlassButton>
+              </Link>
+            </div>
+          </GlassCard>
+        </main>
+      </div>
+    );
+  }
 
   const handleApproveDoctor = async (docId: string, docName: string) => {
     setActionLoading(docId);
