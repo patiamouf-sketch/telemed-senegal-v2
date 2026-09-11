@@ -1,7 +1,7 @@
 import { DoctorProfile, AdminStats } from '../types/doctor';
 import { db, isFirebaseConfigured } from '../firebase';
 import { getLocalDoctors, saveLocalDoctors, getLocalQueue } from './mockData';
-import { doc, getDocs, collection, query, where, setDoc, deleteDoc } from 'firebase/firestore';
+import { doc, getDocs, collection, query, where, setDoc, deleteDoc, deleteField } from 'firebase/firestore';
 import { addDays } from 'date-fns';
 
 function mergeDoctorRecord(existing: DoctorProfile | undefined, incoming: DoctorProfile): DoctorProfile {
@@ -121,13 +121,18 @@ export async function approveDoctor(doctorId: string): Promise<DoctorProfile | n
   // 2. Mise à jour Firestore Directe (AWAIT TOTAL)
   if (isFirebaseConfigured && db) {
     try {
-      await setDoc(doc(db, 'doctors', targetId), updates, { merge: true });
+      const firestoreUpdates = {
+        status: 'active',
+        licenseExpiresAt,
+        rejectionReason: deleteField(),
+        banReason: deleteField(),
+      };
+      await setDoc(doc(db, 'doctors', targetId), firestoreUpdates, { merge: true });
 
-      if (targetEmail) {
-        await setDoc(doc(db, 'doctors', targetEmail), updates, { merge: true });
+      if (targetEmail && targetEmail !== targetId) {
         const q = query(collection(db, 'doctors'), where('email', '==', targetEmail));
         const snap = await getDocs(q);
-        await Promise.all(snap.docs.map(dSnap => setDoc(dSnap.ref, updates, { merge: true })));
+        await Promise.all(snap.docs.map(dSnap => setDoc(dSnap.ref, firestoreUpdates, { merge: true })));
       }
     } catch (e) {
       console.warn('Firebase approveDoctor notice:', e);
@@ -189,8 +194,7 @@ export async function rejectDoctor(
   if (isFirebaseConfigured && db) {
     try {
       await setDoc(doc(db, 'doctors', targetId), updates, { merge: true });
-      if (targetEmail) {
-        await setDoc(doc(db, 'doctors', targetEmail), updates, { merge: true });
+      if (targetEmail && targetEmail !== targetId) {
         const q = query(collection(db, 'doctors'), where('email', '==', targetEmail));
         const snap = await getDocs(q);
         await Promise.all(snap.docs.map(dSnap => setDoc(dSnap.ref, updates, { merge: true })));
@@ -255,8 +259,7 @@ export async function banDoctor(
   if (isFirebaseConfigured && db) {
     try {
       await setDoc(doc(db, 'doctors', targetId), updates, { merge: true });
-      if (targetEmail) {
-        await setDoc(doc(db, 'doctors', targetEmail), updates, { merge: true });
+      if (targetEmail && targetEmail !== targetId) {
         const q = query(collection(db, 'doctors'), where('email', '==', targetEmail));
         const snap = await getDocs(q);
         await Promise.all(snap.docs.map(dSnap => setDoc(dSnap.ref, updates, { merge: true })));
@@ -273,6 +276,10 @@ export async function unbanDoctor(doctorId: string): Promise<DoctorProfile | nul
   const updates: Partial<DoctorProfile> = {
     status: 'active',
     banReason: undefined,
+  };
+  const firestoreUpdates = {
+    status: 'active',
+    banReason: deleteField(),
   };
 
   const clean = doctorId.trim();
@@ -315,12 +322,11 @@ export async function unbanDoctor(doctorId: string): Promise<DoctorProfile | nul
 
   if (isFirebaseConfigured && db) {
     try {
-      await setDoc(doc(db, 'doctors', targetId), updates, { merge: true });
-      if (targetEmail) {
-        await setDoc(doc(db, 'doctors', targetEmail), updates, { merge: true });
+      await setDoc(doc(db, 'doctors', targetId), firestoreUpdates, { merge: true });
+      if (targetEmail && targetEmail !== targetId) {
         const q = query(collection(db, 'doctors'), where('email', '==', targetEmail));
         const snap = await getDocs(q);
-        await Promise.all(snap.docs.map(dSnap => setDoc(dSnap.ref, updates, { merge: true })));
+        await Promise.all(snap.docs.map(dSnap => setDoc(dSnap.ref, firestoreUpdates, { merge: true })));
       }
     } catch (e) {
       console.warn('Firebase unbanDoctor notice:', e);
@@ -346,8 +352,7 @@ export async function deleteDoctorPermanently(doctorId: string): Promise<boolean
   if (isFirebaseConfigured && db) {
     try {
       await deleteDoc(doc(db, 'doctors', targetId));
-      if (targetEmail) {
-        await deleteDoc(doc(db, 'doctors', targetEmail));
+      if (targetEmail && targetEmail !== targetId) {
         const q = query(collection(db, 'doctors'), where('email', '==', targetEmail));
         const snap = await getDocs(q);
         await Promise.all(snap.docs.map(dSnap => deleteDoc(dSnap.ref)));
@@ -375,6 +380,11 @@ export async function renewDoctorLicense(doctorId: string, days: number = 30): P
   const updates: Partial<DoctorProfile> = {
     status: 'active',
     banReason: undefined,
+    licenseExpiresAt: newExpiry,
+  };
+  const firestoreUpdates = {
+    status: 'active',
+    banReason: deleteField(),
     licenseExpiresAt: newExpiry,
   };
 
@@ -413,12 +423,11 @@ export async function renewDoctorLicense(doctorId: string, days: number = 30): P
   // 2. Mise à jour Firestore (AWAIT TOTAL)
   if (isFirebaseConfigured && db) {
     try {
-      await setDoc(doc(db, 'doctors', targetId), updates, { merge: true });
-      if (targetEmail) {
-        await setDoc(doc(db, 'doctors', targetEmail), updates, { merge: true });
+      await setDoc(doc(db, 'doctors', targetId), firestoreUpdates, { merge: true });
+      if (targetEmail && targetEmail !== targetId) {
         const q = query(collection(db, 'doctors'), where('email', '==', targetEmail));
         const snap = await getDocs(q);
-        await Promise.all(snap.docs.map(dSnap => setDoc(dSnap.ref, updates, { merge: true })));
+        await Promise.all(snap.docs.map(dSnap => setDoc(dSnap.ref, firestoreUpdates, { merge: true })));
       }
     } catch (e) {
       console.warn('Firebase renewDoctorLicense notice:', e);
