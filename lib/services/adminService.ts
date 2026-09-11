@@ -60,24 +60,6 @@ export async function getAllDoctors(): Promise<DoctorProfile[]> {
     }
   });
 
-  // 3. PRIORITÉ N°3 : API Serverless Cloud
-  if (typeof window !== 'undefined') {
-    try {
-      const res = await fetch('/api/consultation/sync?type=doctors');
-      if (res.ok) {
-        const data = await res.json();
-        if (data.doctors && Array.isArray(data.doctors)) {
-          data.doctors.forEach((d: DoctorProfile) => {
-            const key = d.email ? d.email.toLowerCase().trim() : d.id;
-            if (key) {
-              emailMap.set(key, mergeDoctorRecord(emailMap.get(key), d));
-            }
-          });
-        }
-      }
-    } catch (e) {}
-  }
-
   const combined = Array.from(emailMap.values());
   saveLocalDoctors(combined);
   return combined;
@@ -152,17 +134,6 @@ export async function approveDoctor(doctorId: string): Promise<DoctorProfile | n
     }
   }
 
-  // 3. Mise à jour API Serverless Cloud (AWAIT TOTAL)
-  if (typeof window !== 'undefined') {
-    try {
-      await fetch('/api/consultation/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'approve_doctor', payload: { doctorId: targetId, email: targetEmail } })
-      });
-    } catch (e) {}
-  }
-
   return updatedDoc;
 }
 
@@ -227,17 +198,6 @@ export async function rejectDoctor(
     } catch (e) {
       console.warn('Firebase rejectDoctor notice:', e);
     }
-  }
-
-  // 3. Mise à jour API Serverless Cloud (AWAIT TOTAL)
-  if (typeof window !== 'undefined') {
-    try {
-      await fetch('/api/consultation/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'reject_doctor', payload: { doctorId: targetId, email: targetEmail, reason } })
-      });
-    } catch (e) {}
   }
 
   return updatedDoc;
@@ -306,17 +266,6 @@ export async function banDoctor(
     }
   }
 
-  // 3. Mise à jour API Serverless Cloud
-  if (typeof window !== 'undefined') {
-    try {
-      await fetch('/api/consultation/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'ban_doctor', payload: { doctorId: targetId, email: targetEmail, reason } })
-      });
-    } catch (e) {}
-  }
-
   return updatedDoc;
 }
 
@@ -378,16 +327,6 @@ export async function unbanDoctor(doctorId: string): Promise<DoctorProfile | nul
     }
   }
 
-  if (typeof window !== 'undefined') {
-    try {
-      await fetch('/api/consultation/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'unban_doctor', payload: { doctorId: targetId, email: targetEmail } })
-      });
-    } catch (e) {}
-  }
-
   return updatedDoc;
 }
 
@@ -416,17 +355,6 @@ export async function deleteDoctorPermanently(doctorId: string): Promise<boolean
     } catch (e) {
       console.warn('Firebase deleteDoctor notice:', e);
     }
-  }
-
-  // 3. Suppression API Cloud
-  if (typeof window !== 'undefined') {
-    try {
-      await fetch('/api/consultation/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'delete_doctor', payload: { doctorId: targetId, email: targetEmail } })
-      });
-    } catch (e) {}
   }
 
   return true;
@@ -495,17 +423,6 @@ export async function renewDoctorLicense(doctorId: string, days: number = 30): P
     } catch (e) {
       console.warn('Firebase renewDoctorLicense notice:', e);
     }
-  }
-
-  // 3. Mise à jour API Serverless Cloud (AWAIT TOTAL)
-  if (typeof window !== 'undefined') {
-    try {
-      await fetch('/api/consultation/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'renew_doctor_license', payload: { doctorId: targetId, email: targetEmail, days } })
-      });
-    } catch (e) {}
   }
 
   return updatedDoc;

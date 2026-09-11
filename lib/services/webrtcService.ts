@@ -149,7 +149,7 @@ export class WebRTCManager {
             this.processedCandidates.add(key);
             try {
               await this.peerConnection?.addIceCandidate(new RTCIceCandidate(candidateData));
-            } catch (e) {}
+            } catch (e) { }
           }
         }
       }
@@ -181,7 +181,7 @@ export class WebRTCManager {
             this.processedCandidates.add(key);
             try {
               await this.peerConnection?.addIceCandidate(new RTCIceCandidate(candidateData));
-            } catch (e) {}
+            } catch (e) { }
           }
         }
       }
@@ -211,25 +211,7 @@ export class WebRTCManager {
             { merge: true }
           );
         });
-      } catch (e) {}
-    }
-
-    // Fallback API
-    if (typeof window !== 'undefined') {
-      try {
-        fetch('/api/consultation/sync', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'webrtc_candidate',
-            payload: {
-              patientId: this.patientId,
-              isCaller: this.isCaller,
-              candidate: candidatePayload,
-            },
-          }),
-        }).catch(() => {});
-      } catch (e) {}
+      } catch (e) { }
     }
   }
 
@@ -248,29 +230,12 @@ export class WebRTCManager {
           },
           { merge: true }
         );
-      } catch (e) {}
-    }
-
-    if (typeof window !== 'undefined') {
-      try {
-        await fetch('/api/consultation/sync', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'webrtc_signal',
-            payload: {
-              patientId: this.patientId,
-              type,
-              signal: payload,
-            },
-          }),
-        });
-      } catch (e) {}
+      } catch (e) { }
     }
   }
 
   /**
-   * Écouteur de signalisation (Firestore snapshot + polling API sync)
+   * Écouteur de signalisation Firestore en temps réel
    */
   private subscribeToSignals(callback: (data: any) => void): void {
     if (isFirebaseConfigured && db) {
@@ -281,22 +246,8 @@ export class WebRTCManager {
             callback(snap.data());
           }
         });
-      } catch (e) {}
+      } catch (e) { }
     }
-
-    // Polling API Sync de secours toutes les 1.2 secondes
-    this.pollInterval = setInterval(async () => {
-      if (this.isCleanedUp) return;
-      try {
-        const res = await fetch(`/api/consultation/sync?type=webrtc&id=${encodeURIComponent(this.patientId)}`);
-        if (res.ok) {
-          const json = await res.json();
-          if (json.session && !this.isCleanedUp) {
-            callback(json.session);
-          }
-        }
-      } catch (e) {}
-    }, 1200);
   }
 
   /**
@@ -308,20 +259,20 @@ export class WebRTCManager {
     if (this.unsubSignal) {
       try {
         this.unsubSignal();
-      } catch (e) {}
+      } catch (e) { }
     }
 
     if (this.peerConnection) {
       try {
         this.peerConnection.close();
-      } catch (e) {}
+      } catch (e) { }
       this.peerConnection = null;
     }
 
     if (this.localStream) {
       try {
         this.localStream.getTracks().forEach(t => t.stop());
-      } catch (e) {}
+      } catch (e) { }
       this.localStream = null;
     }
 

@@ -13,14 +13,7 @@ const ADMIN_EMAIL = (process.env.NEXT_PUBLIC_ADMIN_EMAIL || 'pati.amouf@gmail.co
 
 function normalizeDoctorStatus(profile: DoctorProfile | null): DoctorProfile | null {
   if (!profile) return null;
-  if (profile.status === 'banned' || profile.status === 'blocked' || profile.status === 'rejected') {
-    return profile;
-  }
-  return {
-    ...profile,
-    status: 'active',
-    licenseExpiresAt: profile.licenseExpiresAt || addDays(new Date(), 90).toISOString(),
-  };
+  return profile;
 }
 
 interface AuthContextType {
@@ -184,17 +177,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 await createUserWithEmailAndPassword(auth, cleanEmail, password);
               } catch (err) {}
             }
-          }
-
-          // Synchronisation API Cloud
-          if (typeof window !== 'undefined') {
-            try {
-              await fetch('/api/consultation/sync', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'register_doctor', payload: defaultAdminProfile })
-              });
-            } catch (e) {}
           }
 
           setLoading(false);

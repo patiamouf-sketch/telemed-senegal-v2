@@ -33,11 +33,11 @@ export async function createDoctorProfile(
   userId?: string
 ): Promise<DoctorProfile> {
   const id = userId || `doc-${Date.now()}`;
-  const licenseExpiresAt = profileData.licenseExpiresAt || addDays(new Date(), 90).toISOString();
+  const licenseExpiresAt = profileData.licenseExpiresAt || '';
   const newDoctor: DoctorProfile = {
     ...profileData,
     id,
-    status: 'active', // Immédiatement actif pour supprimer tout blocage d'attente
+    status: profileData.status || 'pending', // Nouveau médecin en attente d'homologation
     licenseExpiresAt,
     createdAt: new Date().toISOString(),
     consultationFee: profileData.consultationFee || 7000,
@@ -53,22 +53,11 @@ export async function createDoctorProfile(
     try {
       await setDoc(doc(db, 'doctors', id), newDoctor);
     } catch (e) {
-      console.warn('Firebase save failed, falling back to API sync:', e);
+      console.warn('Firebase save failed, falling back to local storage:', e);
     }
   }
 
-  // 2. Enregistrement API Serverless universelle (synchronisation temps réel multi-appareils)
-  if (typeof window !== 'undefined') {
-    try {
-      fetch('/api/consultation/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'register_doctor', payload: newDoctor })
-      }).catch(e => {});
-    } catch (e) {}
-  }
-
-  // 3. Enregistrement LocalStorage
+  // 2. Enregistrement LocalStorage
   const doctors = getLocalDoctors();
   const existingIdx = doctors.findIndex(d => d.id === id || d.email.toLowerCase() === newDoctor.email.toLowerCase());
   if (existingIdx >= 0) {
@@ -85,10 +74,8 @@ function syncDoctorToLocal(docData: DoctorProfile) {
   try {
     const local = getLocalDoctors();
     const idx = local.findIndex(l => l.id === docData.id || l.email.toLowerCase() === docData.email.toLowerCase());
-    const incomingStatus = docData.status;
-    const isExplicitlyBlocked = incomingStatus === 'banned' || incomingStatus === 'blocked' || incomingStatus === 'rejected';
-    const finalStatus = isExplicitlyBlocked ? incomingStatus : 'active';
-    const finalLicense = docData.licenseExpiresAt || addDays(new Date(), 90).toISOString();
+    const finalStatus = docData.status || 'pending';
+    const finalLicense = docData.licenseExpiresAt || '';
 
     const normalizedDoc: DoctorProfile = {
       ...docData,
@@ -169,36 +156,11 @@ export async function getDoctorById(id: string): Promise<DoctorProfile | null> {
     }
   }
 
-  // 2. API SERVERLESS CLOUD (SYNCHRONISATION MULTI-POSTES / MULTI-APPAREILS)
-  // Toujours interroger l'API Cloud si candidate n'est pas actif, pour capter la validation de l'Admin en temps réel
-  if (typeof window !== 'undefined' && (!candidate || candidate.status !== 'active')) {
-    try {
-      const res = await fetch('/api/consultation/sync?type=doctors');
-      if (res.ok) {
-        const data = await res.json();
-        if (data.doctors && Array.isArray(data.doctors)) {
-          const match = data.doctors.find((d: DoctorProfile) =>
-            d.id === cleanId || d.email?.toLowerCase() === lowerId || (cleanId.includes('@') && d.email?.toLowerCase() === cleanId.toLowerCase())
-          );
-          if (match) {
-            if (!candidate || match.status === 'active') {
-              candidate = match;
-            }
-          }
-        }
-      }
-    } catch (e) {}
-  }
-
-  // 3. CACHE LOCAL
+  // 2. CACHE LOCAL DE REPLI
   const doctors = getLocalDoctors();
   const matchedLocal = doctors.find(d => d.id === cleanId || d.email.toLowerCase() === lowerId);
-  if (matchedLocal) {
-    if (!candidate) {
-      candidate = matchedLocal;
-    } else if (matchedLocal.status === 'active' && candidate.status !== 'active') {
-      candidate = { ...candidate, status: 'active', licenseExpiresAt: matchedLocal.licenseExpiresAt };
-    }
+  if (matchedLocal && !candidate) {
+    candidate = matchedLocal;
   }
 
   if (candidate) {
@@ -282,41 +244,15 @@ export async function getDoctorBySlug(slug: string): Promise<DoctorProfile | nul
     }
   }
 
-  // 2. API SERVERLESS CLOUD (SYNCHRONISATION MULTI-POSTES EN TEMPS RÉEL)
-  if (typeof window !== 'undefined' && (!candidate || candidate.status !== 'active')) {
-    try {
-      const res = await fetch('/api/consultation/sync?type=doctors');
-      if (res.ok) {
-        const data = await res.json();
-        if (data.doctors && Array.isArray(data.doctors)) {
-          const match = data.doctors.find((d: DoctorProfile) =>
-            d.slug?.toLowerCase().trim() === normalizedSlug ||
-            d.id?.toLowerCase() === normalizedSlug ||
-            d.slug?.toLowerCase().replace(/^dr\.?\s*/i, 'dr-') === normalizedSlug
-          );
-          if (match) {
-            if (!candidate || match.status === 'active') {
-              candidate = match;
-            }
-          }
-        }
-      }
-    } catch (e) {}
-  }
-
-  // 3. CACHE LOCAL
+  // 2. CACHE LOCAL DE REPLI
   const doctors = getLocalDoctors();
   const matchedLocal = doctors.find(d =>
     d.slug?.toLowerCase().trim() === normalizedSlug ||
     d.id?.toLowerCase() === normalizedSlug ||
     d.slug?.toLowerCase().replace(/^dr\.?\s*/i, 'dr-') === normalizedSlug
   );
-  if (matchedLocal) {
-    if (!candidate) {
-      candidate = matchedLocal;
-    } else if (matchedLocal.status === 'active' && candidate.status !== 'active') {
-      candidate = { ...candidate, status: 'active', licenseExpiresAt: matchedLocal.licenseExpiresAt };
-    }
+  if (matchedLocal && !candidate) {
+    candidate = matchedLocal;
   }
 
   if (candidate) {
@@ -336,18 +272,7 @@ export async function updateDoctorProfile(id: string, updates: Partial<DoctorPro
     }
   }
 
-  // 2. Mise à jour API Serverless Cloud
-  if (typeof window !== 'undefined') {
-    try {
-      fetch('/api/consultation/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'register_doctor', payload: { id, ...updates } })
-      }).catch(e => {});
-    } catch (e) {}
-  }
-
-  // 3. Mise à jour LocalStorage et Session active
+  // 2. Mise à jour LocalStorage et Session active
   const doctors = getLocalDoctors();
   const idx = doctors.findIndex(d => d.id === id);
   let updated: DoctorProfile | null = null;
@@ -407,20 +332,7 @@ export async function addPatientToQueue(
     }
   }
 
-  // 2. Synchronisation API Serverless Vercel
-  try {
-    if (typeof window !== 'undefined') {
-      fetch('/api/consultation/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'add_patient', payload: newQueueItem }),
-      }).catch(e => console.warn('API sync add_patient notice:', e));
-    }
-  } catch (e) {
-    console.warn('Sync API exception:', e);
-  }
-
-  // 3. Cache local
+  // 2. Cache local
   const queue = getLocalQueue();
   queue.unshift(newQueueItem);
   saveLocalQueue(queue);
@@ -451,22 +363,7 @@ export async function getDoctorQueue(doctorSlug: string): Promise<PatientQueueIt
     }
   }
 
-  // 2. Essai API Serverless
-  if (typeof window !== 'undefined') {
-    try {
-      const res = await fetch(`/api/consultation/sync?slug=${encodeURIComponent(normalizedSlug)}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.queue && data.queue.length > 0) {
-          return data.queue;
-        }
-      }
-    } catch (e) {
-      console.warn('API sync getDoctorQueue notice:', e);
-    }
-  }
-
-  // 3. Fallback Local Storage
+  // 2. Fallback Local Storage
   const queue = getLocalQueue();
   return queue.filter(q => q.doctorSlug.toLowerCase() === normalizedSlug && (q.status === 'waiting' || q.status === 'in_consultation'));
 }
@@ -487,22 +384,7 @@ export async function getPatientById(patientId: string): Promise<PatientQueueIte
     }
   }
 
-  // 2. Essai API Serverless
-  if (typeof window !== 'undefined') {
-    try {
-      const res = await fetch(`/api/consultation/sync?id=${encodeURIComponent(patientId)}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.patient) {
-          return data.patient;
-        }
-      }
-    } catch (e) {
-      console.warn('API sync getPatientById notice:', e);
-    }
-  }
-
-  // 3. Fallback Local Storage
+  // 2. Fallback Local Storage
   const queue = getLocalQueue();
   const matched = queue.find(p => p.id === patientId);
   if (matched) return matched;
@@ -538,22 +420,9 @@ export function listenToPatient(
     }
   }
 
-  // 2. Polling API Serverless & Cache Local haute fréquence (800ms) pour garantir la synchronisation multi-appareils
-  const interval = setInterval(async () => {
+  // 2. Polling Cache Local si Firestore hors-ligne
+  const interval = setInterval(() => {
     if (isUnsubscribed) return;
-    try {
-      // 2a. Vérification API Sync
-      const res = await fetch(`/api/consultation/sync?id=${encodeURIComponent(patientId)}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.patient && !isUnsubscribed) {
-          callback(data.patient);
-          return;
-        }
-      }
-    } catch (e) {}
-
-    // 2b. Fallback local
     try {
       const q = getLocalQueue();
       const localP = q.find(p => p.id === patientId);
@@ -561,7 +430,7 @@ export function listenToPatient(
         callback(localP);
       }
     } catch (e) {}
-  }, 800);
+  }, 1000);
 
   // Fonction de nettoyage
   return () => {
@@ -609,21 +478,17 @@ export function listenToDoctorQueue(
     }
   }
 
-  // 2. Polling API Serverless régulier de secours
-  const interval = setInterval(async () => {
+  // 2. Fallback local si Firestore hors-ligne
+  const interval = setInterval(() => {
     if (isUnsubscribed) return;
     try {
-      const res = await fetch(`/api/consultation/sync?slug=${encodeURIComponent(normalizedSlug)}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.queue && !isUnsubscribed) {
-          callback(data.queue);
-        }
+      const q = getLocalQueue();
+      const items = q.filter(item => item.doctorSlug.toLowerCase() === normalizedSlug && (item.status === 'waiting' || item.status === 'in_consultation'));
+      if (items.length > 0 && !isUnsubscribed) {
+        callback(items);
       }
-    } catch (e) {
-      // Silently continue
-    }
-  }, 2500);
+    } catch (e) {}
+  }, 3000);
 
   return () => {
     isUnsubscribed = true;
@@ -665,18 +530,7 @@ export async function confirmPatientPayment(patientId: string): Promise<PatientQ
     }
   }
 
-  // 2. Mise à jour API Serverless
-  if (typeof window !== 'undefined') {
-    try {
-      fetch('/api/consultation/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'confirm_payment', payload: { patientId } })
-      }).catch(e => console.warn('API confirmPayment error:', e));
-    } catch (e) {}
-  }
-
-  // 3. Mise à jour locale
+  // 2. Mise à jour locale
   const queue = getLocalQueue();
   const idx = queue.findIndex(p => p.id === patientId);
   if (idx >= 0) {
@@ -736,23 +590,7 @@ export async function sendConsultationMessage(
     }
   }
 
-  // 2. Envoi API Serverless Vercel (AWAIT obligatoire pour transmission immédiate)
-  if (typeof window !== 'undefined') {
-    try {
-      await fetch('/api/consultation/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'send_message',
-          payload: { patientId, message: newMsg }
-        })
-      });
-    } catch (e) {
-      console.warn('API send_message notice:', e);
-    }
-  }
-
-  // 3. Mise à jour Cache Local
+  // 2. Mise à jour Cache Local
   const queue = getLocalQueue();
   const idx = queue.findIndex(p => p.id === patientId);
   if (idx >= 0) {
@@ -785,16 +623,6 @@ export async function createOfficialPrescription(prescription: OfficialPrescript
     }
   }
 
-  if (typeof window !== 'undefined') {
-    try {
-      fetch('/api/consultation/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'save_prescription', payload: prescription })
-      }).catch(e => {});
-    } catch (e) {}
-  }
-
   const prescriptions = getLocalPrescriptions();
   prescriptions.unshift(prescription);
   saveLocalPrescriptions(prescriptions);
@@ -804,20 +632,7 @@ export async function createOfficialPrescription(prescription: OfficialPrescript
 export async function getPrescriptionByHash(hash: string): Promise<OfficialPrescription | null> {
   const normalizedHash = decodeURIComponent(hash).toLowerCase().trim();
 
-  // 1. Essai API Serverless (Partagé entre tous les appareils)
-  if (typeof window !== 'undefined') {
-    try {
-      const res = await fetch(`/api/consultation/sync?hash=${encodeURIComponent(normalizedHash)}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.prescription) {
-          return data.prescription;
-        }
-      }
-    } catch (e) {}
-  }
-
-  // 2. Essai Firestore
+  // 1. Essai Firestore
   if (isFirebaseConfigured && db) {
     try {
       const snap = await getDoc(doc(db, 'prescriptions', normalizedHash));
@@ -881,25 +696,7 @@ export async function dispensePrescription(
     }
   }
 
-  // 2. API Sync
-  if (typeof window !== 'undefined') {
-    try {
-      await fetch('/api/consultation/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'dispense_prescription',
-          payload: {
-            hash: normalizedHash,
-            pharmacyName: pharmacyData.pharmacyName,
-            pharmacistName: pharmacyData.pharmacistName,
-          },
-        }),
-      });
-    } catch (e) {}
-  }
-
-  // 3. LocalStorage
+  // 2. LocalStorage
   const prescriptions = getLocalPrescriptions();
   const pIdx = prescriptions.findIndex(p => p.hash.toLowerCase().trim() === normalizedHash);
   if (pIdx >= 0) {
@@ -934,21 +731,7 @@ export async function archiveConsultationSession(
     }
   }
 
-  // 2. Mise à jour API Serverless
-  if (typeof window !== 'undefined') {
-    try {
-      fetch('/api/consultation/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'archive_session',
-          payload: { patientId, prescription }
-        })
-      }).catch(e => {});
-    } catch (e) {}
-  }
-
-  // 3. Mise à jour Locale
+  // 2. Mise à jour Locale
   const queue = getLocalQueue();
   const idx = queue.findIndex(p => p.id === patientId);
   let itemToArchive: PatientQueueItem | undefined;
@@ -1016,19 +799,11 @@ export async function submitPendingMedication(med: {
     status: 'pending',
   };
 
+  // Sauvegarde locale de secours
+  const local = getLocalPendingMeds();
+  local.unshift(item);
   if (typeof window !== 'undefined') {
-    try {
-      fetch('/api/consultation/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'submit_pending_med', payload: item }),
-      }).catch(e => {});
-
-      // Sauvegarde locale de secours
-      const local = getLocalPendingMeds();
-      local.unshift(item);
-      localStorage.setItem('telemed_pending_meds', JSON.stringify(local));
-    } catch (e) {}
+    localStorage.setItem('telemed_pending_meds', JSON.stringify(local));
   }
 
   return item;
@@ -1045,17 +820,6 @@ export function getLocalPendingMeds(): PendingMedication[] {
 }
 
 export async function getPendingMedications(): Promise<PendingMedication[]> {
-  if (typeof window !== 'undefined') {
-    try {
-      const res = await fetch('/api/consultation/sync?type=pending_meds');
-      if (res.ok) {
-        const data = await res.json();
-        if (data.pendingMeds && data.pendingMeds.length > 0) {
-          return data.pendingMeds;
-        }
-      }
-    } catch (e) {}
-  }
   return getLocalPendingMeds();
 }
 
@@ -1077,13 +841,6 @@ export async function approvePendingMedication(medId: string, drugEntry: {
       list.unshift(drugEntry);
       localStorage.setItem('telemed_custom_drugs', JSON.stringify(list));
 
-      // Mettre à jour le statut dans l'API sync
-      await fetch('/api/consultation/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'approve_pending_med', payload: { medId } }),
-      });
-
       // Mettre à jour le statut local
       const local = getLocalPendingMeds();
       const idx = local.findIndex(m => m.id === medId);
@@ -1102,12 +859,6 @@ export async function approvePendingMedication(medId: string, drugEntry: {
 export async function rejectPendingMedication(medId: string): Promise<boolean> {
   if (typeof window !== 'undefined') {
     try {
-      await fetch('/api/consultation/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'reject_pending_med', payload: { medId } }),
-      });
-
       const local = getLocalPendingMeds();
       const idx = local.findIndex(m => m.id === medId);
       if (idx >= 0) {
