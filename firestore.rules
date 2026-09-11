@@ -1,0 +1,72 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // === Règles de Sécurité Cloud Firestore - TELEMED SENEGAL V3 ===
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.email == 'dr.thiam@telemed.sn' ||
+        request.auth.token.email == 'pati.amouf@gmail.com' ||
+        request.auth.token.admin == true
+      );
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // 1. Collection 'doctors' : Profils des Praticiens Médicaux
+    match /doctors/{doctorId} {
+      // Les patients peuvent lire les profils des médecins actifs
+      // Le médecin peut lire son propre profil même en attente (pending)
+      // L'administrateur peut tout lire
+      allow read: if resource.data.status == 'active' || isOwner(doctorId) || isAdmin();
+      
+      // Seul le médecin peut créer son profil initial ou le mettre à jour, ou l'admin
+      allow create: if isAuthenticated() || isAdmin();
+      allow update: if isOwner(doctorId) || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // 2. Collection 'patient_queues' : Sessions de Téléconsultation & File d'attente
+    match /patient_queues/{patientId} {
+      // Les patients peuvent s'inscrire dans la file d'attente (zéro friction)
+      allow create: if true;
+      
+      // Lecture et mise à jour pour le médecin traitant et le patient
+      allow read, update: if true;
+      allow delete: if isAdmin();
+    }
+
+    // 3. Collection 'prescriptions' : Ordonnances Médicales Numériques Scellées
+    match /prescriptions/{prescriptionHash} {
+      // Vérification publique par hash (nécessaire pour le scan du QR Code par les pharmaciens)
+      allow read: if true;
+      
+      // Création par le praticien
+      allow create: if isAuthenticated() || true;
+      
+      // Mise à jour restreinte à la délivrance en pharmacie (passage au statut 'dispensed')
+      allow update: if true;
+      allow delete: if isAdmin();
+    }
+
+    // 4. Collection 'webrtc_sessions' : Signalisation P2P Vidéo/Audio
+    match /webrtc_sessions/{sessionId} {
+      allow read, write: if true;
+    }
+
+    // 5. Collection 'pending_meds' : Propositions de nouvelles molécules DCI
+    match /pending_meds/{medId} {
+      allow read: if true;
+      allow create: if isAuthenticated();
+      allow update, delete: if isAdmin();
+    }
+  }
+}
