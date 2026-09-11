@@ -32,7 +32,7 @@
 **Interfaces :**
 - Produit : `isDoctorLicenseValid(doctor?: DoctorProfile | null): { isValid: boolean; isExpired: boolean; isPending: boolean; daysRemaining: number; message?: string }`
 
-- [ ] **Étape 1 : Rédiger le test unitaire pour `isDoctorLicenseValid`**
+- [x] **Étape 1 : Rédiger le test unitaire pour `isDoctorLicenseValid`**
 
 Dans `scripts/test-license-sync.ts` :
 ```ts
@@ -56,20 +56,20 @@ const resFuture = isDoctorLicenseValid(activeWithDate as DoctorProfile);
 console.assert(resFuture.isValid === true && resFuture.daysRemaining >= 29, 'Doit être valide avec date future');
 ```
 
-- [ ] **Étape 2 : Exécuter le test pour vérifier son comportement**
+- [x] **Étape 2 : Exécuter le test pour vérifier son comportement**
 
 Exécuter : `npx tsx scripts/test-license-sync.ts`
 
-- [ ] **Étape 3 : Ajuster `lib/utils/license.ts` pour garantir 30 jours par défaut si actif**
+- [x] **Étape 3 : Ajuster `lib/utils/license.ts` pour garantir 30 jours par défaut si actif**
 
 Vérifier que si `doctor.status === 'active'`, et que `licenseExpiresAt` est manquant ou invalide, la fonction retourne immédiatement `isValid: true, daysRemaining: 30`.
 
-- [ ] **Étape 4 : Exécuter le test pour valider le passage**
+- [x] **Étape 4 : Exécuter le test pour valider le passage**
 
 Exécuter : `npx tsx scripts/test-license-sync.ts`
 Attendu : Tous les asserts passent avec succès.
 
-- [ ] **Étape 5 : Commiter la tâche 1**
+- [x] **Étape 5 : Commiter la tâche 1**
 
 ```bash
 git add lib/utils/license.ts scripts/test-license-sync.ts
@@ -88,11 +88,11 @@ git commit -m "feat: sécurisation de la validité des licences actives dans lic
 - Consumes : `db`, `isFirebaseConfigured`, `getLocalDoctors`, `saveLocalDoctors`
 - Produit : `approveDoctor(doctorId: string): Promise<DoctorProfile | null>`, `renewDoctorLicense(doctorId: string, days: number): Promise<DoctorProfile | null>`, `getAllDoctors(): Promise<DoctorProfile[]>`
 
-- [ ] **Étape 1 : Rédiger le test d'approbation multi-cibles**
+- [x] **Étape 1 : Rédiger le test d'approbation multi-cibles**
 
 Ajouter dans `scripts/test-license-sync.ts` des vérifications simulant l'approbation d'un médecin ayant un ID d'affichage différent de son email.
 
-- [ ] **Étape 2 : Implémenter la résolution universelle dans `approveDoctor`**
+- [x] **Étape 2 : Implémenter la résolution universelle dans `approveDoctor`**
 
 Dans `lib/services/adminService.ts` :
 1. Calculer `licenseExpiresAt = addDays(new Date(), 30).toISOString()`.
@@ -104,19 +104,19 @@ Dans `lib/services/adminService.ts` :
    - Interroger également Firestore pour les documents dont le champ `id == clean` et appliquer la mise à jour.
    - Utiliser `deleteField()` pour `rejectionReason` et `banReason`.
 
-- [ ] **Étape 3 : Aligner `renewDoctorLicense` et `unbanDoctor` sur la même résolution multi-cibles**
+- [x] **Étape 3 : Aligner `renewDoctorLicense` et `unbanDoctor` sur la même résolution multi-cibles**
 
 Appliquer la même logique robuste à `renewDoctorLicense` (+30 jours) et `unbanDoctor`.
 
-- [ ] **Étape 4 : Sécuriser `getAllDoctors()`**
+- [x] **Étape 4 : Sécuriser `getAllDoctors()`**
 
 Dans `getAllDoctors()`, s'assurer d'injecter `id: data.id || docSnap.id` pour chaque document Firestore afin qu'aucun identifiant de document réel ne soit écrasé par un faux ID local.
 
-- [ ] **Étape 5 : Exécuter les tests et valider**
+- [x] **Étape 5 : Exécuter les tests et valider**
 
 Exécuter : `npx tsx scripts/test-license-sync.ts`
 
-- [ ] **Étape 6 : Commiter la tâche 2**
+- [x] **Étape 6 : Commiter la tâche 2**
 
 ```bash
 git add lib/services/adminService.ts scripts/test-license-sync.ts
@@ -134,27 +134,27 @@ git commit -m "feat: approbation atomique multi-cibles dans adminService.ts"
 **Interfaces :**
 - Produit : `listenToDoctorProfile(idOrEmail: string, callback: (profile: DoctorProfile | null) => void): () => void`, `getDoctorById(id: string): Promise<DoctorProfile | null>`, `getDoctorBySlug(slug: string): Promise<DoctorProfile | null>`
 
-- [ ] **Étape 1 : Rédiger le test de l'écouteur et de la résolution d'ID**
+- [x] **Étape 1 : Rédiger le test de l'écouteur et de la résolution d'ID**
 
 Dans `scripts/test-license-sync.ts`, ajouter un test validant que `getDoctorById` résout le profil par `id` ou par `email`, en priorisant toujours le document actif.
 
-- [ ] **Étape 2 : Mettre à niveau `listenToDoctorProfile` dans `lib/services/doctorService.ts`**
+- [x] **Étape 2 : Mettre à niveau `listenToDoctorProfile` dans `lib/services/doctorService.ts`**
 
 Transformer `listenToDoctorProfile` pour qu'il configure un écouteur `onSnapshot` :
 - Sur le document ID `doc(firestoreDb, 'doctors', clean)`.
 - Si `clean` contient `@` ou si un email est extrait, sur la requête `where('email', '==', lower)`.
 - Dès qu'un changement arrive, synchroniser le cache local via `syncDoctorToLocal` et invoquer le `callback`.
 
-- [ ] **Étape 3 : Renforcer `getDoctorById` et `getDoctorBySlug`**
+- [x] **Étape 3 : Renforcer `getDoctorById` et `getDoctorBySlug`**
 
 - Dans `getDoctorById` : injecter `id: docSnap.id` si manquant, prioriser le document au statut `active` en cas de doublon.
 - Dans `getDoctorBySlug` : filtrer les résultats pour retourner en priorité le profil actif.
 
-- [ ] **Étape 4 : Exécuter les tests**
+- [x] **Étape 4 : Exécuter les tests**
 
 Exécuter : `npx tsx scripts/test-license-sync.ts`
 
-- [ ] **Étape 5 : Commiter la tâche 3**
+- [x] **Étape 5 : Commiter la tâche 3**
 
 ```bash
 git add lib/services/doctorService.ts scripts/test-license-sync.ts
@@ -174,24 +174,24 @@ git commit -m "feat: écouteur temps réel multi-clés et résolution profil dan
 - Consumes : `useAuth`, `getDoctorById`, `listenToDoctorProfile`
 - Produit : Détection immédiate du passage à `active` et transition directe vers `DoctorDashboard`.
 
-- [ ] **Étape 1 : Optimiser `refreshProfile` dans `AuthContext.tsx`**
+- [x] **Étape 1 : Optimiser `refreshProfile` dans `AuthContext.tsx`**
 
 Dans `AuthContext.tsx` :
 - `refreshProfile` doit interroger `getDoctorById(doctorProfile?.id || user.uid)` ET `getDoctorById(user.email)`.
 - Si l'un des deux est `active`, il met immédiatement à jour `setDoctorProfile` et `telemed_session_v2`.
 
-- [ ] **Étape 2 : Connecter l'écouteur direct dans `PendingApprovalView.tsx`**
+- [x] **Étape 2 : Connecter l'écouteur direct dans `PendingApprovalView.tsx`**
 
 Dans `PendingApprovalView.tsx` :
 - Mettre en place un `useEffect` qui écoute en temps réel via `listenToDoctorProfile(doctorProfile?.id || user?.uid || '')`.
 - Dès que le profil reçu a `status === 'active'`, déclencher un effet de félicitations (confetti) et laisser React afficher instantanément le dashboard (car `app/page.tsx` et `app/dashboard/page.tsx` re-rendent conditionnellement selon `doctorProfile.status`).
 - Optimiser `handleRefresh` pour forcer la synchronisation directe depuis Firestore sans écran figé.
 
-- [ ] **Étape 3 : Vérifier la cohérence dans `app/dashboard/page.tsx` et `app/page.tsx`**
+- [x] **Étape 3 : Vérifier la cohérence dans `app/dashboard/page.tsx` et `app/page.tsx`**
 
 S'assurer que `app/dashboard/page.tsx` et `app/page.tsx` basculent de manière synchrone dès que `doctorProfile.status === 'active'`.
 
-- [ ] **Étape 4 : Commiter la tâche 4**
+- [x] **Étape 4 : Commiter la tâche 4**
 
 ```bash
 git add lib/context/AuthContext.tsx components/doctor/PendingApprovalView.tsx app/dashboard/page.tsx
@@ -206,17 +206,17 @@ git commit -m "feat: transition instantanée et écoute temps réel sur PendingA
 - Exécuter : `scripts/test-license-sync.ts`
 - Vérifier : `npm run build`
 
-- [ ] **Étape 1 : Exécuter la suite complète de tests unitaires**
+- [x] **Étape 1 : Exécuter la suite complète de tests unitaires**
 
 Exécuter : `npx tsx scripts/test-license-sync.ts`
 Attendu : 100% de réussite sur l'ensemble des scénarios.
 
-- [ ] **Étape 2 : Lancer le build de production pour valider l'absence d'erreurs de typage**
+- [x] **Étape 2 : Lancer le build de production pour valider l'absence d'erreurs de typage**
 
 Exécuter : `npm run build`
 Attendu : Build Next.js réussi sans erreurs TypeScript.
 
-- [ ] **Étape 3 : Commiter la finalisation du milestone**
+- [x] **Étape 3 : Commiter la finalisation du milestone**
 
 ```bash
 git add -A
