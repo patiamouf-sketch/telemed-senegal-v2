@@ -44,7 +44,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setDoctorProfile(null);
       return;
     }
-    const rawProfile = await getDoctorById(doctorProfile?.id || user.uid) || await getDoctorById(user.email);
+    // Requête duale UID et Email pour garantir de récupérer le document actif
+    const byId = await getDoctorById(doctorProfile?.id || user.uid);
+    const byEmail = user.email ? await getDoctorById(user.email) : null;
+    const rawProfile = (byId?.status === 'active' ? byId : byEmail?.status === 'active' ? byEmail : byId || byEmail);
     const profile = normalizeDoctorStatus(rawProfile);
     if (profile) {
       setDoctorProfile(profile);
@@ -54,23 +57,45 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [user, doctorProfile?.id]);
 
-  // Écouteur Firestore direct en temps réel sur le document du médecin
+  // Écouteur Firestore direct en temps réel sur le document du médecin (UID et Email)
   useEffect(() => {
     if (!user) return;
-    const targetKey = doctorProfile?.id || user.uid || user.email;
-    if (!targetKey) return;
+    const targetKey = doctorProfile?.id || user.uid;
+    const unsubs: (() => void)[] = [];
 
-    const unsub = listenToDoctorProfile(targetKey, (updatedProfile) => {
-      if (updatedProfile) {
-        const normalized = normalizeDoctorStatus(updatedProfile);
-        setDoctorProfile(normalized);
-        if (typeof window !== 'undefined') {
-          localStorage.setItem('telemed_session_v2', JSON.stringify({ user, profile: normalized }));
-        }
-      }
-    });
+    if (targetKey) {
+      unsubs.push(
+        listenToDoctorProfile(targetKey, (updatedProfile) => {
+          if (updatedProfile) {
+            const normalized = normalizeDoctorStatus(updatedProfile);
+            setDoctorProfile(normalized);
+            if (typeof window !== 'undefined') {
+              localStorage.setItem('telemed_session_v2', JSON.stringify({ user, profile: normalized }));
+            }
+          }
+        })
+      );
+    }
 
-    return () => unsub();
+    if (user.email && user.email !== targetKey) {
+      unsubs.push(
+        listenToDoctorProfile(user.email, (updatedProfile) => {
+          if (updatedProfile) {
+            const normalized = normalizeDoctorStatus(updatedProfile);
+            setDoctorProfile(normalized);
+            if (typeof window !== 'undefined') {
+              localStorage.setItem('telemed_session_v2', JSON.stringify({ user, profile: normalized }));
+            }
+          }
+        })
+      );
+    }
+
+    return () => {
+      unsubs.forEach(u => {
+        try { u(); } catch (e) {}
+      });
+    };
   }, [user?.uid, user?.email, doctorProfile?.id]);
 
   useEffect(() => {

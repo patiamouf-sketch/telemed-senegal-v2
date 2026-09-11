@@ -8,11 +8,13 @@ import { Badge } from '../ui/Badge';
 import { Clock, ShieldCheck, Stethoscope, Phone, CreditCard, RefreshCw, MessageSquare, Sparkles, CheckCircle2 } from 'lucide-react';
 import { getDoctorById } from '@/lib/services/doctorService';
 
+import confetti from 'canvas-confetti';
+
 export function PendingApprovalView() {
-  const { doctorProfile, refreshProfile, logout } = useAuth();
+  const { user, doctorProfile, refreshProfile, logout } = useAuth();
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Écouteur en temps réel automatique : vérifie toutes les 1.5 secondes si la direction a validé le compte
+  // Écouteur en temps réel automatique : vérifie régulièrement si la direction a validé le compte
   useEffect(() => {
     refreshProfile();
     const interval = setInterval(async () => {
@@ -21,16 +23,45 @@ export function PendingApprovalView() {
     return () => clearInterval(interval);
   }, [refreshProfile]);
 
+  // Célébration visuelle dès que le statut passe à 'active'
+  useEffect(() => {
+    if (doctorProfile?.status === 'active') {
+      try {
+        confetti({
+          particleCount: 90,
+          spread: 70,
+          origin: { y: 0.6 },
+          colors: ['#10B981', '#3B82F6', '#F59E0B']
+        });
+      } catch (e) {}
+    }
+  }, [doctorProfile?.status]);
+
   const handleRefresh = async () => {
     setIsRefreshing(true);
-    await refreshProfile();
-    if (doctorProfile) {
-      const fresh = await getDoctorById(doctorProfile.id) || (doctorProfile.email ? await getDoctorById(doctorProfile.email) : null);
+    try {
+      await refreshProfile();
+      const targetKey = doctorProfile?.id || user?.uid;
+      const fresh = targetKey
+        ? await getDoctorById(targetKey)
+        : (user?.email ? await getDoctorById(user.email) : null);
+
       if (fresh?.status === 'active') {
-        window.location.reload();
+        try {
+          confetti({
+            particleCount: 100,
+            spread: 80,
+            origin: { y: 0.6 },
+            colors: ['#10B981', '#3B82F6', '#F59E0B']
+          });
+        } catch (e) {}
+        await refreshProfile();
       }
+    } catch (err) {
+      console.warn('handleRefresh notice:', err);
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 300);
     }
-    setTimeout(() => setIsRefreshing(false), 400);
   };
 
   return (

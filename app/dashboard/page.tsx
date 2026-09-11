@@ -46,6 +46,17 @@ export default function DashboardPage() {
     );
   }
 
+  if (doctorProfile?.status === 'pending') {
+    return (
+      <div className="min-h-screen flex flex-col justify-between pt-2 bg-[#F4F9FD]">
+        <Navbar />
+        <main className="flex-1">
+          <PendingApprovalView />
+        </main>
+      </div>
+    );
+  }
+
   if (doctorProfile?.status === 'banned' || doctorProfile?.status === 'blocked') {
     return (
       <div className="min-h-screen flex flex-col justify-between pt-2 bg-[#F8FAFC]">
