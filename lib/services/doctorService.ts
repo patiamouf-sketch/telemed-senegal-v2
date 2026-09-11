@@ -26,6 +26,24 @@ import {
 } from 'firebase/firestore';
 
 /**
+ * Nettoie récursivement un objet de toute valeur undefined avant envoi à Cloud Firestore
+ */
+export function cleanFirestoreData<T extends Record<string, any>>(obj: T): T {
+  if (!obj || typeof obj !== 'object') return obj;
+  const result: any = Array.isArray(obj) ? [] : {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value !== undefined) {
+      if (value !== null && typeof value === 'object' && !(value instanceof Date)) {
+        result[key] = cleanFirestoreData(value);
+      } else {
+        result[key] = value;
+      }
+    }
+  }
+  return result;
+}
+
+/**
  * Création ou mise à jour d'un profil médecin (Actif immédiatement avec 90 jours d'accès gratuit)
  */
 export async function createDoctorProfile(
@@ -51,7 +69,7 @@ export async function createDoctorProfile(
   // 1. Enregistrement Firestore
   if (isFirebaseConfigured && db) {
     try {
-      await setDoc(doc(db, 'doctors', id), newDoctor);
+      await setDoc(doc(db, 'doctors', id), cleanFirestoreData(newDoctor));
     } catch (e) {
       console.warn('Firebase save failed, falling back to local storage:', e);
     }
@@ -266,7 +284,7 @@ export async function updateDoctorProfile(id: string, updates: Partial<DoctorPro
   // 1. Mise à jour Firestore
   if (isFirebaseConfigured && db) {
     try {
-      await setDoc(doc(db, 'doctors', id), updates, { merge: true });
+      await setDoc(doc(db, 'doctors', id), cleanFirestoreData(updates), { merge: true });
     } catch (e) {
       console.warn('Firebase setDoc notice:', e);
     }
@@ -326,9 +344,9 @@ export async function addPatientToQueue(
   // 1. Synchronisation Firestore
   if (isFirebaseConfigured && db) {
     try {
-      await setDoc(doc(db, 'patient_queues', id), newQueueItem);
+      await setDoc(doc(db, 'patient_queues', id), cleanFirestoreData(newQueueItem));
     } catch (e) {
-      console.warn('Firebase addPatientToQueue failed, using API sync:', e);
+      console.warn('Firebase addPatientToQueue failed:', e);
     }
   }
 
@@ -581,7 +599,7 @@ export async function sendConsultationMessage(
         doc(db, 'patient_queues', patientId),
         {
           id: patientId,
-          messages: arrayUnion(newMsg)
+          messages: arrayUnion(cleanFirestoreData(newMsg))
         },
         { merge: true }
       );
@@ -617,7 +635,7 @@ export async function sendConsultationMessage(
 export async function createOfficialPrescription(prescription: OfficialPrescription): Promise<OfficialPrescription> {
   if (isFirebaseConfigured && db) {
     try {
-      await setDoc(doc(db, 'prescriptions', prescription.hash), prescription);
+      await setDoc(doc(db, 'prescriptions', prescription.hash), cleanFirestoreData(prescription));
     } catch (e) {
       console.warn('Firebase createOfficialPrescription notice:', e);
     }
@@ -719,13 +737,13 @@ export async function archiveConsultationSession(
     status: 'completed',
     isReadOnly: true,
     completedAt: new Date().toISOString(),
-    prescription,
+    ...(prescription ? { prescription } : {}),
   };
 
   // 1. Mise à jour Firestore
   if (isFirebaseConfigured && db) {
     try {
-      await updateDoc(doc(db, 'patient_queues', patientId), completedItem);
+      await updateDoc(doc(db, 'patient_queues', patientId), cleanFirestoreData(completedItem));
     } catch (e) {
       console.warn('Firebase archiveConsultationSession failed:', e);
     }
