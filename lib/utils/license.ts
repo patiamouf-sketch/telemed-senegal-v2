@@ -63,6 +63,17 @@ export function isDoctorLicenseValid(doctor?: DoctorProfile | null): {
 
   const expiry = new Date(doctor.licenseExpiresAt);
   const now = new Date();
+
+  // Sécurité anti-NaN si chaîne de date invalide
+  if (isNaN(expiry.getTime())) {
+    return {
+      isValid: true,
+      isExpired: false,
+      isPending: false,
+      daysRemaining: 30,
+    };
+  }
+
   const diffDays = differenceInDays(expiry, now);
   const isExpired = expiry.getTime() <= now.getTime();
 
@@ -80,6 +91,6 @@ export function isDoctorLicenseValid(doctor?: DoctorProfile | null): {
     isValid: true,
     isExpired: false,
     isPending: false,
-    daysRemaining: Math.max(0, diffDays),
+    daysRemaining: Math.max(1, diffDays),
   };
 }
