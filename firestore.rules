@@ -23,10 +23,8 @@ service cloud.firestore {
 
     // 1. Collection 'doctors' : Profils des Praticiens Médicaux
     match /doctors/{doctorId} {
-      // Les patients peuvent lire les profils des médecins actifs
-      // Le médecin peut lire son propre profil même en attente (pending)
-      // L'administrateur peut tout lire
-      allow read: if resource.data.status == 'active' || isOwner(doctorId) || isAdmin();
+      // Les patients et visiteurs peuvent consulter l'annuaire et les cabinets publics (/dr/[slug])
+      allow read: if true;
       
       // Seul le médecin peut créer son profil initial ou le mettre à jour, ou l'admin
       allow create: if isAuthenticated() || isAdmin();
