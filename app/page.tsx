@@ -144,6 +144,19 @@ export default function HomePage() {
     );
   }
 
+  // 4. If logged in & status is PENDING -> Pending Approval Screen
+  if (doctorProfile?.status === 'pending') {
+    return (
+      <div className="min-h-screen flex flex-col justify-between pt-2">
+        <Navbar />
+        <main className="flex-1">
+          <PendingApprovalView />
+        </main>
+        <Footer />
+      </div>
+    );
+  }
+
   // 5. If logged in & status is ACTIVE -> Full Doctor Dashboard
   return (
     <div className="min-h-screen flex flex-col justify-between pt-2">

@@ -27,7 +27,7 @@ export function isDoctorLicenseValid(doctor?: DoctorProfile | null): {
       isExpired: false,
       isPending: true,
       daysRemaining: 0,
-      message: 'Votre dossier médical est en cours de validation par la Direction Médicale.',
+      message: 'Ce cabinet médical est en cours de validation réglementaire par la Direction Médicale de TELEMED SENEGAL.',
     };
   }
 
