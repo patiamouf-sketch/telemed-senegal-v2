@@ -1,6 +1,6 @@
 import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
 import { getAuth, Auth } from 'firebase/auth';
-import { getFirestore, Firestore } from 'firebase/firestore';
+import { initializeFirestore, getFirestore, Firestore, doc, getDoc } from 'firebase/firestore';
 import { getStorage, FirebaseStorage } from 'firebase/storage';
 
 const firebaseConfig = {
@@ -28,10 +28,35 @@ let storage: FirebaseStorage | undefined;
 try {
   app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
   auth = getAuth(app);
-  db = getFirestore(app);
+  try {
+    db = initializeFirestore(app, {
+      ignoreUndefinedProperties: true,
+    });
+  } catch (errInit) {
+    db = getFirestore(app);
+  }
   storage = getStorage(app);
 } catch (error) {
   console.warn('Firebase initialization notice:', error);
 }
 
+/**
+ * Diagnostic de connectivité Cloud Firestore en direct
+ */
+export async function checkFirestoreHealth(): Promise<{ ok: boolean; message: string }> {
+  if (!isFirebaseConfigured || !db) {
+    return { ok: false, message: 'Firebase non configuré ou instance DB absente' };
+  }
+  try {
+    await getDoc(doc(db, 'system_health', 'ping'));
+    return { ok: true, message: 'Connecté à Cloud Firestore' };
+  } catch (error: any) {
+    if (error?.code === 'permission-denied' || error?.code === 'not-found') {
+      return { ok: true, message: `Connecté à Cloud Firestore (${error.code})` };
+    }
+    return { ok: false, message: error?.message || 'Erreur de connexion Firestore' };
+  }
+}
+
 export { app, auth, db, storage };
+
