@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/lib/context/AuthContext';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { GlassButton } from '@/components/ui/GlassButton';
@@ -74,29 +74,39 @@ export default function AdminThiamPage() {
   const [approveDuration, setApproveDuration] = useState('5 à 7 jours');
   const [approveChd, setApproveChd] = useState('Prise au cours des repas avec un grand verre d’eau.');
 
+  const isFetchingRef = useRef(false);
+
   const loadData = async (silent: boolean = false) => {
     if (!isAdmin) return;
-    if (!silent) setLoading(true);
-    const [docs, st, meds, logs] = await Promise.all([
-      getAllDoctors(),
-      getAdminStats(),
-      getPendingMedications(),
-      getAdminAuditLogs()
-    ]);
-    setDoctors(docs);
-    setStats(st);
-    setPendingMeds(meds);
-    setAuditLogs(logs);
-    if (!silent) setLoading(false);
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
+    try {
+      if (!silent) setLoading(true);
+      const docs = await getAllDoctors();
+      const [st, meds, logs] = await Promise.all([
+        getAdminStats(docs),
+        getPendingMedications(),
+        getAdminAuditLogs()
+      ]);
+      setDoctors(docs);
+      setStats(st);
+      setPendingMeds(meds);
+      setAuditLogs(logs);
+    } catch (err) {
+      console.warn('Erreur lors du rafraîchissement des données admin:', err);
+    } finally {
+      if (!silent) setLoading(false);
+      isFetchingRef.current = false;
+    }
   };
 
   useEffect(() => {
     if (!isAdmin) return;
     loadData();
-    // Écoute / rafraîchissement automatique toutes les 4 secondes
+    // Rafraîchissement automatique en arrière-plan toutes les 12 secondes
     const interval = setInterval(() => {
       loadData(true);
-    }, 4000);
+    }, 12000);
     return () => clearInterval(interval);
   }, [isAdmin]);
 
@@ -156,16 +166,20 @@ export default function AdminThiamPage() {
       )
     );
 
-    await approveDoctor(docId, user?.email || 'dr.thiam@telemed.sn');
-    await loadData(true);
-    setActionLoading(null);
-
-    confetti({
-      particleCount: 90,
-      spread: 70,
-      origin: { y: 0.6 },
-      colors: ['#10B981', '#3B82F6', '#F59E0B']
-    });
+    try {
+      await approveDoctor(docId, user?.email || 'dr.thiam@telemed.sn');
+      await loadData(true);
+      confetti({
+        particleCount: 90,
+        spread: 70,
+        origin: { y: 0.6 },
+        colors: ['#10B981', '#3B82F6', '#F59E0B']
+      });
+    } catch (err) {
+      console.error('Erreur lors de l\'approbation du médecin:', err);
+    } finally {
+      setActionLoading(null);
+    }
   };
 
   const handleRejectDoctor = async (docId: string) => {
@@ -181,9 +195,14 @@ export default function AdminThiamPage() {
       )
     );
 
-    await rejectDoctor(docId, reason, user?.email || 'dr.thiam@telemed.sn');
-    await loadData(true);
-    setActionLoading(null);
+    try {
+      await rejectDoctor(docId, reason, user?.email || 'dr.thiam@telemed.sn');
+      await loadData(true);
+    } catch (err) {
+      console.error('Erreur lors du rejet du médecin:', err);
+    } finally {
+      setActionLoading(null);
+    }
   };
 
   const handleBanDoctor = async (docId: string) => {
@@ -199,9 +218,14 @@ export default function AdminThiamPage() {
       )
     );
 
-    await banDoctor(docId, reason, user?.email || 'dr.thiam@telemed.sn');
-    await loadData(true);
-    setActionLoading(null);
+    try {
+      await banDoctor(docId, reason, user?.email || 'dr.thiam@telemed.sn');
+      await loadData(true);
+    } catch (err) {
+      console.error('Erreur lors du blocage du médecin:', err);
+    } finally {
+      setActionLoading(null);
+    }
   };
 
   const handleUnbanDoctor = async (docId: string) => {
@@ -216,9 +240,14 @@ export default function AdminThiamPage() {
       )
     );
 
-    await unbanDoctor(docId, user?.email || 'dr.thiam@telemed.sn');
-    await loadData(true);
-    setActionLoading(null);
+    try {
+      await unbanDoctor(docId, user?.email || 'dr.thiam@telemed.sn');
+      await loadData(true);
+    } catch (err) {
+      console.error('Erreur lors de la levée de suspension:', err);
+    } finally {
+      setActionLoading(null);
+    }
   };
 
   const handleDeleteDoctor = async (docId: string, docName: string) => {
@@ -227,9 +256,14 @@ export default function AdminThiamPage() {
     }
     setActionLoading(docId);
     setDoctors(prev => prev.filter(d => d.id !== docId));
-    await deleteDoctorPermanently(docId, user?.email || 'dr.thiam@telemed.sn');
-    await loadData(true);
-    setActionLoading(null);
+    try {
+      await deleteDoctorPermanently(docId, user?.email || 'dr.thiam@telemed.sn');
+      await loadData(true);
+    } catch (err) {
+      console.error('Erreur lors de la suppression définitive:', err);
+    } finally {
+      setActionLoading(null);
+    }
   };
 
   const handleRenewLicense = async (docId: string) => {
@@ -243,9 +277,14 @@ export default function AdminThiamPage() {
       )
     );
 
-    await renewDoctorLicense(docId, 30, user?.email || 'dr.thiam@telemed.sn');
-    await loadData(true);
-    setActionLoading(null);
+    try {
+      await renewDoctorLicense(docId, 30, user?.email || 'dr.thiam@telemed.sn');
+      await loadData(true);
+    } catch (err) {
+      console.error('Erreur lors du renouvellement de la licence:', err);
+    } finally {
+      setActionLoading(null);
+    }
   };
 
   // Ouvrir la modal d'approbation d'un médicament
@@ -265,56 +304,66 @@ export default function AdminThiamPage() {
     if (!selectedMedToApprove) return;
 
     setActionLoading(selectedMedToApprove.id);
-    await approvePendingMedication(selectedMedToApprove.id, {
-      dci: approveDci.trim(),
-      brandNames: approveBrand.split(',').map(b => b.trim()).filter(Boolean),
-      category: approveCategory.trim(),
-      ammCode: approveAmm.trim(),
-      defaultForm: approveForm.trim(),
-      defaultDosage: approveDosage.trim(),
-      defaultDuration: approveDuration.trim(),
-      defaultChd: approveChd.trim(),
-    });
+    try {
+      await approvePendingMedication(selectedMedToApprove.id, {
+        dci: approveDci.trim(),
+        brandNames: approveBrand.split(',').map(b => b.trim()).filter(Boolean),
+        category: approveCategory.trim(),
+        ammCode: approveAmm.trim(),
+        defaultForm: approveForm.trim(),
+        defaultDosage: approveDosage.trim(),
+        defaultDuration: approveDuration.trim(),
+        defaultChd: approveChd.trim(),
+      });
 
-    // Traçabilité médico-légale
-    await logAdminAction({
-      action: 'approve_medication',
-      adminEmail: user?.email || 'dr.thiam@telemed.sn',
-      targetId: selectedMedToApprove.id,
-      targetName: approveDci.trim(),
-      targetType: 'medication',
-      details: `Molécule DCI '${approveDci.trim()}' homologuée avec le code AMM ${approveAmm.trim()} (${approveCategory.trim()}).`,
-    });
+      // Traçabilité médico-légale
+      await logAdminAction({
+        action: 'approve_medication',
+        adminEmail: user?.email || 'dr.thiam@telemed.sn',
+        targetId: selectedMedToApprove.id,
+        targetName: approveDci.trim(),
+        targetType: 'medication',
+        details: `Molécule DCI '${approveDci.trim()}' homologuée avec le code AMM ${approveAmm.trim()} (${approveCategory.trim()}).`,
+      });
 
-    setSelectedMedToApprove(null);
-    await loadData();
-    setActionLoading(null);
+      setSelectedMedToApprove(null);
+      await loadData();
 
-    confetti({
-      particleCount: 80,
-      spread: 70,
-      origin: { y: 0.6 }
-    });
+      confetti({
+        particleCount: 80,
+        spread: 70,
+        origin: { y: 0.6 }
+      });
+    } catch (err) {
+      console.error('Erreur lors de l\'approbation du médicament:', err);
+    } finally {
+      setActionLoading(null);
+    }
   };
 
   const handleRejectMed = async (medId: string) => {
     if (!confirm('Voulez-vous rejeter cette proposition de médicament ?')) return;
     const targetMed = pendingMeds.find(m => m.id === medId);
     setActionLoading(medId);
-    await rejectPendingMedication(medId);
+    try {
+      await rejectPendingMedication(medId);
 
-    // Traçabilité médico-légale
-    await logAdminAction({
-      action: 'reject_medication',
-      adminEmail: user?.email || 'dr.thiam@telemed.sn',
-      targetId: medId,
-      targetName: targetMed?.name || 'Médicament proposé',
-      targetType: 'medication',
-      details: `Proposition de molécule DCI '${targetMed?.name || medId}' rejetée par la direction médicale.`,
-    });
+      // Traçabilité médico-légale
+      await logAdminAction({
+        action: 'reject_medication',
+        adminEmail: user?.email || 'dr.thiam@telemed.sn',
+        targetId: medId,
+        targetName: targetMed?.name || 'Médicament proposé',
+        targetType: 'medication',
+        details: `Proposition de molécule DCI '${targetMed?.name || medId}' rejetée par la direction médicale.`,
+      });
 
-    await loadData();
-    setActionLoading(null);
+      await loadData();
+    } catch (err) {
+      console.error('Erreur lors du rejet du médicament:', err);
+    } finally {
+      setActionLoading(null);
+    }
   };
 
   const pendingDocs = doctors.filter(d => d.status === 'pending');

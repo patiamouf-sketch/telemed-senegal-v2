@@ -162,7 +162,8 @@ export async function getAdminAuditLogs(limitCount: number = 100): Promise<Admin
 }
 
 /**
- * Synchronisation atomique multi-cibles vers Firestore (Doc ID, champ id, champ email)
+ * Synchronisation atomique multi-cibles vers Firestore (Doc ID direct, clean ID, alias email)
+ * Exécutée en parallèle avec un timeout strict de 3s pour ne jamais bloquer l'interface.
  */
 async function syncDoctorUpdateToFirestore(
   targetId: string,
@@ -172,46 +173,33 @@ async function syncDoctorUpdateToFirestore(
 ): Promise<void> {
   if (!isFirebaseConfigured || !db) return;
 
+  const targetDb = db;
+  const updatePromises: Promise<any>[] = [];
+
+  // 1. Mise à jour directe et immédiate sur targetId
+  if (targetId) {
+    updatePromises.push(setDoc(doc(targetDb, 'doctors', targetId), firestoreUpdates, { merge: true }));
+  }
+
+  // 2. Si clean !== targetId, mise à jour sur clean
+  if (clean && clean !== targetId) {
+    updatePromises.push(setDoc(doc(targetDb, 'doctors', clean), firestoreUpdates, { merge: true }));
+  }
+
+  // 3. Mise à jour sur l'alias email si présent
+  const cleanEmail = targetEmail?.toLowerCase().trim();
+  if (cleanEmail && cleanEmail !== targetId && cleanEmail !== clean) {
+    updatePromises.push(setDoc(doc(targetDb, 'doctors', cleanEmail), firestoreUpdates, { merge: true }));
+  }
+
   try {
-    // 1. Mise à jour directe sur targetId
-    await setDoc(doc(db, 'doctors', targetId), firestoreUpdates, { merge: true });
-
-    // 2. Si clean !== targetId, mise à jour sur clean
-    if (clean && clean !== targetId) {
-      await setDoc(doc(db, 'doctors', clean), firestoreUpdates, { merge: true });
-    }
-
-    // 3. Déduction de l'email depuis Firestore si non fourni
-    let resolvedEmail = targetEmail;
-    if (!resolvedEmail) {
-      try {
-        const dSnap = await getDoc(doc(db, 'doctors', targetId));
-        if (dSnap.exists()) {
-          const docData = dSnap.data() as DoctorProfile;
-          if (docData.email) resolvedEmail = docData.email.toLowerCase().trim();
-        }
-      } catch (e) {}
-    }
-
-    // 4. Mise à jour de tous les documents correspondant à resolvedEmail
-    if (resolvedEmail) {
-      const qEmail = query(collection(db, 'doctors'), where('email', '==', resolvedEmail));
-      const emailSnap = await getDocs(qEmail);
-      await Promise.all(emailSnap.docs.map(dSnap => setDoc(dSnap.ref, firestoreUpdates, { merge: true })));
-    }
-
-    // 5. Mise à jour de tous les documents dont le champ 'id' correspond à targetId ou clean
-    const qIdTarget = query(collection(db, 'doctors'), where('id', '==', targetId));
-    const idTargetSnap = await getDocs(qIdTarget);
-    await Promise.all(idTargetSnap.docs.map(dSnap => setDoc(dSnap.ref, firestoreUpdates, { merge: true })));
-
-    if (clean && clean !== targetId) {
-      const qIdClean = query(collection(db, 'doctors'), where('id', '==', clean));
-      const idCleanSnap = await getDocs(qIdClean);
-      await Promise.all(idCleanSnap.docs.map(dSnap => setDoc(dSnap.ref, firestoreUpdates, { merge: true })));
-    }
+    const syncAction = Promise.all(updatePromises);
+    const timeout = new Promise<void>((_, reject) =>
+      setTimeout(() => reject(new Error('Délai de synchronisation Firestore dépassé')), 3000)
+    );
+    await Promise.race([syncAction, timeout]);
   } catch (e) {
-    console.warn('syncDoctorUpdateToFirestore notice:', e);
+    console.warn('syncDoctorUpdateToFirestore notice (fallback local appliqué):', e);
   }
 }
 
@@ -619,8 +607,8 @@ export async function renewDoctorLicense(
   return updatedDoc || (docProfile ? { ...docProfile, ...updates } : null);
 }
 
-export async function getAdminStats(): Promise<AdminStats> {
-  const doctors = await getAllDoctors();
+export async function getAdminStats(preloadedDoctors?: DoctorProfile[]): Promise<AdminStats> {
+  const doctors = preloadedDoctors || await getAllDoctors();
   const queue = getLocalQueue();
 
   return {
