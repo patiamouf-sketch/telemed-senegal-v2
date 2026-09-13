@@ -442,7 +442,14 @@ export default function PatientRoomPage() {
 
     const unsubMessages = listenToConsultationMessages(createdPatient.id, msgs => {
       if (msgs && msgs.length > 0) {
-        setChatMessages(msgs);
+        setChatMessages(prev => {
+          const map = new Map<string, ChatMessage>();
+          prev.forEach(m => map.set(m.id, m));
+          msgs.forEach(m => map.set(m.id, m));
+          return Array.from(map.values()).sort(
+            (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+          );
+        });
         // Bip discret lors de la réception d'un nouveau message du médecin
         if (prevMessagesCountRef.current > 0 && msgs.length > prevMessagesCountRef.current) {
           const newMessages = msgs.slice(prevMessagesCountRef.current);

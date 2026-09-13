@@ -242,8 +242,9 @@ export function DoctorProfileModal({ isOpen, onClose }: DoctorProfileModalProps)
   if (!isOpen || !doctorProfile) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-md overflow-y-auto font-sans">
-      <GlassCard className="relative w-full max-w-2xl bg-white/95 backdrop-blur-2xl border border-white/90 p-6 sm:p-8 my-8 shadow-2xl space-y-6">
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/50 backdrop-blur-md p-3 sm:p-4 font-sans">
+      <div className="min-h-full flex items-start sm:items-center justify-center py-4 sm:py-8">
+        <GlassCard className="relative w-full max-w-2xl bg-white/95 backdrop-blur-2xl border border-white/90 p-5 sm:p-8 shadow-2xl space-y-6">
         {/* Close Button */}
         <button
           onClick={onClose}
@@ -596,7 +597,8 @@ export function DoctorProfileModal({ isOpen, onClose }: DoctorProfileModalProps)
             </GlassButton>
           </div>
         </form>
-      </GlassCard>
+        </GlassCard>
+      </div>
     </div>
   );
 }

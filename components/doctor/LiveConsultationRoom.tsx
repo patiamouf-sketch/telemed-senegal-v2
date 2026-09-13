@@ -61,6 +61,7 @@ interface LiveConsultationRoomProps {
 export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultationRoomProps) {
   const [messages, setMessages] = useState<ChatMessage[]>(patient.messages || []);
   const [inputText, setInputText] = useState('');
+  const [isSendingText, setIsSendingText] = useState(false);
   const [isVideoMuted, setIsVideoMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
   const [callSeconds, setCallSeconds] = useState(0);
@@ -76,7 +77,14 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
 
     const unsubMessages = listenToConsultationMessages(patient.id, msgs => {
       if (msgs && msgs.length > 0) {
-        setMessages(msgs);
+        setMessages(prev => {
+          const map = new Map<string, ChatMessage>();
+          prev.forEach(m => map.set(m.id, m));
+          msgs.forEach(m => map.set(m.id, m));
+          return Array.from(map.values()).sort(
+            (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+          );
+        });
         // Bip discret lors d'un nouveau message reçu du patient
         if (prevMessagesCountRef.current > 0 && msgs.length > prevMessagesCountRef.current) {
           const newMessages = msgs.slice(prevMessagesCountRef.current);
@@ -267,16 +275,26 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
   // Send Text Message
   const handleSendMessage = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!inputText.trim()) return;
+    if (!inputText.trim() || isSendingText) return;
 
-    const msg = await sendConsultationMessage(patient.id, {
-      sender: 'doctor',
-      type: 'text',
-      text: inputText.trim(),
-    });
-
-    setMessages(prev => [...prev, msg]);
+    const text = inputText.trim();
     setInputText('');
+    setIsSendingText(true);
+
+    try {
+      const msg = await sendConsultationMessage(patient.id, {
+        sender: 'doctor',
+        type: 'text',
+        text,
+      });
+
+      setMessages(prev => (prev.some(m => m.id === msg.id) ? prev : [...prev, msg]));
+    } catch (err) {
+      console.warn('Erreur envoi message praticien:', err);
+      setInputText(text); // Restitution en cas d'erreur
+    } finally {
+      setIsSendingText(false);
+    }
   };
 
   // Start Real Voice Recording (MediaRecorder WebM/OGG)
@@ -873,9 +891,10 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
                         }
                         value={inputText}
                         onChange={e => setInputText(e.target.value)}
-                        className="flex-1 px-4 py-2.5 rounded-full bg-slate-50 border border-slate-200/80 text-xs focus:outline-none focus:bg-white text-[#0F172A]"
+                        disabled={isSendingText}
+                        className="flex-1 px-4 py-2.5 rounded-full bg-slate-50 border border-slate-200/80 text-xs focus:outline-none focus:bg-white text-[#0F172A] disabled:opacity-60"
                       />
-                      <GlassButton type="submit" variant="primary" size="sm">
+                      <GlassButton type="submit" variant="primary" size="sm" disabled={isSendingText || !inputText.trim()} isLoading={isSendingText}>
                         <Send className="w-4 h-4" />
                       </GlassButton>
                     </form>

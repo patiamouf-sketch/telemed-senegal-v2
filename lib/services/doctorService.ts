@@ -563,6 +563,21 @@ export function listenToPatient(
 ): () => void {
   let isUnsubscribed = false;
   let firestoreUnsub: (() => void) | null = null;
+  let pollInterval: NodeJS.Timeout | null = null;
+
+  function startLocalPolling() {
+    if (pollInterval || isUnsubscribed) return;
+    pollInterval = setInterval(() => {
+      if (isUnsubscribed) return;
+      try {
+        const q = getLocalQueue();
+        const localP = q.find(p => p.id === patientId);
+        if (localP && !isUnsubscribed) {
+          callback(localP);
+        }
+      } catch (e) {}
+    }, 2000);
+  }
 
   // 1. Abonnement Firestore Temps Réel
   if (isFirebaseConfigured && db) {
@@ -571,32 +586,37 @@ export function listenToPatient(
         doc(db, 'patient_queues', patientId),
         snap => {
           if (!isUnsubscribed && snap.exists()) {
-            callback(snap.data() as PatientQueueItem);
+            const data = snap.data() as PatientQueueItem;
+            // Synchronisation discrète du cache local
+            try {
+              const q = getLocalQueue();
+              const idx = q.findIndex(p => p.id === patientId);
+              if (idx >= 0) {
+                q[idx] = { ...q[idx], ...data };
+                saveLocalQueue(q);
+              }
+            } catch (e) {}
+            callback(data);
           }
         },
-        err => console.warn('Firestore onSnapshot notice:', err)
+        err => {
+          console.warn('Firestore onSnapshot patient notice:', err);
+          startLocalPolling();
+        }
       );
     } catch (e) {
-      console.warn('Firestore listen exception, falling back to API poll:', e);
+      console.warn('Firestore listen exception, falling back to local poll:', e);
+      startLocalPolling();
     }
+  } else {
+    // Mode hors-ligne sans Firebase
+    startLocalPolling();
   }
-
-  // 2. Polling Cache Local si Firestore hors-ligne
-  const interval = setInterval(() => {
-    if (isUnsubscribed) return;
-    try {
-      const q = getLocalQueue();
-      const localP = q.find(p => p.id === patientId);
-      if (localP && !isUnsubscribed) {
-        callback(localP);
-      }
-    } catch (e) {}
-  }, 1000);
 
   // Fonction de nettoyage
   return () => {
     isUnsubscribed = true;
-    clearInterval(interval);
+    if (pollInterval) clearInterval(pollInterval);
     if (firestoreUnsub) {
       try {
         firestoreUnsub();
@@ -614,7 +634,22 @@ export function listenToDoctorQueue(
 ): () => void {
   let isUnsubscribed = false;
   let firestoreUnsub: (() => void) | null = null;
+  let pollInterval: NodeJS.Timeout | null = null;
   const normalizedSlug = doctorSlug.toLowerCase().trim();
+
+  function startLocalPolling() {
+    if (pollInterval || isUnsubscribed) return;
+    pollInterval = setInterval(() => {
+      if (isUnsubscribed) return;
+      try {
+        const q = getLocalQueue();
+        const items = q.filter(item => item.doctorSlug.toLowerCase() === normalizedSlug && (item.status === 'waiting' || item.status === 'in_consultation'));
+        if (items.length > 0 && !isUnsubscribed) {
+          callback(items);
+        }
+      } catch (e) {}
+    }, 3000);
+  }
 
   // 1. Abonnement Firestore Temps Réel
   if (isFirebaseConfigured && db) {
@@ -632,34 +667,45 @@ export function listenToDoctorQueue(
             callback(items);
           }
         },
-        err => console.warn('Firestore queue onSnapshot notice:', err)
+        err => {
+          console.warn('Firestore queue onSnapshot notice:', err);
+          startLocalPolling();
+        }
       );
     } catch (e) {
       console.warn('Firestore queue listen exception:', e);
+      startLocalPolling();
     }
+  } else {
+    startLocalPolling();
   }
-
-  // 2. Fallback local si Firestore hors-ligne
-  const interval = setInterval(() => {
-    if (isUnsubscribed) return;
-    try {
-      const q = getLocalQueue();
-      const items = q.filter(item => item.doctorSlug.toLowerCase() === normalizedSlug && (item.status === 'waiting' || item.status === 'in_consultation'));
-      if (items.length > 0 && !isUnsubscribed) {
-        callback(items);
-      }
-    } catch (e) {}
-  }, 3000);
 
   return () => {
     isUnsubscribed = true;
-    clearInterval(interval);
+    if (pollInterval) clearInterval(pollInterval);
     if (firestoreUnsub) {
       try {
         firestoreUnsub();
       } catch (e) {}
     }
   };
+}
+
+function syncMessagesToLocal(patientId: string, messages: ChatMessage[]) {
+  try {
+    const q = getLocalQueue();
+    const idx = q.findIndex(p => p.id === patientId);
+    if (idx >= 0) {
+      q[idx].messages = messages;
+      saveLocalQueue(q);
+    }
+    const arch = getLocalArchive();
+    const aIdx = arch.findIndex(p => p.id === patientId);
+    if (aIdx >= 0) {
+      arch[aIdx].messages = messages;
+      saveLocalArchive(arch);
+    }
+  } catch (e) {}
 }
 
 /**
@@ -671,6 +717,27 @@ export function listenToConsultationMessages(
 ): () => void {
   let isUnsubscribed = false;
   let firestoreUnsub: (() => void) | null = null;
+  let pollInterval: NodeJS.Timeout | null = null;
+
+  function startLocalPolling() {
+    if (pollInterval || isUnsubscribed) return;
+    pollInterval = setInterval(() => {
+      if (isUnsubscribed) return;
+      try {
+        const q = getLocalQueue();
+        const localP = q.find(p => p.id === patientId);
+        if (localP && localP.messages && !isUnsubscribed) {
+          callback(localP.messages);
+          return;
+        }
+        const arch = getLocalArchive();
+        const localArch = arch.find(p => p.id === patientId);
+        if (localArch && localArch.messages && !isUnsubscribed) {
+          callback(localArch.messages);
+        }
+      } catch (e) {}
+    }, 2000);
+  }
 
   // 1. Abonnement Firestore Temps Réel sur la sous-collection 'messages'
   const firestoreDb = db;
@@ -685,6 +752,7 @@ export function listenToConsultationMessages(
           if (isUnsubscribed) return;
           if (!snap.empty) {
             const items = snap.docs.map(d => d.data() as ChatMessage);
+            syncMessagesToLocal(patientId, items);
             callback(items);
           } else {
             // Rétrocompatibilité : si la sous-collection est vide, vérifier si le document parent a un historique
@@ -693,40 +761,29 @@ export function listenToConsultationMessages(
               if (parentSnap.exists()) {
                 const pData = parentSnap.data() as PatientQueueItem;
                 if (pData.messages && pData.messages.length > 0) {
+                  syncMessagesToLocal(patientId, pData.messages);
                   callback(pData.messages);
                 }
               }
             }).catch(e => console.warn('Erreur fallback lecture parent messages:', e));
           }
         },
-        err => console.warn('Firestore messages onSnapshot notice:', err)
+        err => {
+          console.warn('Firestore messages onSnapshot notice:', err);
+          startLocalPolling();
+        }
       );
     } catch (e) {
       console.warn('Firestore messages listen exception:', e);
+      startLocalPolling();
     }
+  } else {
+    startLocalPolling();
   }
-
-  // 2. Polling Cache Local si Firestore hors-ligne
-  const interval = setInterval(() => {
-    if (isUnsubscribed) return;
-    try {
-      const q = getLocalQueue();
-      const localP = q.find(p => p.id === patientId);
-      if (localP && localP.messages && !isUnsubscribed) {
-        callback(localP.messages);
-        return;
-      }
-      const arch = getLocalArchive();
-      const localArch = arch.find(p => p.id === patientId);
-      if (localArch && localArch.messages && !isUnsubscribed) {
-        callback(localArch.messages);
-      }
-    } catch (e) {}
-  }, 1000);
 
   return () => {
     isUnsubscribed = true;
-    clearInterval(interval);
+    if (pollInterval) clearInterval(pollInterval);
     if (firestoreUnsub) {
       try {
         firestoreUnsub();
