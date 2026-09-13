@@ -23,6 +23,9 @@ import {
   Image as ImageIcon, 
   Check, 
   AlertCircle, 
+  Loader2,
+  FileText,
+  Trash2,
 } from 'lucide-react';
 import { uploadMedia } from '@/lib/services/storageService';
 import confetti from 'canvas-confetti';
@@ -71,15 +74,21 @@ export function DoctorOnboardingForm({ onClose, onSuccess }: DoctorOnboardingFor
   const [verificationDocUrl, setVerificationDocUrl] = useState<string | null>(null);
   const [verificationDocName, setVerificationDocName] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isProcessingDoc, setIsProcessingDoc] = useState(false);
+  const [docError, setDocError] = useState<string | null>(null);
 
   // Photo de profil & Cachet / Signature du médecin
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [avatarName, setAvatarName] = useState<string | null>(null);
   const avatarInputRef = useRef<HTMLInputElement>(null);
+  const [isProcessingAvatar, setIsProcessingAvatar] = useState(false);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
 
   const [stampUrl, setStampUrl] = useState<string | null>(null);
   const [stampName, setStampName] = useState<string | null>(null);
   const stampInputRef = useRef<HTMLInputElement>(null);
+  const [isProcessingStamp, setIsProcessingStamp] = useState(false);
+  const [stampError, setStampError] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
     fullName: '',
@@ -110,45 +119,76 @@ export function DoctorOnboardingForm({ onClose, onSuccess }: DoctorOnboardingFor
     setFormData(prev => ({ ...prev, email: '', password: '' }));
   }, []);
 
-  // Upload Photo de Profil (Firebase Storage avec compression)
+  // Upload Photo de Profil (compression locale immédiate)
   const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
 
+    setIsProcessingAvatar(true);
+    setAvatarError(null);
     setAvatarName(file.name);
     try {
       const url = await uploadMedia(file, `doctor_avatars/${Date.now()}_${file.name}`);
-      setAvatarUrl(url);
+      if (url) {
+        setAvatarUrl(url);
+      } else {
+        setAvatarError("Impossible de traiter cette image. Utilisez un format JPG ou PNG.");
+      }
     } catch (err) {
       console.warn('Erreur upload photo de profil:', err);
+      setAvatarError("Erreur lors de l'importation de la photo.");
+    } finally {
+      setIsProcessingAvatar(false);
     }
   };
 
-  // Upload Cachet & Signature (Firebase Storage avec compression)
+  // Upload Cachet & Signature (compression locale immédiate)
   const handleStampChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
 
+    setIsProcessingStamp(true);
+    setStampError(null);
     setStampName(file.name);
     try {
       const url = await uploadMedia(file, `doctor_stamps/${Date.now()}_${file.name}`);
-      setStampUrl(url);
+      if (url) {
+        setStampUrl(url);
+      } else {
+        setStampError("Impossible de traiter ce cachet.");
+      }
     } catch (err) {
       console.warn('Erreur upload cachet médical:', err);
+      setStampError("Erreur lors de l'importation du cachet.");
+    } finally {
+      setIsProcessingStamp(false);
     }
   };
 
-  // Compresseur d'image et upload média via storageService
+  // Compresseur d'image et justificatif via storageService (JPG, PNG, WEBP, PDF)
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
 
+    setIsProcessingDoc(true);
+    setDocError(null);
+    setError(null);
     setVerificationDocName(file.name);
     try {
       const url = await uploadMedia(file, `doctor_verification/${Date.now()}_${file.name}`);
-      setVerificationDocUrl(url);
+      if (url) {
+        setVerificationDocUrl(url);
+      } else {
+        setDocError("Format non supporté. Veuillez importer une photo ou un fichier PDF valide.");
+      }
     } catch (err) {
       console.warn('Erreur de traitement image justificatif:', err);
+      setDocError("Erreur lors du traitement du document. Veuillez réessayer.");
+    } finally {
+      setIsProcessingDoc(false);
     }
   };
 
@@ -475,62 +515,93 @@ export function DoctorOnboardingForm({ onClose, onSuccess }: DoctorOnboardingFor
 
             <p className="text-[11px] text-slate-500 leading-relaxed">
               {!isRegisteredOnms
-                ? 'Pour les jeunes médecins diplômés d’État non encore inscrits à l’Ordre, veuillez importer une photo nette (recto ou verso) de votre Carte Nationale d’Identité (CNI sénégalaise ou CEDEAO) ou passeport pour vérification par la direction médicale.'
-                : 'Veuillez téléverser une photo nette de votre carte professionnelle ONMS ou de votre pièce d’identité officielle pour vérification par la direction médicale.'}
+                ? 'Pour les jeunes médecins diplômés d’État non encore inscrits à l’Ordre, veuillez importer une photo nette (recto ou verso) de votre Carte Nationale d’Identité (CNI sénégalaise ou CEDEAO), passeport ou document PDF officiel.'
+                : 'Veuillez téléverser une photo nette de votre carte professionnelle ONMS ou de votre pièce d’identité officielle (format photo ou document PDF).'}
             </p>
 
             <input
               type="file"
-              accept="image/*"
-              capture="environment"
+              accept="image/*,application/pdf,.pdf"
               ref={fileInputRef}
               onChange={handleFileChange}
               className="hidden"
             />
 
-            {verificationDocUrl ? (
-              <div className="relative rounded-[16px] overflow-hidden border border-blue-200 bg-white p-2 flex items-center gap-3">
-                <img
-                  src={verificationDocUrl}
-                  alt="Justificatif"
-                  className="w-16 h-16 object-cover rounded-[12px] border border-slate-100"
-                />
+            {docError && (
+              <div className="p-2.5 rounded-[12px] bg-red-50 border border-red-200 text-xs text-red-600 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                <span>{docError}</span>
+              </div>
+            )}
+
+            {isProcessingDoc ? (
+              <div className="w-full py-6 rounded-[20px] border-2 border-dashed border-blue-300 bg-blue-50/60 flex flex-col items-center justify-center gap-2 text-blue-600">
+                <Loader2 className="w-6 h-6 animate-spin" />
+                <span className="text-xs font-bold">Optimisation et vérification du document en cours...</span>
+              </div>
+            ) : verificationDocUrl ? (
+              <div className="relative rounded-[16px] overflow-hidden border border-blue-200 bg-white p-3 flex items-center gap-3 shadow-sm">
+                {verificationDocName?.toLowerCase().endsWith('.pdf') || verificationDocUrl.startsWith('data:application/pdf') ? (
+                  <div className="w-14 h-14 rounded-[12px] bg-red-50 border border-red-200 flex flex-col items-center justify-center text-red-600 flex-shrink-0">
+                    <FileText className="w-6 h-6" />
+                    <span className="text-[9px] font-bold mt-0.5">PDF</span>
+                  </div>
+                ) : (
+                  <img
+                    src={verificationDocUrl}
+                    alt="Justificatif"
+                    className="w-14 h-14 object-cover rounded-[12px] border border-slate-100 flex-shrink-0"
+                  />
+                )}
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-bold text-[#0F172A] truncate">
                     {verificationDocName || 'Justificatif_Medical.jpg'}
                   </p>
                   <p className="text-[11px] text-emerald-600 font-semibold flex items-center gap-1 mt-0.5">
-                    <CheckCircle2 className="w-3 h-3" /> Image prête pour transmission
+                    <CheckCircle2 className="w-3.5 h-3.5" /> Document prêt pour transmission
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="px-3 py-1.5 text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-full transition-colors"
-                >
-                  Changer
-                </button>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="px-3 py-1.5 text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-full transition-colors"
+                  >
+                    Changer
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setVerificationDocUrl(null);
+                      setVerificationDocName(null);
+                    }}
+                    className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors"
+                    title="Supprimer ce document"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             ) : (
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className={`w-full py-4 px-4 rounded-[20px] border-2 border-dashed bg-white/80 hover:bg-white font-semibold flex flex-col items-center justify-center gap-1.5 transition-all shadow-sm group ${
+                className={`w-full py-5 px-4 rounded-[20px] border-2 border-dashed bg-white/80 hover:bg-white font-semibold flex flex-col items-center justify-center gap-1.5 transition-all shadow-sm group ${
                   !isRegisteredOnms
                     ? 'border-emerald-300 hover:border-emerald-500 text-emerald-700'
                     : 'border-blue-300 hover:border-blue-500 text-blue-600'
                 }`}
               >
-                <UploadCloud className={`w-6 h-6 transition-transform group-hover:scale-110 ${
+                <UploadCloud className={`w-7 h-7 transition-transform group-hover:scale-110 ${
                   !isRegisteredOnms ? 'text-emerald-500' : 'text-blue-500'
                 }`} />
                 <span className="text-xs font-bold">
                   {!isRegisteredOnms 
-                    ? 'Prendre une photo de ma CNI ou importer le fichier' 
-                    : 'Prendre une photo ou importer le fichier'}
+                    ? 'Prendre une photo de ma CNI ou importer un fichier' 
+                    : 'Prendre une photo de ma carte ou importer un fichier'}
                 </span>
-                <span className="text-[10px] text-slate-400">
-                  Formats acceptés : JPG, PNG, WEBP (Appareil photo smartphone supporté)
+                <span className="text-[10px] text-slate-400 text-center">
+                  Appareil photo, galerie photo ou document PDF acceptés (JPG, PNG, WEBP, PDF)
                 </span>
               </button>
             )}
@@ -559,25 +630,46 @@ export function DoctorOnboardingForm({ onClose, onSuccess }: DoctorOnboardingFor
                 onChange={handleAvatarChange}
                 className="hidden"
               />
-              {avatarUrl ? (
-                <div className="flex items-center gap-3 bg-white p-2 rounded-[16px] border border-slate-200">
+
+              {avatarError && (
+                <p className="text-[10px] text-red-600 font-semibold">{avatarError}</p>
+              )}
+
+              {isProcessingAvatar ? (
+                <div className="w-full py-3 rounded-[16px] bg-blue-50/60 border border-blue-200 flex items-center justify-center gap-2 text-xs font-bold text-blue-600">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Optimisation de la photo...</span>
+                </div>
+              ) : avatarUrl ? (
+                <div className="flex items-center gap-3 bg-white p-2 rounded-[16px] border border-slate-200 shadow-sm">
                   <img
                     src={avatarUrl}
                     alt="Profil"
-                    className="w-12 h-12 rounded-full object-cover border border-[#3B82F6]"
+                    className="w-12 h-12 rounded-full object-cover border-2 border-[#3B82F6]"
                   />
                   <div className="flex-1 min-w-0">
-                    <p className="text-[11px] font-bold text-[#0F172A] truncate">Photo enregistrée</p>
+                    <p className="text-[11px] font-bold text-[#0F172A] truncate">Photo prête</p>
                     <span className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
-                      <Check className="w-3 h-3" /> Intégrée au QR Code
+                      <Check className="w-3 h-3" /> Intégrée au profil
                     </span>
                   </div>
                   <button
                     type="button"
                     onClick={() => avatarInputRef.current?.click()}
-                    className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2.5 py-1 rounded-full"
+                    className="text-[10px] font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-full transition-colors"
                   >
                     Changer
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAvatarUrl(null);
+                      setAvatarName(null);
+                    }}
+                    className="p-1 text-slate-400 hover:text-red-500 rounded-full transition-colors"
+                    title="Supprimer la photo"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 </div>
               ) : (
@@ -587,7 +679,7 @@ export function DoctorOnboardingForm({ onClose, onSuccess }: DoctorOnboardingFor
                   className="w-full py-2.5 px-3 rounded-[16px] border border-dashed border-slate-300 hover:border-blue-400 bg-white text-xs font-bold text-slate-700 flex items-center justify-center gap-2 transition-all shadow-sm"
                 >
                   <Camera className="w-4 h-4 text-[#3B82F6]" />
-                  <span>Importer ma photo</span>
+                  <span>Prendre ou importer une photo</span>
                 </button>
               )}
             </div>
@@ -613,8 +705,18 @@ export function DoctorOnboardingForm({ onClose, onSuccess }: DoctorOnboardingFor
                 onChange={handleStampChange}
                 className="hidden"
               />
-              {stampUrl ? (
-                <div className="flex items-center gap-3 bg-white p-2 rounded-[16px] border border-slate-200">
+
+              {stampError && (
+                <p className="text-[10px] text-red-600 font-semibold">{stampError}</p>
+              )}
+
+              {isProcessingStamp ? (
+                <div className="w-full py-3 rounded-[16px] bg-emerald-50/60 border border-emerald-200 flex items-center justify-center gap-2 text-xs font-bold text-emerald-700">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Optimisation du cachet...</span>
+                </div>
+              ) : stampUrl ? (
+                <div className="flex items-center gap-3 bg-white p-2 rounded-[16px] border border-slate-200 shadow-sm">
                   <img
                     src={stampUrl}
                     alt="Cachet"
@@ -629,9 +731,20 @@ export function DoctorOnboardingForm({ onClose, onSuccess }: DoctorOnboardingFor
                   <button
                     type="button"
                     onClick={() => stampInputRef.current?.click()}
-                    className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2.5 py-1 rounded-full"
+                    className="text-[10px] font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-full transition-colors"
                   >
                     Changer
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStampUrl(null);
+                      setStampName(null);
+                    }}
+                    className="p-1 text-slate-400 hover:text-red-500 rounded-full transition-colors"
+                    title="Supprimer le cachet"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 </div>
               ) : (
