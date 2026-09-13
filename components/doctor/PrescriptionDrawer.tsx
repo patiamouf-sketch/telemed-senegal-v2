@@ -61,17 +61,8 @@ export function PrescriptionDrawer({
   const [patientPhone, setPatientPhone] = useState(patient?.patientPhone || '');
   const [patientGender, setPatientGender] = useState<'M' | 'F'>(patient?.gender || 'M');
 
-  // Lignes d'ordonnance initiales harmonisées (Médicament en MAJUSCULES, posologie & durée en minuscules)
-  const [items, setItems] = useState<PrescriptionItem[]>([
-    {
-      id: 'rx-1',
-      medication: 'PARACETAMOL (DOLIPRANE) 1G',
-      ammCode: 'ARP-SN-2022-0145',
-      form: 'Comprimé 1g',
-      dosage: '1 comprimé toutes les 8h si douleurs ou fièvre (max 3g/24h)',
-      duration: '5 jours',
-    },
-  ]);
+  // Lignes d'ordonnance initialement vierges (aucun médicament pré-inscrit)
+  const [items, setItems] = useState<PrescriptionItem[]>([]);
 
   // Conseils Hygiéno-Diététiques initialement vides (saisie libre du médecin ou suggestions sur clic)
   const [dietaryAdvice, setDietaryAdvice] = useState('');
