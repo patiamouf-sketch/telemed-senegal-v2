@@ -154,11 +154,6 @@ export function DoctorOnboardingForm({ onClose, onSuccess }: DoctorOnboardingFor
       return;
     }
 
-    if (isRegisteredOnms && !formData.onmsNumber.trim()) {
-      setError('Veuillez renseigner votre numéro d’inscription ONMS ou cocher « Non encore inscrit ».');
-      return;
-    }
-
     if (!formData.nin.trim()) {
       setError('Le Numéro d’Identification Nationale (NIN) est requis.');
       return;
@@ -169,12 +164,12 @@ export function DoctorOnboardingForm({ onClose, onSuccess }: DoctorOnboardingFor
       return;
     }
 
-    // Validation stricte de la pièce justificative
+    // Validation stricte de la pièce justificative (Carte ONMS ou Carte d'Identité CNI)
     if (!verificationDocUrl) {
       setError(
         isRegisteredOnms
-          ? 'La photo de votre Carte d’inscription à l’Ordre (ONMS) est obligatoire pour valider votre dossier.'
-          : 'La photo de votre Pièce d’Identité officielle (CNI / Passeport) est obligatoire pour valider votre dossier.'
+          ? 'La photo de votre Carte d’Ordre (ONMS) ou Pièce d’Identité (CNI) est obligatoire pour valider votre dossier.'
+          : 'La photo de votre Carte Nationale d’Identité (CNI sénégalaise / CEDEAO) est obligatoire pour valider votre dossier de jeune médecin.'
       );
       return;
     }
@@ -187,8 +182,8 @@ export function DoctorOnboardingForm({ onClose, onSuccess }: DoctorOnboardingFor
           fullName: formData.fullName.startsWith('Dr') ? formData.fullName : `Dr. ${formData.fullName}`,
           email: formData.email,
           speciality: formData.speciality,
-          onmsStatus: isRegisteredOnms ? 'registered' : 'unregistered',
-          onmsNumber: isRegisteredOnms ? formData.onmsNumber.toUpperCase() : undefined,
+          onmsStatus: isRegisteredOnms && formData.onmsNumber.trim() ? 'registered' : 'unregistered',
+          onmsNumber: formData.onmsNumber.trim() ? formData.onmsNumber.trim().toUpperCase() : undefined,
           nin: formData.nin,
           phone: formData.phone,
           clinicName: formData.clinicName || 'Cabinet Privé',
@@ -203,7 +198,7 @@ export function DoctorOnboardingForm({ onClose, onSuccess }: DoctorOnboardingFor
           avatarUrl: avatarUrl || undefined,
           signatureStampUrl: stampUrl || undefined,
           verificationDocumentUrl: verificationDocUrl,
-          verificationDocumentType: isRegisteredOnms ? 'onms_card' : 'id_card',
+          verificationDocumentType: isRegisteredOnms && formData.onmsNumber.trim() ? 'onms_card' : 'id_card',
           availableForTeleconsult: true,
         },
         formData.password || 'password123'
@@ -286,11 +281,16 @@ export function DoctorOnboardingForm({ onClose, onSuccess }: DoctorOnboardingFor
                 onClick={() => setIsRegisteredOnms(false)}
                 className={`p-3 rounded-[16px] text-xs font-bold flex items-center justify-between border transition-all ${
                   !isRegisteredOnms
-                    ? 'bg-blue-600 text-white border-blue-600 shadow-md shadow-blue-500/20'
+                    ? 'bg-emerald-600 text-white border-emerald-600 shadow-md shadow-emerald-500/20'
                     : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
                 }`}
               >
-                <span>Je ne suis pas encore inscrit</span>
+                <div className="flex flex-col text-left">
+                  <span>Je ne suis pas encore inscrit</span>
+                  <span className={`text-[10px] font-normal ${!isRegisteredOnms ? 'text-emerald-100' : 'text-slate-400'}`}>
+                    Jeune médecin diplômé d'État (CNI requise)
+                  </span>
+                </div>
                 {!isRegisteredOnms && <Check className="w-4 h-4" />}
               </button>
             </div>
@@ -333,12 +333,11 @@ export function DoctorOnboardingForm({ onClose, onSuccess }: DoctorOnboardingFor
             {isRegisteredOnms ? (
               <div>
                 <label className="block text-xs font-bold text-[#0F172A] mb-1.5 flex items-center gap-1.5">
-                  <ShieldAlert className="w-3.5 h-3.5 text-[#3B82F6]" /> N° Ordre des Médecins (ONMS) *
+                  <ShieldAlert className="w-3.5 h-3.5 text-[#3B82F6]" /> N° Ordre des Médecins (ONMS) <span className="text-slate-400 font-normal text-[11px]">(Optionnel / En cours)</span>
                 </label>
                 <input
                   type="text"
-                  required
-                  placeholder="Ex: SN-ONMS-7821"
+                  placeholder="Ex: SN-ONMS-7821 (ou laisser vide)"
                   value={formData.onmsNumber}
                   onChange={e => setFormData({ ...formData, onmsNumber: e.target.value })}
                   className="w-full px-4 py-2.5 rounded-[20px] bg-white border border-slate-200/80 focus:border-[#3B82F6] focus:outline-none focus:ring-4 focus:ring-blue-500/10 text-[#0F172A] font-mono shadow-sm"
@@ -346,11 +345,12 @@ export function DoctorOnboardingForm({ onClose, onSuccess }: DoctorOnboardingFor
               </div>
             ) : (
               <div>
-                <label className="block text-xs font-bold text-slate-500 mb-1.5 flex items-center gap-1.5">
-                  <ShieldAlert className="w-3.5 h-3.5 text-slate-400" /> Statut Ordinal
+                <label className="block text-xs font-bold text-slate-600 mb-1.5 flex items-center gap-1.5">
+                  <ShieldAlert className="w-3.5 h-3.5 text-emerald-600" /> Statut Professionnel
                 </label>
-                <div className="px-4 py-2.5 rounded-[20px] bg-slate-100 border border-slate-200 text-slate-600 text-xs font-medium">
-                  Praticien Diplômé d'État (Non inscrit ONMS)
+                <div className="px-4 py-2.5 rounded-[20px] bg-emerald-50/70 border border-emerald-200/70 text-emerald-800 text-xs font-semibold flex items-center justify-between">
+                  <span>Jeune Praticien Diplômé d'État</span>
+                  <Badge variant="emerald" size="sm">CNI Requise</Badge>
                 </div>
               </div>
             )}
@@ -434,23 +434,29 @@ export function DoctorOnboardingForm({ onClose, onSuccess }: DoctorOnboardingFor
           </div>
 
           {/* Upload Obligatoire du Justificatif */}
-          <div className="p-4 rounded-[24px] bg-blue-50/50 border border-blue-100 space-y-3">
+          <div className={`p-4 rounded-[24px] border space-y-3 transition-colors ${
+            !isRegisteredOnms ? 'bg-emerald-50/50 border-emerald-200' : 'bg-blue-50/50 border-blue-100'
+          }`}>
             <div className="flex items-center justify-between">
               <label className="block text-xs font-bold text-[#0F172A] flex items-center gap-1.5">
-                <Camera className="w-4 h-4 text-[#3B82F6]" />
-                {isRegisteredOnms 
-                  ? 'Photo de la Carte de l’Ordre (ONMS) * (Obligatoire)' 
-                  : 'Photo de la Pièce d’Identité (CNI / Passeport) * (Obligatoire)'}
+                {!isRegisteredOnms ? (
+                  <CreditCard className="w-4 h-4 text-emerald-600" />
+                ) : (
+                  <Camera className="w-4 h-4 text-[#3B82F6]" />
+                )}
+                {!isRegisteredOnms 
+                  ? 'Photo de la Carte Nationale d’Identité (CNI / CEDEAO) * (Obligatoire)' 
+                  : 'Photo de la Carte de l’Ordre (ONMS) ou CNI * (Obligatoire)'}
               </label>
               <Badge variant={verificationDocUrl ? 'emerald' : 'amber'} size="sm">
                 {verificationDocUrl ? 'Document chargé' : 'Requis'}
               </Badge>
             </div>
 
-            <p className="text-[11px] text-slate-500">
-              {isRegisteredOnms
-                ? 'Veuillez téléverser une photo nette de votre carte professionnelle ONMS pour vérification par la direction médicale.'
-                : 'Veuillez téléverser une photo nette de votre carte d’identité nationale ou passeport en cours de validité.'}
+            <p className="text-[11px] text-slate-500 leading-relaxed">
+              {!isRegisteredOnms
+                ? 'Pour les jeunes médecins diplômés d’État non encore inscrits à l’Ordre, veuillez importer une photo nette (recto ou verso) de votre Carte Nationale d’Identité (CNI sénégalaise ou CEDEAO) ou passeport pour vérification par la direction médicale.'
+                : 'Veuillez téléverser une photo nette de votre carte professionnelle ONMS ou de votre pièce d’identité officielle pour vérification par la direction médicale.'}
             </p>
 
             <input
@@ -489,14 +495,22 @@ export function DoctorOnboardingForm({ onClose, onSuccess }: DoctorOnboardingFor
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="w-full py-4 px-4 rounded-[20px] border-2 border-dashed border-blue-300 hover:border-blue-500 bg-white/80 hover:bg-white text-blue-600 font-semibold flex flex-col items-center justify-center gap-1.5 transition-all shadow-sm group"
+                className={`w-full py-4 px-4 rounded-[20px] border-2 border-dashed bg-white/80 hover:bg-white font-semibold flex flex-col items-center justify-center gap-1.5 transition-all shadow-sm group ${
+                  !isRegisteredOnms
+                    ? 'border-emerald-300 hover:border-emerald-500 text-emerald-700'
+                    : 'border-blue-300 hover:border-blue-500 text-blue-600'
+                }`}
               >
-                <UploadCloud className="w-6 h-6 text-blue-500 group-hover:scale-110 transition-transform" />
+                <UploadCloud className={`w-6 h-6 transition-transform group-hover:scale-110 ${
+                  !isRegisteredOnms ? 'text-emerald-500' : 'text-blue-500'
+                }`} />
                 <span className="text-xs font-bold">
-                  Prendre une photo ou importer le fichier
+                  {!isRegisteredOnms 
+                    ? 'Prendre une photo de ma CNI ou importer le fichier' 
+                    : 'Prendre une photo ou importer le fichier'}
                 </span>
                 <span className="text-[10px] text-slate-400">
-                  Formats acceptés : JPG, PNG, WEBP (Appareil photo supporté)
+                  Formats acceptés : JPG, PNG, WEBP (Appareil photo smartphone supporté)
                 </span>
               </button>
             )}

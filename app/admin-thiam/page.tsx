@@ -24,11 +24,26 @@ import {
   Plus,
   Check,
   Eye,
-  X
+  X,
+  ScrollText,
+  FileText,
+  Search,
+  Filter
 } from 'lucide-react';
-import { getAllDoctors, approveDoctor, rejectDoctor, banDoctor, unbanDoctor, deleteDoctorPermanently, renewDoctorLicense, getAdminStats } from '@/lib/services/adminService';
+import {
+  getAllDoctors,
+  approveDoctor,
+  rejectDoctor,
+  banDoctor,
+  unbanDoctor,
+  deleteDoctorPermanently,
+  renewDoctorLicense,
+  getAdminStats,
+  getAdminAuditLogs,
+  logAdminAction
+} from '@/lib/services/adminService';
 import { getPendingMedications, approvePendingMedication, rejectPendingMedication } from '@/lib/services/doctorService';
-import { DoctorProfile, AdminStats } from '@/lib/types/doctor';
+import { DoctorProfile, AdminStats, AdminAuditLog } from '@/lib/types/doctor';
 import { PendingMedication } from '@/lib/types/prescription';
 import { format, differenceInDays } from 'date-fns';
 import { ShieldAlert, Trash2, Ban, Unlock } from 'lucide-react';
@@ -40,9 +55,12 @@ export default function AdminThiamPage() {
   const [doctors, setDoctors] = useState<DoctorProfile[]>([]);
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [pendingMeds, setPendingMeds] = useState<PendingMedication[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AdminAuditLog[]>([]);
+  const [auditFilter, setAuditFilter] = useState<'all' | 'doctors' | 'medications' | 'licenses'>('all');
+  const [auditSearch, setAuditSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'pending' | 'active' | 'banned' | 'medications' | 'all'>('pending');
+  const [activeTab, setActiveTab] = useState<'pending' | 'active' | 'banned' | 'medications' | 'audit' | 'all'>('pending');
 
   // Modal d'approbation d'un médicament
   const [selectedMedToApprove, setSelectedMedToApprove] = useState<PendingMedication | null>(null);
@@ -59,12 +77,16 @@ export default function AdminThiamPage() {
   const loadData = async (silent: boolean = false) => {
     if (!isAdmin) return;
     if (!silent) setLoading(true);
-    const docs = await getAllDoctors();
-    const st = await getAdminStats();
-    const meds = await getPendingMedications();
+    const [docs, st, meds, logs] = await Promise.all([
+      getAllDoctors(),
+      getAdminStats(),
+      getPendingMedications(),
+      getAdminAuditLogs()
+    ]);
     setDoctors(docs);
     setStats(st);
     setPendingMeds(meds);
+    setAuditLogs(logs);
     if (!silent) setLoading(false);
   };
 
@@ -134,7 +156,7 @@ export default function AdminThiamPage() {
       )
     );
 
-    await approveDoctor(docId);
+    await approveDoctor(docId, user?.email || 'dr.thiam@telemed.sn');
     await loadData(true);
     setActionLoading(null);
 
@@ -159,7 +181,7 @@ export default function AdminThiamPage() {
       )
     );
 
-    await rejectDoctor(docId, reason);
+    await rejectDoctor(docId, reason, user?.email || 'dr.thiam@telemed.sn');
     await loadData(true);
     setActionLoading(null);
   };
@@ -177,7 +199,7 @@ export default function AdminThiamPage() {
       )
     );
 
-    await banDoctor(docId, reason);
+    await banDoctor(docId, reason, user?.email || 'dr.thiam@telemed.sn');
     await loadData(true);
     setActionLoading(null);
   };
@@ -194,7 +216,7 @@ export default function AdminThiamPage() {
       )
     );
 
-    await unbanDoctor(docId);
+    await unbanDoctor(docId, user?.email || 'dr.thiam@telemed.sn');
     await loadData(true);
     setActionLoading(null);
   };
@@ -205,7 +227,7 @@ export default function AdminThiamPage() {
     }
     setActionLoading(docId);
     setDoctors(prev => prev.filter(d => d.id !== docId));
-    await deleteDoctorPermanently(docId);
+    await deleteDoctorPermanently(docId, user?.email || 'dr.thiam@telemed.sn');
     await loadData(true);
     setActionLoading(null);
   };
@@ -221,7 +243,7 @@ export default function AdminThiamPage() {
       )
     );
 
-    await renewDoctorLicense(docId, 30);
+    await renewDoctorLicense(docId, 30, user?.email || 'dr.thiam@telemed.sn');
     await loadData(true);
     setActionLoading(null);
   };
@@ -254,6 +276,16 @@ export default function AdminThiamPage() {
       defaultChd: approveChd.trim(),
     });
 
+    // Traçabilité médico-légale
+    await logAdminAction({
+      action: 'approve_medication',
+      adminEmail: user?.email || 'dr.thiam@telemed.sn',
+      targetId: selectedMedToApprove.id,
+      targetName: approveDci.trim(),
+      targetType: 'medication',
+      details: `Molécule DCI '${approveDci.trim()}' homologuée avec le code AMM ${approveAmm.trim()} (${approveCategory.trim()}).`,
+    });
+
     setSelectedMedToApprove(null);
     await loadData();
     setActionLoading(null);
@@ -267,8 +299,20 @@ export default function AdminThiamPage() {
 
   const handleRejectMed = async (medId: string) => {
     if (!confirm('Voulez-vous rejeter cette proposition de médicament ?')) return;
+    const targetMed = pendingMeds.find(m => m.id === medId);
     setActionLoading(medId);
     await rejectPendingMedication(medId);
+
+    // Traçabilité médico-légale
+    await logAdminAction({
+      action: 'reject_medication',
+      adminEmail: user?.email || 'dr.thiam@telemed.sn',
+      targetId: medId,
+      targetName: targetMed?.name || 'Médicament proposé',
+      targetType: 'medication',
+      details: `Proposition de molécule DCI '${targetMed?.name || medId}' rejetée par la direction médicale.`,
+    });
+
     await loadData();
     setActionLoading(null);
   };
@@ -445,6 +489,18 @@ export default function AdminThiamPage() {
           </button>
 
           <button
+            onClick={() => setActiveTab('audit')}
+            className={`px-5 py-2.5 rounded-full text-xs font-bold transition-all flex items-center gap-2 ${
+              activeTab === 'audit'
+                ? 'bg-purple-600 text-white shadow-md'
+                : 'bg-white/70 text-slate-600 hover:bg-white'
+            }`}
+          >
+            <ScrollText className="w-3.5 h-3.5" />
+            Journal d'Audit & Traçabilité ({auditLogs.length})
+          </button>
+
+          <button
             onClick={() => setActiveTab('all')}
             className={`px-5 py-2.5 rounded-full text-xs font-bold transition-all flex items-center gap-2 ${
               activeTab === 'all'
@@ -495,8 +551,8 @@ export default function AdminThiamPage() {
                             ONMS : {doc.onmsNumber}
                           </strong>
                         ) : (
-                          <span className="text-amber-800 font-bold bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200 text-[11px]">
-                            Non inscrit à l'Ordre
+                          <span className="text-emerald-800 font-bold bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200 text-[11px]">
+                            Jeune Diplômé d'État (CNI)
                           </span>
                         )}
                       </div>
@@ -537,7 +593,7 @@ export default function AdminThiamPage() {
                           >
                             <Eye className="w-3.5 h-3.5" />
                             <span>
-                              Inspecter le justificatif ({doc.verificationDocumentType === 'id_card' ? 'Pièce d’Identité CNI' : 'Carte ONMS'})
+                              Inspecter le justificatif ({doc.verificationDocumentType === 'id_card' ? 'Carte d’Identité CNI' : 'Carte ONMS'})
                             </span>
                           </button>
                         </div>
@@ -836,6 +892,201 @@ export default function AdminThiamPage() {
             </div>
           </GlassCard>
         )}
+
+        {/* TAB 6: AUDIT TRAIL / JOURNAL D'AUDIT LÉGAL */}
+        {activeTab === 'audit' && (() => {
+          const filteredLogs = auditLogs.filter(log => {
+            // Filtre par catégorie
+            if (auditFilter === 'doctors' && log.targetType !== 'doctor') return false;
+            if (auditFilter === 'medications' && log.targetType !== 'medication') return false;
+            if (auditFilter === 'licenses' && log.action !== 'renew_license') return false;
+
+            // Filtre par recherche textuelle
+            if (auditSearch.trim()) {
+              const q = auditSearch.toLowerCase();
+              const matchTarget = log.targetName.toLowerCase().includes(q);
+              const matchEmail = log.adminEmail.toLowerCase().includes(q);
+              const matchDetails = (log.details || '').toLowerCase().includes(q);
+              const matchReason = (log.reason || '').toLowerCase().includes(q);
+              return matchTarget || matchEmail || matchDetails || matchReason;
+            }
+
+            return true;
+          });
+
+          const getActionBadge = (action: any) => {
+            switch (action) {
+              case 'approve_doctor':
+                return <Badge variant="emerald" size="sm">Homologation ONMS</Badge>;
+              case 'reject_doctor':
+                return <Badge variant="rose" size="sm">Candidature Rejetée</Badge>;
+              case 'ban_doctor':
+                return <Badge variant="rose" size="sm">Suspension Déontologique</Badge>;
+              case 'unban_doctor':
+                return <Badge variant="emerald" size="sm">Levée de Suspension</Badge>;
+              case 'renew_license':
+                return <Badge variant="amber" size="sm">Licence Prolongée</Badge>;
+              case 'delete_doctor':
+                return <Badge variant="slate" size="sm">Compte Supprimé</Badge>;
+              case 'approve_medication':
+                return <Badge variant="blue" size="sm">Médicament Homologué</Badge>;
+              case 'reject_medication':
+                return <Badge variant="slate" size="sm">Médicament Rejeté</Badge>;
+              default:
+                return <Badge variant="blue" size="sm">Action Administrative</Badge>;
+            }
+          };
+
+          return (
+            <GlassCard className="p-6 sm:p-8 space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-5">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-purple-50 text-purple-600 flex items-center justify-center font-bold shadow-sm">
+                    <ScrollText className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-extrabold text-[#0F172A]">
+                      Journal d'Audit Médico-Légal ({auditLogs.length})
+                    </h2>
+                    <p className="text-xs text-slate-500">
+                      Traçabilité infalsifiable des décisions de la Direction Médicale et de l'Ordre National.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Filtres & Recherche */}
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={auditSearch}
+                      onChange={e => setAuditSearch(e.target.value)}
+                      placeholder="Rechercher praticien, motif..."
+                      className="pl-8 pr-3 py-1.5 rounded-full bg-slate-50 border border-slate-200 text-xs focus:bg-white text-[#0F172A] w-full sm:w-56"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-full text-[11px] font-bold">
+                    <button
+                      onClick={() => setAuditFilter('all')}
+                      className={`px-3 py-1 rounded-full transition-all ${
+                        auditFilter === 'all' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-800'
+                      }`}
+                    >
+                      Tous
+                    </button>
+                    <button
+                      onClick={() => setAuditFilter('doctors')}
+                      className={`px-3 py-1 rounded-full transition-all ${
+                        auditFilter === 'doctors' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-800'
+                      }`}
+                    >
+                      Médecins
+                    </button>
+                    <button
+                      onClick={() => setAuditFilter('licenses')}
+                      className={`px-3 py-1 rounded-full transition-all ${
+                        auditFilter === 'licenses' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-800'
+                      }`}
+                    >
+                      Licences
+                    </button>
+                    <button
+                      onClick={() => setAuditFilter('medications')}
+                      className={`px-3 py-1 rounded-full transition-all ${
+                        auditFilter === 'medications' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-800'
+                      }`}
+                    >
+                      Médicaments
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {filteredLogs.length === 0 ? (
+                <div className="py-12 text-center rounded-[28px] bg-slate-50/50 border border-dashed border-slate-200">
+                  <ScrollText className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+                  <p className="text-sm font-bold text-[#0F172A]">Aucun événement d'audit trouvé</p>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Les décisions administratives (homologations, rejets, prolongations) s'enregistreront automatiquement ici.
+                  </p>
+                </div>
+              ) : (
+                <div className="relative pl-6 sm:pl-8 space-y-6 before:absolute before:left-3 sm:before:left-4 before:top-3 before:bottom-3 before:w-0.5 before:bg-slate-200">
+                  {filteredLogs.map(log => {
+                    const dateObj = new Date(log.timestamp);
+                    const formattedDate = dateObj.toLocaleDateString('fr-FR', {
+                      day: '2-digit',
+                      month: 'short',
+                      year: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    });
+
+                    const isPositive = log.action === 'approve_doctor' || log.action === 'unban_doctor' || log.action === 'approve_medication';
+                    const isDanger = log.action === 'reject_doctor' || log.action === 'ban_doctor' || log.action === 'delete_doctor';
+
+                    return (
+                      <div key={log.id} className="relative group">
+                        {/* Point sur la timeline */}
+                        <div
+                          className={`absolute -left-6 sm:-left-8 top-1.5 w-3.5 h-3.5 rounded-full border-2 border-white shadow-sm ring-2 ${
+                            isPositive
+                              ? 'bg-emerald-500 ring-emerald-200'
+                              : isDanger
+                              ? 'bg-rose-500 ring-rose-200'
+                              : 'bg-purple-500 ring-purple-200'
+                          }`}
+                        />
+
+                        {/* Contenu de l'événement */}
+                        <div className="p-4 rounded-[20px] bg-white border border-slate-100 shadow-sm hover:shadow-md transition-shadow space-y-2">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              {getActionBadge(log.action)}
+                              <strong className="text-sm font-bold text-[#0F172A]">
+                                {log.targetName}
+                              </strong>
+                              <span className="text-[11px] text-slate-400 font-mono">
+                                ({log.targetType === 'doctor' ? 'Praticien' : 'Molécule'})
+                              </span>
+                            </div>
+
+                            <span className="text-[11px] font-semibold text-slate-400">
+                              {formattedDate}
+                            </span>
+                          </div>
+
+                          {log.details && (
+                            <p className="text-xs text-slate-600 leading-relaxed">
+                              {log.details}
+                            </p>
+                          )}
+
+                          {log.reason && (
+                            <div className="p-2.5 rounded-xl bg-rose-50/70 border border-rose-100 text-rose-900 text-xs">
+                              <strong>Motif motivé :</strong> {log.reason}
+                            </div>
+                          )}
+
+                          <div className="pt-1 flex items-center justify-between text-[10px] text-slate-400 border-t border-slate-50 flex-wrap gap-2">
+                            <span>
+                              Signé par : <strong className="text-slate-600 font-mono">{log.adminEmail}</strong>
+                            </span>
+                            <span className="font-mono text-slate-300 text-[9px]">
+                              ID : {log.id}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </GlassCard>
+          );
+        })()}
       </main>
 
       {/* MODAL APPROBATION MEDICAMENT */}
@@ -1012,7 +1263,7 @@ export default function AdminThiamPage() {
               <div>
                 <span className="text-slate-400 block text-[10px] uppercase font-bold">Situation Ordinale</span>
                 <span className="font-bold text-[#0F172A]">
-                  {inspectingDoc.onmsNumber ? `Inscrit ONMS (${inspectingDoc.onmsNumber})` : 'Non inscrit ONMS'}
+                  {inspectingDoc.onmsNumber ? `Inscrit ONMS (${inspectingDoc.onmsNumber})` : 'Jeune Diplômé d’État (CNI fournie)'}
                 </span>
               </div>
               <div>
