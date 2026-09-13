@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useAuth } from '@/lib/context/AuthContext';
 import { GlassCard } from '../ui/GlassCard';
 import { GlassButton } from '../ui/GlassButton';
@@ -102,6 +102,11 @@ export function DoctorOnboardingForm({ onClose, onSuccess }: DoctorOnboardingFor
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '');
   };
+
+  // Réinitialiser systématiquement email et mot de passe au montage pour empêcher l'autofill du navigateur
+  useEffect(() => {
+    setFormData(prev => ({ ...prev, email: '', password: '' }));
+  }, []);
 
   // Upload Photo de Profil (Firebase Storage avec compression)
   const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -256,7 +261,11 @@ export function DoctorOnboardingForm({ onClose, onSuccess }: DoctorOnboardingFor
         )}
 
         {/* Form */}
-        <form onSubmit={handleSubmit} className="space-y-4 text-xs sm:text-sm">
+        <form onSubmit={handleSubmit} autoComplete="off" className="space-y-4 text-xs sm:text-sm">
+          {/* Champs masqués anti-autofill pour bloquer le gestionnaire de mots de passe du navigateur */}
+          <input type="text" name="fake_username_anti_autofill" style={{ display: 'none' }} tabIndex={-1} autoComplete="username" aria-hidden="true" />
+          <input type="password" name="fake_password_anti_autofill" style={{ display: 'none' }} tabIndex={-1} autoComplete="current-password" aria-hidden="true" />
+
           {/* Situation Ordinale Toggle */}
           <div className="p-4 rounded-[20px] bg-slate-50 border border-slate-200/80 space-y-2">
             <label className="block text-xs font-bold text-[#0F172A]">
@@ -410,6 +419,11 @@ export function DoctorOnboardingForm({ onClose, onSuccess }: DoctorOnboardingFor
               </label>
               <input
                 type="email"
+                name="telemed_registration_email_clean"
+                id="telemed_registration_email_clean"
+                autoComplete="new-password"
+                autoCapitalize="none"
+                spellCheck="false"
                 required
                 placeholder="dr.nom@telemed.sn"
                 value={formData.email}
@@ -424,8 +438,11 @@ export function DoctorOnboardingForm({ onClose, onSuccess }: DoctorOnboardingFor
               </label>
               <input
                 type="password"
+                name="telemed_registration_password_clean"
+                id="telemed_registration_password_clean"
+                autoComplete="new-password"
                 required
-                placeholder="••••••••"
+                placeholder="Créer un mot de passe sécurisé"
                 value={formData.password}
                 onChange={e => setFormData({ ...formData, password: e.target.value })}
                 className="w-full px-4 py-2.5 rounded-[20px] bg-white border border-slate-200/80 focus:border-[#3B82F6] focus:outline-none focus:ring-4 focus:ring-blue-500/10 text-[#0F172A] shadow-sm"
