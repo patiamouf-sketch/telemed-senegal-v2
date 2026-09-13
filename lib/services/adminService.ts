@@ -1,7 +1,7 @@
-import { DoctorProfile, AdminStats } from '../types/doctor';
+import { DoctorProfile, AdminStats, AdminAuditLog, AdminActionType } from '../types/doctor';
 import { db, isFirebaseConfigured } from '../firebase';
 import { getLocalDoctors, saveLocalDoctors, getLocalQueue } from './mockData';
-import { doc, getDoc, getDocs, collection, query, where, setDoc, deleteDoc, deleteField } from 'firebase/firestore';
+import { doc, getDoc, getDocs, collection, query, where, setDoc, deleteDoc, deleteField, orderBy, limit } from 'firebase/firestore';
 import { addDays } from 'date-fns';
 
 function mergeDoctorRecord(existing: DoctorProfile | undefined, incoming: DoctorProfile): DoctorProfile {
@@ -82,6 +82,86 @@ export async function getPendingDoctors(): Promise<DoctorProfile[]> {
 }
 
 /**
+ * Enregistre une action d'administration dans le journal d'audit légal (Firestore + LocalStorage)
+ */
+export async function logAdminAction(
+  data: Omit<AdminAuditLog, 'id' | 'timestamp'>
+): Promise<AdminAuditLog> {
+  const auditLog: AdminAuditLog = {
+    ...data,
+    id: `audit-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+    timestamp: new Date().toISOString(),
+  };
+
+  // 1. Enregistrement LocalStorage (miroir hors-ligne)
+  if (typeof window !== 'undefined') {
+    try {
+      const raw = localStorage.getItem('telemed_admin_audit_logs');
+      const logs: AdminAuditLog[] = raw ? JSON.parse(raw) : [];
+      logs.unshift(auditLog);
+      localStorage.setItem('telemed_admin_audit_logs', JSON.stringify(logs.slice(0, 200)));
+    } catch (e) {}
+  }
+
+  // 2. Enregistrement Firestore
+  const firestoreDb = db;
+  if (isFirebaseConfigured && firestoreDb) {
+    try {
+      await setDoc(doc(firestoreDb, 'admin_audit_logs', auditLog.id), auditLog);
+    } catch (e) {
+      console.warn('Erreur Firestore logAdminAction:', e);
+    }
+  }
+
+  return auditLog;
+}
+
+/**
+ * Récupère le journal d'audit médico-légal ordonné par date antéchronologique
+ */
+export async function getAdminAuditLogs(limitCount: number = 100): Promise<AdminAuditLog[]> {
+  const logsMap = new Map<string, AdminAuditLog>();
+
+  // 1. Priorité N°1 : Cloud Firestore
+  const firestoreDb = db;
+  if (isFirebaseConfigured && firestoreDb) {
+    try {
+      const q = query(
+        collection(firestoreDb, 'admin_audit_logs'),
+        orderBy('timestamp', 'desc'),
+        limit(limitCount)
+      );
+      const snap = await getDocs(q);
+      snap.docs.forEach(d => {
+        const item = d.data() as AdminAuditLog;
+        logsMap.set(item.id, item);
+      });
+    } catch (e) {
+      console.warn('Erreur Firestore getAdminAuditLogs:', e);
+    }
+  }
+
+  // 2. Priorité N°2 : Cache Local
+  if (typeof window !== 'undefined') {
+    try {
+      const raw = localStorage.getItem('telemed_admin_audit_logs');
+      if (raw) {
+        const localLogs: AdminAuditLog[] = JSON.parse(raw);
+        localLogs.forEach(l => {
+          if (!logsMap.has(l.id)) {
+            logsMap.set(l.id, l);
+          }
+        });
+      }
+    } catch (e) {}
+  }
+
+  return Array.from(logsMap.values()).sort(
+    (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+  );
+}
+
+/**
  * Synchronisation atomique multi-cibles vers Firestore (Doc ID, champ id, champ email)
  */
 async function syncDoctorUpdateToFirestore(
@@ -135,7 +215,10 @@ async function syncDoctorUpdateToFirestore(
   }
 }
 
-export async function approveDoctor(doctorId: string): Promise<DoctorProfile | null> {
+export async function approveDoctor(
+  doctorId: string,
+  adminEmail: string = 'dr.thiam@telemed.sn'
+): Promise<DoctorProfile | null> {
   const licenseExpiresAt = addDays(new Date(), 30).toISOString();
   const updates: Partial<DoctorProfile> = {
     status: 'active',
@@ -194,12 +277,23 @@ export async function approveDoctor(doctorId: string): Promise<DoctorProfile | n
   };
   await syncDoctorUpdateToFirestore(targetId, clean, targetEmail, firestoreUpdates);
 
+  // 3. Traçabilité Médico-Légale (Journal d'audit)
+  await logAdminAction({
+    action: 'approve_doctor',
+    adminEmail,
+    targetId,
+    targetName: target?.fullName || targetEmail || doctorId,
+    targetType: 'doctor',
+    details: 'Homologation ordinale ONMS validée par la direction médicale. Licence d’exercice de 30 jours activée.',
+  });
+
   return updatedDoc || (target ? { ...target, ...updates } : null);
 }
 
 export async function rejectDoctor(
   doctorId: string,
-  reason: string = 'Dossier incomplet ou non vérifié par l’ONMS'
+  reason: string = 'Dossier incomplet ou non vérifié par l’ONMS',
+  adminEmail: string = 'dr.thiam@telemed.sn'
 ): Promise<DoctorProfile | null> {
   const updates: Partial<DoctorProfile> = {
     status: 'rejected',
@@ -250,12 +344,24 @@ export async function rejectDoctor(
   // 2. Mise à jour Firestore Multi-Cibles
   await syncDoctorUpdateToFirestore(targetId, clean, targetEmail, updates);
 
+  // 3. Traçabilité Médico-Légale (Journal d'audit)
+  await logAdminAction({
+    action: 'reject_doctor',
+    adminEmail,
+    targetId,
+    targetName: target?.fullName || targetEmail || doctorId,
+    targetType: 'doctor',
+    reason,
+    details: `Dossier de candidature rejeté par la direction médicale. Motif : ${reason}`,
+  });
+
   return updatedDoc || (target ? { ...target, ...updates } : null);
 }
 
 export async function banDoctor(
   doctorId: string,
-  reason: string = 'Non-respect des règles déontologiques ou dossier non conforme'
+  reason: string = 'Non-respect des règles déontologiques ou dossier non conforme',
+  adminEmail: string = 'dr.thiam@telemed.sn'
 ): Promise<DoctorProfile | null> {
   const updates: Partial<DoctorProfile> = {
     status: 'banned',
@@ -306,10 +412,24 @@ export async function banDoctor(
   // 2. Mise à jour Firestore Multi-Cibles
   await syncDoctorUpdateToFirestore(targetId, clean, targetEmail, updates);
 
+  // 3. Traçabilité Médico-Légale (Journal d'audit)
+  await logAdminAction({
+    action: 'ban_doctor',
+    adminEmail,
+    targetId,
+    targetName: target?.fullName || targetEmail || doctorId,
+    targetType: 'doctor',
+    reason,
+    details: `Suspension déontologique de la licence d'exercice. Motif : ${reason}`,
+  });
+
   return updatedDoc || (target ? { ...target, ...updates } : null);
 }
 
-export async function unbanDoctor(doctorId: string): Promise<DoctorProfile | null> {
+export async function unbanDoctor(
+  doctorId: string,
+  adminEmail: string = 'dr.thiam@telemed.sn'
+): Promise<DoctorProfile | null> {
   const updates: Partial<DoctorProfile> = {
     status: 'active',
     banReason: undefined,
@@ -361,10 +481,23 @@ export async function unbanDoctor(doctorId: string): Promise<DoctorProfile | nul
 
   await syncDoctorUpdateToFirestore(targetId, clean, targetEmail, firestoreUpdates);
 
+  // 3. Traçabilité Médico-Légale (Journal d'audit)
+  await logAdminAction({
+    action: 'unban_doctor',
+    adminEmail,
+    targetId,
+    targetName: target?.fullName || targetEmail || doctorId,
+    targetType: 'doctor',
+    details: 'Levée de la suspension ordinale et réactivation complète de la licence d’exercice.',
+  });
+
   return updatedDoc || (target ? { ...target, ...updates } : null);
 }
 
-export async function deleteDoctorPermanently(doctorId: string): Promise<boolean> {
+export async function deleteDoctorPermanently(
+  doctorId: string,
+  adminEmail: string = 'dr.thiam@telemed.sn'
+): Promise<boolean> {
   const clean = doctorId.trim();
   const lower = clean.toLowerCase();
   const localDocs = getLocalDoctors();
@@ -396,10 +529,24 @@ export async function deleteDoctorPermanently(doctorId: string): Promise<boolean
     }
   }
 
+  // 3. Traçabilité Médico-Légale (Journal d'audit)
+  await logAdminAction({
+    action: 'delete_doctor',
+    adminEmail,
+    targetId,
+    targetName: target?.fullName || targetEmail || doctorId,
+    targetType: 'doctor',
+    details: 'Suppression définitive et irréversible du compte praticien de la base nationale.',
+  });
+
   return true;
 }
 
-export async function renewDoctorLicense(doctorId: string, days: number = 30): Promise<DoctorProfile | null> {
+export async function renewDoctorLicense(
+  doctorId: string,
+  days: number = 30,
+  adminEmail: string = 'dr.thiam@telemed.sn'
+): Promise<DoctorProfile | null> {
   const clean = doctorId.trim();
   const lower = clean.toLowerCase();
   const localDocs = getLocalDoctors();
@@ -458,6 +605,16 @@ export async function renewDoctorLicense(doctorId: string, days: number = 30): P
 
   // 2. Mise à jour Firestore Multi-Cibles
   await syncDoctorUpdateToFirestore(targetId, clean, targetEmail, firestoreUpdates);
+
+  // 3. Traçabilité Médico-Légale (Journal d'audit)
+  await logAdminAction({
+    action: 'renew_license',
+    adminEmail,
+    targetId,
+    targetName: docProfile?.fullName || targetEmail || doctorId,
+    targetType: 'doctor',
+    details: `Renouvellement de la licence d'exercice (+${days} jours). Nouvelle date d'expiration : ${new Date(newExpiry).toLocaleDateString('fr-FR')}.`,
+  });
 
   return updatedDoc || (docProfile ? { ...docProfile, ...updates } : null);
 }

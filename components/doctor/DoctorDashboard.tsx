@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '@/lib/context/AuthContext';
 import { GlassCard } from '../ui/GlassCard';
 import { GlassButton } from '../ui/GlassButton';
@@ -37,6 +37,8 @@ import {
   FilePlus2,
   Volume2,
   VolumeX,
+  Printer,
+  Download,
 } from 'lucide-react';
 import { DoctorProfileModal } from './DoctorProfileModal';
 import {
@@ -46,9 +48,12 @@ import {
   updateDoctorProfile,
   getDoctorArchive,
   listenToDoctorQueue,
-  getFollowUpStatus
+  getFollowUpStatus,
+  getDoctorDirectPrescriptions,
 } from '@/lib/services/doctorService';
 import { PatientQueueItem } from '@/lib/types/doctor';
+import { OfficialPrescription } from '@/lib/types/prescription';
+import { downloadPrescriptionPDF } from '@/lib/utils/pdfGenerator';
 import { differenceInDays } from 'date-fns';
 import {
   playMedicalChime,
@@ -65,7 +70,8 @@ export function DoctorDashboard() {
   const [copied, setCopied] = useState(false);
   const [queue, setQueue] = useState<PatientQueueItem[]>([]);
   const [archive, setArchive] = useState<PatientQueueItem[]>([]);
-  const [activeTab, setActiveTab] = useState<'queue' | 'archive'>('queue');
+  const [directPrescriptions, setDirectPrescriptions] = useState<OfficialPrescription[]>([]);
+  const [activeTab, setActiveTab] = useState<'queue' | 'archive' | 'prescriptions'>('queue');
   const [activeConsultation, setActiveConsultation] = useState<PatientQueueItem | null>(null);
   const [showQRModal, setShowQRModal] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
@@ -114,10 +120,19 @@ export function DoctorDashboard() {
   const doctorSlug = doctorProfile?.slug || 'dr-sow';
   const patientLink = `${origin || 'https://telemed.sn'}/dr/${doctorSlug}`;
 
-  // Écouteur temps réel de la file d'attente et détection immédiate des paiements
+  const loadDirectPrescriptions = useCallback(async () => {
+    const docKey = doctorProfile?.id || doctorProfile?.slug || doctorSlug;
+    if (docKey) {
+      const list = await getDoctorDirectPrescriptions(docKey);
+      setDirectPrescriptions(list);
+    }
+  }, [doctorProfile?.id, doctorProfile?.slug, doctorSlug]);
+
+  // Écouteur temps réel de la file d'attente, chargement des archives et ordonnances directes
   useEffect(() => {
-    // Chargement initial des archives
+    // Chargement initial des archives et ordonnances directes
     getDoctorArchive(doctorSlug).then(arch => setArchive(arch));
+    loadDirectPrescriptions();
 
     const unsub = listenToDoctorQueue(doctorSlug, items => {
       // Détection des paiements déclarés non confirmés
@@ -131,7 +146,7 @@ export function DoctorDashboard() {
     });
 
     return () => unsub();
-  }, [doctorSlug]);
+  }, [doctorSlug, loadDirectPrescriptions]);
 
   const copyToClipboard = () => {
     navigator.clipboard.writeText(patientLink);
@@ -540,8 +555,8 @@ export function DoctorDashboard() {
         </GlassCard>
       </div>
 
-      {/* Row 2: Tabs (File d'Attente vs Consultations Archivées) */}
-      <div className="flex items-center gap-2 border-b border-sky-100/60 pb-3">
+      {/* Row 2: Tabs (File d'Attente vs Ordonnances Directes vs Consultations Archivées) */}
+      <div className="flex items-center gap-2 border-b border-sky-100/60 pb-3 flex-wrap">
         <button
           onClick={() => setActiveTab('queue')}
           className={`px-5 py-2.5 rounded-full text-xs font-bold transition-all flex items-center gap-2 ${
@@ -555,6 +570,18 @@ export function DoctorDashboard() {
         </button>
 
         <button
+          onClick={() => setActiveTab('prescriptions')}
+          className={`px-5 py-2.5 rounded-full text-xs font-bold transition-all flex items-center gap-2 ${
+            activeTab === 'prescriptions'
+              ? 'bg-emerald-600 text-white shadow-pill-emerald'
+              : 'bg-white/70 text-slate-600 hover:bg-white'
+          }`}
+        >
+          <FileText className="w-3.5 h-3.5" />
+          Ordonnances Directes Émises ({directPrescriptions.length})
+        </button>
+
+        <button
           onClick={() => setActiveTab('archive')}
           className={`px-5 py-2.5 rounded-full text-xs font-bold transition-all flex items-center gap-2 ${
             activeTab === 'archive'
@@ -563,7 +590,7 @@ export function DoctorDashboard() {
           }`}
         >
           <Archive className="w-3.5 h-3.5" />
-          Consultations Archivées & Ordonnances ({archive.length})
+          Consultations Archivées & Suivi ({archive.length})
         </button>
       </div>
 
@@ -896,6 +923,131 @@ export function DoctorDashboard() {
         );
       })()}
 
+      {/* View 3: Ordonnances Directes Émises */}
+      {activeTab === 'prescriptions' && (
+        <GlassCard className="p-6 sm:p-8 space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold shadow-sm">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-extrabold text-[#0F172A]">
+                    Ordonnances Directes Émises ({directPrescriptions.length})
+                  </h2>
+                  <p className="text-xs text-slate-500">
+                    Ordonnances scellées et signées numériquement avec QR Code et preuve cryptographique SHA-256.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <GlassButton
+              variant="success"
+              size="sm"
+              onClick={() => setShowDirectPrescription(true)}
+              className="font-bold text-xs"
+            >
+              <FilePlus2 className="w-4 h-4" />
+              <span>Rédiger une nouvelle ordonnance</span>
+            </GlassButton>
+          </div>
+
+          {directPrescriptions.length === 0 ? (
+            <div className="py-12 text-center rounded-[28px] bg-white/60 border border-dashed border-slate-200 space-y-3">
+              <FileText className="w-10 h-10 text-slate-300 mx-auto" />
+              <div>
+                <p className="text-sm font-bold text-[#0F172A]">Aucune ordonnance directe rédigée pour le moment</p>
+                <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
+                  Rédigez et signez des ordonnances sécurisées hors consultation pour vos patients avec vérification officielle par QR Code.
+                </p>
+              </div>
+              <GlassButton
+                variant="primary"
+                size="sm"
+                onClick={() => setShowDirectPrescription(true)}
+                className="text-xs shadow-pill"
+              >
+                <FilePlus2 className="w-4 h-4" />
+                <span>Rédiger une ordonnance maintenant</span>
+              </GlassButton>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {directPrescriptions.map(rx => (
+                <div
+                  key={rx.id || rx.hash}
+                  className="p-5 rounded-[28px] bg-white border border-slate-100 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4 hover:shadow-md transition-shadow"
+                >
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h4 className="font-bold text-[#0F172A] text-base">{rx.patientName}</h4>
+                      {rx.patientPhone && (
+                        <Badge variant="blue" size="sm">
+                          Tél : {rx.patientPhone}
+                        </Badge>
+                      )}
+                      <Badge variant="slate" size="sm">
+                        {rx.patientGender === 'F' ? 'Femme' : 'Homme'} • {rx.patientAge} ans
+                      </Badge>
+                      <Badge variant="emerald" size="sm">
+                        SHA-256 Authentique
+                      </Badge>
+                    </div>
+
+                    {/* Médicaments prescrits */}
+                    <div className="text-xs text-slate-700 space-y-0.5 pt-1">
+                      {rx.items?.map((it, itIdx) => (
+                        <div key={itIdx} className="flex items-center gap-1.5 text-[11px] text-slate-600">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0" />
+                          <strong className="text-slate-900">{it.medication}</strong>
+                          {it.dosage && <span>— {it.dosage}</span>}
+                          {it.duration && <span className="text-slate-400">({it.duration})</span>}
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="flex items-center gap-2 text-[11px] text-slate-400 pt-1">
+                      <Calendar className="w-3 h-3" />
+                      <span>Émise le {new Date(rx.sealedAt).toLocaleDateString('fr-FR')} à {new Date(rx.sealedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</span>
+                      {rx.patientAddress && (
+                        <>
+                          <span>•</span>
+                          <span>{rx.patientAddress}</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => downloadPrescriptionPDF(rx)}
+                      className="px-3 py-1.5 rounded-full bg-blue-50 text-blue-800 hover:bg-blue-100 border border-blue-200 text-xs font-bold flex items-center gap-1.5 shadow-sm transition-colors"
+                    >
+                      <Printer className="w-3.5 h-3.5 text-[#3B82F6]" />
+                      <span>Télécharger PDF</span>
+                    </button>
+
+                    <Link href={`/verify-rx/${rx.hash}`} target="_blank">
+                      <button
+                        type="button"
+                        className="px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200 text-xs font-bold flex items-center gap-1.5 shadow-sm transition-colors"
+                      >
+                        <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Preuve SHA-256</span>
+                      </button>
+                    </Link>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </GlassCard>
+      )}
+
       {/* QR Code Modal */}
       {showQRModal && (
         <QRCodeModal
@@ -930,13 +1082,33 @@ export function DoctorDashboard() {
       )}
 
       {/* Standalone / Direct Prescription Drawer (Hors Consultation) */}
-      {showDirectPrescription && doctorProfile && (
+      {showDirectPrescription && (
         <PrescriptionDrawer
-          doctor={doctorProfile}
+          doctor={doctorProfile || {
+            id: 'admin-thiam-1',
+            fullName: 'Dr. Elhadji Pathé THIAM',
+            email: 'pati.amouf@gmail.com',
+            phone: '+221 78 106 92 98',
+            nin: '1985031500001',
+            speciality: 'Médecine Générale',
+            onmsNumber: '',
+            clinicName: '',
+            city: 'Dakar',
+            consultationFee: 15000,
+            avisMedicalFee: 5000,
+            visioConsultationFee: 15000,
+            availableForTeleconsult: true,
+            slug: doctorSlug,
+            status: 'active',
+            role: 'admin',
+            licenseExpiresAt: '2099-12-31T23:59:59.000Z',
+            createdAt: new Date().toISOString(),
+          }}
           patient={null}
           onClose={() => setShowDirectPrescription(false)}
           onPrescriptionSealed={() => {
-            getDoctorArchive(doctorSlug).then(arch => setArchive(arch));
+            loadDirectPrescriptions();
+            setActiveTab('prescriptions');
           }}
         />
       )}

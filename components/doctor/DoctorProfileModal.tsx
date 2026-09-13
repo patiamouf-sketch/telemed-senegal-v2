@@ -37,6 +37,7 @@ export function DoctorProfileModal({ isOpen, onClose }: DoctorProfileModalProps)
   const [activeTab, setActiveTab] = useState<'info' | 'stamp'>('info');
   const [loading, setLoading] = useState(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Form Fields
   const [fullName, setFullName] = useState(doctorProfile?.fullName || '');
@@ -74,7 +75,7 @@ export function DoctorProfileModal({ isOpen, onClose }: DoctorProfileModalProps)
     }
   }, [doctorProfile]);
 
-  // Traitement d'image du cachet sur feuille blanche (Suppression des ombres du papier & Rehaussement d'encre)
+  // Traitement d'image du cachet sur feuille blanche (Détourage transparent, Rehaussement d'encre & Format ultra-léger)
   const processStampCanvas = (imageSrc: string, threshold: number) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
@@ -82,7 +83,8 @@ export function DoctorProfileModal({ isOpen, onClose }: DoctorProfileModalProps)
       const canvas = canvasRef.current;
       if (!canvas) return;
 
-      const maxDim = 800;
+      // Taille optimisée pour tampon d'ordonnance (ultra-légère < 35 Ko)
+      const maxDim = 380;
       let w = img.width;
       let h = img.height;
 
@@ -99,11 +101,12 @@ export function DoctorProfileModal({ isOpen, onClose }: DoctorProfileModalProps)
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
+      ctx.clearRect(0, 0, w, h);
       ctx.drawImage(img, 0, 0, w, h);
       const imgData = ctx.getImageData(0, 0, w, h);
       const data = imgData.data;
 
-      // Algorithme d'isolation d'encre et blanchiment de feuille
+      // Algorithme d'isolation d'encre et détourage transparent du papier blanc
       for (let i = 0; i < data.length; i += 4) {
         const r = data[i];
         const g = data[i + 1];
@@ -111,16 +114,15 @@ export function DoctorProfileModal({ isOpen, onClose }: DoctorProfileModalProps)
         const brightness = 0.299 * r + 0.587 * g + 0.114 * b;
 
         if (brightness > threshold) {
-          // Papier blanc éliminé / rendu blanc pur
-          data[i] = 255;
-          data[i + 1] = 255;
-          data[i + 2] = 255;
+          // Papier blanc éliminé : rendu 100% transparent pour superposition parfaite
+          data[i + 3] = 0;
         } else {
-          // Rehaussement du contraste de l'encre
-          const factor = 1.3;
-          data[i] = Math.max(0, Math.min(255, (r - 128) * factor + 128));
-          data[i + 1] = Math.max(0, Math.min(255, (g - 128) * factor + 128));
-          data[i + 2] = Math.max(0, Math.min(255, (b - 128) * factor + 128));
+          // Rehaussement du contraste de l'encre médicale (bleue, noire ou verte)
+          const factor = 1.4;
+          data[i] = Math.max(0, Math.min(255, (r - 90) * factor));
+          data[i + 1] = Math.max(0, Math.min(255, (g - 90) * factor));
+          data[i + 2] = Math.max(0, Math.min(255, (b - 90) * factor));
+          data[i + 3] = 255;
         }
       }
 
@@ -189,13 +191,21 @@ export function DoctorProfileModal({ isOpen, onClose }: DoctorProfileModalProps)
     e.preventDefault();
     if (!doctorProfile) return;
 
+    // Validation préalable
+    if (!fullName.trim()) {
+      setActiveTab('info');
+      setErrorMsg('Le Nom et Prénom du praticien sont obligatoires.');
+      return;
+    }
+
     setLoading(true);
     setSuccessMsg(null);
+    setErrorMsg(null);
 
     try {
       const updates: Partial<DoctorProfile> = {
         fullName: fullName.trim(),
-        speciality: speciality.trim(),
+        speciality: speciality.trim() || 'Médecine Générale',
         clinicName: clinicName.trim(),
         city: city.trim(),
         bio: bio.trim(),
@@ -223,6 +233,7 @@ export function DoctorProfileModal({ isOpen, onClose }: DoctorProfileModalProps)
       }, 1200);
     } catch (err: any) {
       console.error(err);
+      setErrorMsg('Erreur lors de l’enregistrement. Veuillez réessayer.');
     } finally {
       setLoading(false);
     }
@@ -315,6 +326,13 @@ export function DoctorProfileModal({ isOpen, onClose }: DoctorProfileModalProps)
           <div className="p-3 rounded-[16px] bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 text-emerald-600" />
             <span>{successMsg}</span>
+          </div>
+        )}
+
+        {errorMsg && (
+          <div className="p-3 rounded-[16px] bg-rose-50 border border-rose-200 text-rose-800 text-xs font-bold flex items-center gap-2">
+            <X className="w-4 h-4 text-rose-600" />
+            <span>{errorMsg}</span>
           </div>
         )}
 

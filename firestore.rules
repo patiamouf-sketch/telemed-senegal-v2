@@ -40,6 +40,11 @@ service cloud.firestore {
       // Lecture et mise à jour pour le médecin traitant et le patient
       allow read, update: if true;
       allow delete: if isAdmin();
+
+      // Sous-collection des messages de consultation en direct (texte, vocal, image, ordonnance)
+      match /messages/{messageId} {
+        allow read, write: if true;
+      }
     }
 
     // 3. Collection 'prescriptions' : Ordonnances Médicales Numériques Scellées
@@ -65,6 +70,11 @@ service cloud.firestore {
       allow read: if true;
       allow create: if isAuthenticated();
       allow update, delete: if isAdmin();
+    }
+
+    // 6. Collection 'admin_audit_logs' : Traçabilité Médico-Légale des Actions Administratives
+    match /admin_audit_logs/{logId} {
+      allow read, write: if true;
     }
   }
 }

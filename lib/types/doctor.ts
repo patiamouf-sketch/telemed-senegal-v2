@@ -81,6 +81,11 @@ export interface PatientQueueItem {
   notes?: string;
   messages?: ChatMessage[];
   prescription?: OfficialPrescription;
+  lastMessageAt?: string;
+  lastMessageText?: string;
+  lastMessageSender?: string;
+  followUpUntil?: string; // Date ISO de fin du délai de grâce de suivi (ex: 48h)
+  hasUnreadFollowUp?: boolean; // Signalétique pour le médecin si le patient a écrit pendant le suivi
 }
 
 export interface AdminStats {
@@ -90,3 +95,27 @@ export interface AdminStats {
   rejectedCount: number;
   activePatientsToday: number;
 }
+
+export type AdminActionType =
+  | 'approve_doctor'
+  | 'reject_doctor'
+  | 'ban_doctor'
+  | 'unban_doctor'
+  | 'renew_license'
+  | 'delete_doctor'
+  | 'approve_medication'
+  | 'reject_medication';
+
+export interface AdminAuditLog {
+  id: string;
+  action: AdminActionType;
+  adminEmail: string;
+  adminName?: string;
+  targetId: string;
+  targetName: string;
+  targetType: 'doctor' | 'medication';
+  timestamp: string;
+  details?: string;
+  reason?: string;
+}
+

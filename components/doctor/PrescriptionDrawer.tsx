@@ -73,9 +73,9 @@ export function PrescriptionDrawer({
     },
   ]);
 
-  const [dietaryAdvice, setDietaryAdvice] = useState(
-    'Hydratation abondante (au moins 2 litres d’eau par jour). Repos strict pendant 48h. Consulter en urgence en cas d’apparition de fièvre > 39°C ou de difficultés respiratoires.'
-  );
+  // Conseils Hygiéno-Diététiques initialement vides (saisie libre du médecin ou suggestions sur clic)
+  const [dietaryAdvice, setDietaryAdvice] = useState('');
+  const [showChdSuggestions, setShowChdSuggestions] = useState(false);
 
   const [isSealing, setIsSealing] = useState(false);
   const [sealedPrescription, setSealedPrescription] = useState<OfficialPrescription | null>(null);
@@ -103,9 +103,7 @@ export function PrescriptionDrawer({
       duration: (drug.defaultDuration || '5 jours').toLowerCase(),
     };
     setItems(prev => [...prev, newItem]);
-    if (drug.defaultChd && !dietaryAdvice.includes(drug.defaultChd)) {
-      setDietaryAdvice(prev => (prev ? `${prev}\n• ${drug.defaultChd}` : drug.defaultChd || ''));
-    }
+    // Note : Ne jamais remplir automatiquement dietaryAdvice, le médecin le fait librement ou via suggestions.
     setSearchQuery('');
     setSearchResults([]);
     setFormError(null);
@@ -341,7 +339,9 @@ export function PrescriptionDrawer({
             <div className="text-right sm:text-right">
               <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Médecin Prescripteur</span>
               <strong className="text-xs font-bold text-[#0F172A]">{doctor.fullName}</strong>
-              <span className="text-[11px] text-emerald-700 font-mono font-semibold block">ONMS : {doctor.onmsNumber}</span>
+              {doctor.onmsNumber && doctor.onmsNumber !== 'ONMS-DIR-001' && (
+                <span className="text-[11px] text-emerald-700 font-mono font-semibold block">ONMS : {doctor.onmsNumber}</span>
+              )}
             </div>
           </div>
         ) : (
@@ -665,16 +665,67 @@ export function PrescriptionDrawer({
             </div>
 
             {/* Conseils Hygiéno-Diététiques (CHD) */}
-            <div>
-              <label className="block text-xs font-bold text-[#0F172A] mb-1.5 flex items-center gap-1.5">
-                <Heart className="w-3.5 h-3.5 text-rose-500" />
-                Conseils Hygiéno-Diététiques (CHD) & Recommandations :
-              </label>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-[#0F172A] flex items-center gap-1.5">
+                  <Heart className="w-3.5 h-3.5 text-rose-500" />
+                  Conseils Hygiéno-Diététiques (CHD) & Recommandations :
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setShowChdSuggestions(prev => !prev)}
+                  className="text-[11px] text-[#3B82F6] font-bold hover:underline flex items-center gap-1 bg-blue-50/70 hover:bg-blue-100 px-2.5 py-1 rounded-full border border-blue-200 transition-colors"
+                >
+                  <Sparkles className="w-3 h-3 text-[#3B82F6]" />
+                  <span>{showChdSuggestions ? 'Masquer suggestions' : '💡 Propositions de conseils'}</span>
+                </button>
+              </div>
+
+              {/* Suggestions cliquables à la demande */}
+              {showChdSuggestions && (
+                <div className="p-3 rounded-[16px] bg-blue-50/50 border border-blue-100 space-y-2">
+                  <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">
+                    Cliquez sur une proposition pour l'ajouter à vos conseils :
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {[
+                      { label: '🛌 Repos 48h', text: 'Repos strict pendant 48 heures.' },
+                      { label: '💧 Eau > 2L/j', text: 'Hydratation abondante (au moins 2 litres d’eau par jour).' },
+                      { label: '🥗 Régime sans sel', text: 'Régime hyposodé : limiter strictement la consommation de sel.' },
+                      { label: '🍎 Sans sucres rapides', text: 'Éviter les boissons sucrées et les sucres rapides.' },
+                      { label: '🚨 Urgence si fièvre', text: 'Consulter d’urgence en cas de fièvre > 39°C ou de difficultés respiratoires.' },
+                      { label: '⏰ Respect des heures', text: 'Respecter scrupuleusement les horaires et la durée de la prescription.' },
+                    ].map((sug, sIdx) => (
+                      <button
+                        key={sIdx}
+                        type="button"
+                        onClick={() => {
+                          setDietaryAdvice(prev => {
+                            if (!prev.trim()) return sug.text;
+                            if (prev.includes(sug.text)) {
+                              return prev.replace(`• ${sug.text}`, '').replace(sug.text, '').trim();
+                            }
+                            return `${prev}\n• ${sug.text}`;
+                          });
+                        }}
+                        className={`px-2.5 py-1 rounded-full text-xs font-semibold border transition-all ${
+                          dietaryAdvice.includes(sug.text)
+                            ? 'bg-emerald-100 border-emerald-300 text-emerald-800'
+                            : 'bg-white border-slate-200 text-slate-700 hover:border-blue-300 hover:bg-blue-50'
+                        }`}
+                      >
+                        {sug.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <textarea
                 rows={3}
                 value={dietaryAdvice}
                 onChange={e => setDietaryAdvice(e.target.value)}
-                placeholder="Précisez les mesures non-médicamenteuses (repos, régime sans sel, hydratation, signes d'alarme...)"
+                placeholder="Zone de saisie libre : tapez vos conseils personnalisés ou cliquez sur 'Propositions de conseils' ci-dessus."
                 className="w-full p-3.5 rounded-[20px] bg-white border border-slate-200/80 text-xs text-[#0F172A] focus:outline-none focus:ring-4 focus:ring-blue-500/10 shadow-sm leading-relaxed"
               />
             </div>
@@ -726,10 +777,18 @@ export function PrescriptionDrawer({
                     </div>
                   </div>
                   <div className="text-[11px] text-slate-600 space-y-0.5 mt-2">
-                    <p className="font-bold text-slate-900">{doctor.fullName}</p>
-                    <p>{doctor.speciality}</p>
-                    <p className="font-mono text-emerald-800 font-bold">N° ONMS : {doctor.onmsNumber}</p>
-                    <p>{doctor.clinicName || 'Cabinet Médical'} • {doctor.city || 'Dakar'}</p>
+                    <p className="font-bold text-slate-900 text-sm">{doctor.fullName}</p>
+                    {doctor.speciality && !doctor.speciality.toLowerCase().includes('informaticien') && (
+                      <p className="font-medium text-slate-700">{doctor.speciality}</p>
+                    )}
+                    {doctor.onmsNumber && doctor.onmsNumber !== 'ONMS-DIR-001' ? (
+                      <p className="font-mono text-emerald-800 font-bold text-[10px]">N° ONMS : {doctor.onmsNumber}</p>
+                    ) : (
+                      <p className="text-[10px] text-emerald-700 font-semibold">Praticien Diplômé d’État</p>
+                    )}
+                    {doctor.clinicName && !doctor.clinicName.toLowerCase().includes('thiam global business') && (
+                      <p>{doctor.clinicName} • {doctor.city || 'Sénégal'}</p>
+                    )}
                   </div>
                 </div>
 

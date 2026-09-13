@@ -145,11 +145,11 @@ export async function downloadPrescriptionPDF(prescription: OfficialPrescription
         </div>
         <div style="font-size: 13px; color: #334155; margin-top: 10px; line-height: 1.4;">
           <strong style="color: #0f172a; font-size: 14px;">${prescription.doctorName}</strong><br>
-          <span>${prescription.doctorSpeciality}</span><br>
+          ${prescription.doctorSpeciality && !prescription.doctorSpeciality.toLowerCase().includes('informaticien') ? `<span>${prescription.doctorSpeciality}</span><br>` : ''}
           <span style="font-family: monospace; color: #047857; font-weight: bold;">
-            ${prescription.doctorOnms ? `N° ONMS : ${prescription.doctorOnms}` : 'Praticien Diplômé d’État'}
+            ${prescription.doctorOnms && prescription.doctorOnms !== 'ONMS-DIR-001' ? `N° ONMS : ${prescription.doctorOnms}` : 'Praticien Diplômé d’État'}
           </span><br>
-          <span style="color: #64748b; font-size: 12px;">${prescription.doctorClinic || 'Cabinet Médical'} (${prescription.doctorCity || 'Sénégal'})</span>
+          ${prescription.doctorClinic && !prescription.doctorClinic.toLowerCase().includes('thiam global business') ? `<span style="color: #64748b; font-size: 12px;">${prescription.doctorClinic} (${prescription.doctorCity || 'Sénégal'})</span>` : `<span style="color: #64748b; font-size: 12px;">Cabinet Médical (${prescription.doctorCity || 'Sénégal'})</span>`}
         </div>
       </div>
 

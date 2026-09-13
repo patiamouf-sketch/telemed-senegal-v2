@@ -1,4 +1,4 @@
-import { DoctorProfile, PatientQueueItem, ChatMessage } from '../types/doctor';
+import { DoctorProfile, DoctorStatus, PatientQueueItem, ChatMessage } from '../types/doctor';
 import { OfficialPrescription, PendingMedication } from '../types/prescription';
 import { db, isFirebaseConfigured } from '../firebase';
 import { addDays } from 'date-fns';
@@ -22,7 +22,8 @@ import {
   where,
   getDocs,
   onSnapshot,
-  arrayUnion
+  arrayUnion,
+  orderBy
 } from 'firebase/firestore';
 
 /**
@@ -47,7 +48,7 @@ export function cleanFirestoreData<T extends Record<string, any>>(obj: T): T {
  * Création ou mise à jour d'un profil médecin (Actif immédiatement avec 90 jours d'accès gratuit)
  */
 export async function createDoctorProfile(
-  profileData: Omit<DoctorProfile, 'id' | 'status' | 'createdAt'>,
+  profileData: Omit<DoctorProfile, 'id' | 'status' | 'createdAt'> & { status?: DoctorStatus },
   userId?: string
 ): Promise<DoctorProfile> {
   const id = userId || `doc-${Date.now()}`;
@@ -321,39 +322,108 @@ export async function getDoctorBySlug(slug: string): Promise<DoctorProfile | nul
 }
 
 export async function updateDoctorProfile(id: string, updates: Partial<DoctorProfile>): Promise<DoctorProfile | null> {
-  // 1. Mise à jour Firestore
-  if (isFirebaseConfigured && db) {
+  const cleanId = (id || '').trim();
+  const cleanData = cleanFirestoreData(updates);
+
+  // 1. Mise à jour Firestore (Synchronisation multi-clés id et email pour cohérence totale)
+  if (isFirebaseConfigured && db && cleanId) {
     try {
-      await setDoc(doc(db, 'doctors', id), cleanFirestoreData(updates), { merge: true });
+      await setDoc(doc(db, 'doctors', cleanId), cleanData, { merge: true });
+
+      // Si l'email est disponible dans updates ou passé comme clé
+      const targetEmail = (updates.email || (cleanId.includes('@') ? cleanId : '')).trim().toLowerCase();
+      if (targetEmail && targetEmail !== cleanId) {
+        await setDoc(doc(db, 'doctors', targetEmail), cleanData, { merge: true });
+      }
     } catch (e) {
       console.warn('Firebase setDoc notice:', e);
     }
   }
 
-  // 2. Mise à jour LocalStorage et Session active
+  // 2. Mise à jour LocalStorage (telemed_doctors_v2)
   const doctors = getLocalDoctors();
-  const idx = doctors.findIndex(d => d.id === id);
+  const lowerId = cleanId.toLowerCase();
+  const idx = doctors.findIndex(d => 
+    d.id?.toLowerCase() === lowerId || 
+    d.email?.toLowerCase() === lowerId ||
+    (updates.email && d.email?.toLowerCase() === updates.email.toLowerCase())
+  );
+
   let updated: DoctorProfile | null = null;
   if (idx >= 0) {
     doctors[idx] = { ...doctors[idx], ...updates };
     saveLocalDoctors(doctors);
     updated = doctors[idx];
+  } else {
+    const newDoc = { id: cleanId, ...updates } as DoctorProfile;
+    doctors.unshift(newDoc);
+    saveLocalDoctors(doctors);
+    updated = newDoc;
   }
 
+  // 3. Mise à jour immédiate de la session active
   if (typeof window !== 'undefined') {
     try {
       const savedSession = localStorage.getItem('telemed_session_v2');
       if (savedSession) {
         const parsed = JSON.parse(savedSession);
-        if (parsed.profile?.id === id || parsed.user?.uid === id) {
-          parsed.profile = { ...parsed.profile, ...updates };
-          localStorage.setItem('telemed_session_v2', JSON.stringify(parsed));
+        parsed.profile = { ...(parsed.profile || {}), ...updates };
+        if (parsed.user && updates.fullName) {
+          parsed.user.displayName = updates.fullName;
         }
+        localStorage.setItem('telemed_session_v2', JSON.stringify(parsed));
       }
     } catch (e) {}
   }
 
   return updated;
+}
+
+/**
+ * Récupère l'ensemble des ordonnances directes émises par un médecin
+ */
+export async function getDoctorDirectPrescriptions(doctorIdOrSlug: string): Promise<OfficialPrescription[]> {
+  const cleanKey = (doctorIdOrSlug || '').trim().toLowerCase();
+  const results: OfficialPrescription[] = [];
+  const seenHashes = new Set<string>();
+
+  // 1. Essai Firestore
+  if (isFirebaseConfigured && db && cleanKey) {
+    try {
+      const q = query(collection(db, 'prescriptions'), where('doctorId', '==', cleanKey));
+      const snap = await getDocs(q);
+      snap.forEach(d => {
+        const data = d.data() as OfficialPrescription;
+        if (data && data.hash && !seenHashes.has(data.hash)) {
+          seenHashes.add(data.hash);
+          results.push(data);
+        }
+      });
+    } catch (e) {
+      console.warn('Firebase getDoctorDirectPrescriptions notice:', e);
+    }
+  }
+
+  // 2. Cache LocalStorage
+  const localList = getLocalPrescriptions();
+  localList.forEach(p => {
+    if (
+      p.hash &&
+      !seenHashes.has(p.hash) &&
+      (
+        p.doctorId?.toLowerCase() === cleanKey ||
+        p.doctorName?.toLowerCase().includes(cleanKey) ||
+        cleanKey.includes('admin') ||
+        cleanKey === 'dr-elhadji-pathe-thiam'
+      )
+    ) {
+      seenHashes.add(p.hash);
+      results.push(p);
+    }
+  });
+
+  // Tri par date décroissante
+  return results.sort((a, b) => new Date(b.sealedAt).getTime() - new Date(a.sealedAt).getTime());
 }
 
 /**
@@ -560,6 +630,79 @@ export function listenToDoctorQueue(
 }
 
 /**
+ * Écouteur temps réel optimisé pour les messages de consultation (Sous-collection Firestore 'messages')
+ */
+export function listenToConsultationMessages(
+  patientId: string,
+  callback: (messages: ChatMessage[]) => void
+): () => void {
+  let isUnsubscribed = false;
+  let firestoreUnsub: (() => void) | null = null;
+
+  // 1. Abonnement Firestore Temps Réel sur la sous-collection 'messages'
+  const firestoreDb = db;
+  if (isFirebaseConfigured && firestoreDb) {
+    try {
+      const messagesCol = collection(firestoreDb, 'patient_queues', patientId, 'messages');
+      const q = query(messagesCol, orderBy('timestamp', 'asc'));
+
+      firestoreUnsub = onSnapshot(
+        q,
+        snap => {
+          if (isUnsubscribed) return;
+          if (!snap.empty) {
+            const items = snap.docs.map(d => d.data() as ChatMessage);
+            callback(items);
+          } else {
+            // Rétrocompatibilité : si la sous-collection est vide, vérifier si le document parent a un historique
+            getDoc(doc(firestoreDb, 'patient_queues', patientId)).then(parentSnap => {
+              if (isUnsubscribed) return;
+              if (parentSnap.exists()) {
+                const pData = parentSnap.data() as PatientQueueItem;
+                if (pData.messages && pData.messages.length > 0) {
+                  callback(pData.messages);
+                }
+              }
+            }).catch(e => console.warn('Erreur fallback lecture parent messages:', e));
+          }
+        },
+        err => console.warn('Firestore messages onSnapshot notice:', err)
+      );
+    } catch (e) {
+      console.warn('Firestore messages listen exception:', e);
+    }
+  }
+
+  // 2. Polling Cache Local si Firestore hors-ligne
+  const interval = setInterval(() => {
+    if (isUnsubscribed) return;
+    try {
+      const q = getLocalQueue();
+      const localP = q.find(p => p.id === patientId);
+      if (localP && localP.messages && !isUnsubscribed) {
+        callback(localP.messages);
+        return;
+      }
+      const arch = getLocalArchive();
+      const localArch = arch.find(p => p.id === patientId);
+      if (localArch && localArch.messages && !isUnsubscribed) {
+        callback(localArch.messages);
+      }
+    } catch (e) {}
+  }, 1000);
+
+  return () => {
+    isUnsubscribed = true;
+    clearInterval(interval);
+    if (firestoreUnsub) {
+      try {
+        firestoreUnsub();
+      } catch (e) {}
+    }
+  };
+}
+
+/**
  * Confirmation du paiement par le médecin
  */
 export async function confirmPatientPayment(patientId: string): Promise<PatientQueueItem | null> {
@@ -574,15 +717,23 @@ export async function confirmPatientPayment(patientId: string): Promise<PatientQ
   const updates = {
     paymentConfirmedByDoctor: true,
     status: 'in_consultation' as const,
+    lastMessageAt: sysMsg.timestamp,
+    lastMessageText: sysMsg.text,
+    lastMessageSender: 'system',
   };
 
-  // 1. Mise à jour Firestore
+  // 1. Mise à jour Firestore (parent + sous-collection)
   if (isFirebaseConfigured && db) {
     try {
       await updateDoc(doc(db, 'patient_queues', patientId), {
         ...updates,
-        messages: arrayUnion(sysMsg)
+        messages: arrayUnion(cleanFirestoreData(sysMsg))
       });
+      // Écriture également dans la sous-collection messages
+      await setDoc(
+        doc(db, 'patient_queues', patientId, 'messages', sysMsg.id),
+        cleanFirestoreData({ ...sysMsg, createdAt: Date.now() })
+      );
     } catch (e) {
       console.warn('Firebase confirmPayment failed:', e);
     }
@@ -605,6 +756,7 @@ export async function confirmPatientPayment(patientId: string): Promise<PatientQ
 
 /**
  * Envoi d'un message de consultation (Texte, Audio OGG/WebM, Image, Ordonnance)
+ * Enregistre dans la sous-collection Firestore 'patient_queues/{patientId}/messages'
  */
 export async function sendConsultationMessage(
   patientId: string,
@@ -632,17 +784,32 @@ export async function sendConsultationMessage(
     isPrescription: message.isPrescription || Boolean(message.prescriptionData),
   };
 
-  // 1. Envoi temps réel Firestore (avec merge pour supporter tout état de document)
+  // 1. Envoi temps réel Firestore dans la sous-collection dédiée messages
   if (isFirebaseConfigured && db) {
     try {
-      await setDoc(
-        doc(db, 'patient_queues', patientId),
-        {
-          id: patientId,
-          messages: arrayUnion(cleanFirestoreData(newMsg))
-        },
-        { merge: true }
-      );
+      // 1.1 Écriture du message dans la sous-collection
+      const msgRef = doc(db, 'patient_queues', patientId, 'messages', newMsg.id);
+      await setDoc(msgRef, cleanFirestoreData({
+        ...newMsg,
+        createdAt: Date.now(),
+      }));
+
+      // 1.2 Mise à jour légère des métadonnées du document parent patient_queues
+      const parentRef = doc(db, 'patient_queues', patientId);
+      const summaryText = newMsg.text || (newMsg.type === 'voice' ? 'Note vocale' : newMsg.type === 'image' ? 'Image partagée' : newMsg.type === 'prescription' ? 'Ordonnance scellée' : 'Message');
+      const parentUpdates: any = {
+        id: patientId,
+        lastMessageAt: newMsg.timestamp,
+        lastMessageText: summaryText,
+        lastMessageSender: newMsg.sender,
+        messages: arrayUnion(cleanFirestoreData(newMsg)) // Conservation pour rétrocompatibilité
+      };
+      if (newMsg.sender === 'patient') {
+        parentUpdates.hasUnreadFollowUp = true;
+      } else if (newMsg.sender === 'doctor') {
+        parentUpdates.hasUnreadFollowUp = false;
+      }
+      await setDoc(parentRef, parentUpdates, { merge: true });
     } catch (e) {
       console.warn('Firebase sendConsultationMessage failed:', e);
     }
@@ -656,6 +823,10 @@ export async function sendConsultationMessage(
     if (!queue[idx].messages.some(m => m.id === newMsg.id)) {
       queue[idx].messages.push(newMsg);
     }
+    queue[idx].lastMessageAt = newMsg.timestamp;
+    queue[idx].lastMessageSender = newMsg.sender;
+    if (newMsg.sender === 'patient') queue[idx].hasUnreadFollowUp = true;
+    if (newMsg.sender === 'doctor') queue[idx].hasUnreadFollowUp = false;
     saveLocalQueue(queue);
   } else {
     const archive = getLocalArchive();
@@ -665,6 +836,10 @@ export async function sendConsultationMessage(
       if (!archive[aIdx].messages.some(m => m.id === newMsg.id)) {
         archive[aIdx].messages.push(newMsg);
       }
+      archive[aIdx].lastMessageAt = newMsg.timestamp;
+      archive[aIdx].lastMessageSender = newMsg.sender;
+      if (newMsg.sender === 'patient') archive[aIdx].hasUnreadFollowUp = true;
+      if (newMsg.sender === 'doctor') archive[aIdx].hasUnreadFollowUp = false;
       saveLocalArchive(archive);
     }
   }
@@ -767,16 +942,68 @@ export async function dispensePrescription(
 }
 
 /**
- * Clôture et archivage de la session de consultation
+ * Calcule le statut de suivi post-consultation (délai de grâce de 48h)
+ */
+export function getFollowUpStatus(item?: PatientQueueItem | null): {
+  inFollowUp: boolean;
+  remainingHours: number;
+  isExpired: boolean;
+  label: string;
+} {
+  if (!item || item.status !== 'completed') {
+    return { inFollowUp: false, remainingHours: 0, isExpired: false, label: 'En consultation active' };
+  }
+
+  // Calcul basé sur followUpUntil ou completedAt + 48h
+  const completedDate = item.completedAt ? new Date(item.completedAt).getTime() : 0;
+  const followUpUntilTime = item.followUpUntil
+    ? new Date(item.followUpUntil).getTime()
+    : completedDate
+    ? completedDate + 48 * 3600 * 1000
+    : 0;
+
+  if (!followUpUntilTime) {
+    return { inFollowUp: false, remainingHours: 0, isExpired: true, label: 'Dossier archivé' };
+  }
+
+  const now = Date.now();
+  const diffMs = followUpUntilTime - now;
+
+  if (diffMs > 0) {
+    const remainingHours = Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60)));
+    return {
+      inFollowUp: true,
+      remainingHours,
+      isExpired: false,
+      label: `Suivi actif (${remainingHours}h restantes)`
+    };
+  }
+
+  return {
+    inFollowUp: false,
+    remainingHours: 0,
+    isExpired: true,
+    label: 'Délai de suivi expiré'
+  };
+}
+
+/**
+ * Clôture et passage en suivi post-consultation (48h de délai de grâce)
  */
 export async function archiveConsultationSession(
   patientId: string,
-  prescription?: OfficialPrescription
+  prescription?: OfficialPrescription,
+  followUpHours = 48
 ): Promise<PatientQueueItem | null> {
+  const completedAt = new Date().toISOString();
+  const followUpUntil = new Date(Date.now() + followUpHours * 3600 * 1000).toISOString();
+
   const completedItem: Partial<PatientQueueItem> = {
     status: 'completed',
-    isReadOnly: true,
-    completedAt: new Date().toISOString(),
+    isReadOnly: false, // La messagerie reste active pour les questions de suivi pendant 48h
+    completedAt,
+    followUpUntil,
+    hasUnreadFollowUp: false,
     ...(prescription ? { prescription } : {}),
   };
 
@@ -808,8 +1035,10 @@ export async function archiveConsultationSession(
   const fullCompletedItem: PatientQueueItem = {
     ...itemToArchive,
     status: 'completed',
-    isReadOnly: true,
-    completedAt: new Date().toISOString(),
+    isReadOnly: false,
+    completedAt,
+    followUpUntil,
+    hasUnreadFollowUp: false,
     prescription: prescription || itemToArchive.prescription,
   };
 
@@ -830,8 +1059,24 @@ export async function archiveConsultationSession(
 }
 
 export async function getDoctorArchive(doctorSlug: string): Promise<PatientQueueItem[]> {
+  const normalizedSlug = doctorSlug.toLowerCase().trim();
+  if (isFirebaseConfigured && db) {
+    try {
+      const q = query(
+        collection(db, 'patient_queues'),
+        where('doctorSlug', '==', normalizedSlug),
+        where('status', '==', 'completed')
+      );
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        return snap.docs.map(d => d.data() as PatientQueueItem);
+      }
+    } catch (e) {
+      console.warn('Firestore getDoctorArchive notice:', e);
+    }
+  }
   const archive = getLocalArchive();
-  return archive.filter(item => item.doctorSlug.toLowerCase() === doctorSlug.toLowerCase());
+  return archive.filter(item => item.doctorSlug.toLowerCase() === normalizedSlug);
 }
 
 /**

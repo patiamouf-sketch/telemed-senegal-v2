@@ -148,16 +148,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const cleanEmail = email.trim().toLowerCase();
 
-      // Profil Officiel Admin Direction
+      // Profil Officiel Praticien / Admin Direction
       const defaultAdminProfile: DoctorProfile = {
         id: 'admin-thiam-1',
         fullName: 'Dr. Elhadji Pathé THIAM',
         email: 'pati.amouf@gmail.com',
         phone: '+221 78 106 92 98',
         nin: '1985031500001',
-        speciality: 'Direction Médicale • Pharmacien & Informaticien',
-        onmsNumber: 'ONMS-DIR-001',
-        clinicName: 'Direction Générale THIAM GLOBAL BUSINESS',
+        speciality: 'Médecine Générale',
+        onmsNumber: '',
+        clinicName: '',
         city: 'Dakar',
         consultationFee: 15000,
         avisMedicalFee: 5000,
