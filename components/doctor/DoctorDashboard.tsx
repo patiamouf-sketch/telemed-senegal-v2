@@ -117,7 +117,7 @@ export function DoctorDashboard() {
     }
   }, [doctorProfile]);
 
-  const doctorSlug = doctorProfile?.slug || 'dr-sow';
+  const doctorSlug = doctorProfile?.slug || 'dr-elhadji-pathe-thiam';
   const patientLink = `${origin || 'https://telemed.sn'}/dr/${doctorSlug}`;
 
   const loadDirectPrescriptions = useCallback(async () => {
@@ -1051,9 +1051,9 @@ export function DoctorDashboard() {
       {/* QR Code Modal */}
       {showQRModal && (
         <QRCodeModal
-          doctorName={doctorProfile?.fullName || 'Dr. Ibrahima Sow'}
-          speciality={doctorProfile?.speciality || 'Cardiologie'}
-          onmsNumber={doctorProfile?.onmsNumber || 'SN-ONMS-4829'}
+          doctorName={doctorProfile?.fullName || 'Dr. Elhadji Pathé THIAM'}
+          speciality={doctorProfile?.speciality || 'Médecine Générale'}
+          onmsNumber={doctorProfile?.onmsNumber || 'SN-ONMS-OFFICIEL'}
           slug={doctorSlug}
           url={patientLink}
           avatarUrl={doctorProfile?.avatarUrl}

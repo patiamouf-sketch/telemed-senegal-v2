@@ -274,13 +274,18 @@ export function listenToDoctorProfile(
 
 export async function getDoctorBySlug(slug: string): Promise<DoctorProfile | null> {
   if (!slug) return null;
-  const normalizedSlug = slug.toLowerCase().trim().replace(/^dr\.?\s*/i, 'dr-').replace(/^-+|-+$/g, '');
+  const clean = slug.toLowerCase().trim();
+  const normalizedSlug = clean
+    .replace(/^dr[\s.-]*/i, 'dr-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '');
 
   let candidate: DoctorProfile | null = null;
 
   // 1. FIRESTORE DATABASE DIRECT
   if (isFirebaseConfigured && db) {
     try {
+      // A. Recherche par champ 'slug'
       const q = query(collection(db, 'doctors'), where('slug', '==', normalizedSlug));
       const snap = await getDocs(q);
       if (!snap.empty) {
@@ -289,6 +294,19 @@ export async function getDoctorBySlug(slug: string): Promise<DoctorProfile | nul
         candidate = { ...data, id: data.id || activeDoc.id };
       }
 
+      // B. Recherche par ID direct de document (ex: doc 'dr-elhadji-pathe-thiam' ou 'admin-thiam-1')
+      if (!candidate || candidate.status !== 'active') {
+        const directDocRef = doc(db, 'doctors', normalizedSlug);
+        const directSnap = await getDoc(directDocRef);
+        if (directSnap.exists()) {
+          const data = directSnap.data() as DoctorProfile;
+          if (data.status === 'active' || !candidate) {
+            candidate = { ...data, id: data.id || directSnap.id };
+          }
+        }
+      }
+
+      // C. Recherche par champ 'id'
       if (!candidate || candidate.status !== 'active') {
         const qId = query(collection(db, 'doctors'), where('id', '==', normalizedSlug));
         const idSnap = await getDocs(qId);
@@ -298,6 +316,16 @@ export async function getDoctorBySlug(slug: string): Promise<DoctorProfile | nul
           candidate = { ...data, id: data.id || activeDoc.id };
         }
       }
+
+      // D. Résilience spécifique pour Dr. Pathé THIAM (alias fréquents)
+      if ((!candidate || candidate.status !== 'active') && (normalizedSlug.includes('thiam') || normalizedSlug.includes('pathe'))) {
+        const adminDocRef = doc(db, 'doctors', 'admin-thiam-1');
+        const adminSnap = await getDoc(adminDocRef);
+        if (adminSnap.exists()) {
+          const data = adminSnap.data() as DoctorProfile;
+          candidate = { ...data, id: data.id || adminSnap.id };
+        }
+      }
     } catch (e) {
       console.warn('Firebase getDoctorBySlug notice:', e);
     }
@@ -305,11 +333,16 @@ export async function getDoctorBySlug(slug: string): Promise<DoctorProfile | nul
 
   // 2. CACHE LOCAL DE REPLI
   const doctors = getLocalDoctors();
-  const matchedLocal = doctors.find(d =>
-    d.slug?.toLowerCase().trim() === normalizedSlug ||
-    d.id?.toLowerCase() === normalizedSlug ||
-    d.slug?.toLowerCase().replace(/^dr\.?\s*/i, 'dr-') === normalizedSlug
-  );
+  const matchedLocal = doctors.find(d => {
+    const dSlugNorm = d.slug?.toLowerCase().trim().replace(/^dr[\s.-]*/i, 'dr-').replace(/-+/g, '-').replace(/^-+|-+$/g, '');
+    return (
+      dSlugNorm === normalizedSlug ||
+      d.slug?.toLowerCase().trim() === normalizedSlug ||
+      d.id?.toLowerCase() === normalizedSlug ||
+      (normalizedSlug.includes('thiam') && (d.id === 'admin-thiam-1' || d.email?.toLowerCase().includes('pati.amouf')))
+    );
+  });
+
   if (matchedLocal && (!candidate || (matchedLocal.status === 'active' && candidate.status !== 'active'))) {
     candidate = matchedLocal;
   }

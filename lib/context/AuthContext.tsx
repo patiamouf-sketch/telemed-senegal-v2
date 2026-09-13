@@ -186,6 +186,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             try {
               await setDoc(doc(db, 'doctors', 'admin-thiam-1'), defaultAdminProfile, { merge: true });
               await setDoc(doc(db, 'doctors', cleanEmail), defaultAdminProfile, { merge: true });
+              await setDoc(doc(db, 'doctors', defaultAdminProfile.slug), defaultAdminProfile, { merge: true });
             } catch (e) {}
           }
 
@@ -196,10 +197,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               if (cred.user) {
                 currentUser.uid = cred.user.uid;
                 setUser(currentUser);
+                if (db) {
+                  await setDoc(doc(db, 'doctors', cred.user.uid), defaultAdminProfile, { merge: true });
+                }
               }
             } catch (e: any) {
               try {
-                await createUserWithEmailAndPassword(auth, cleanEmail, password);
+                const newCred = await createUserWithEmailAndPassword(auth, cleanEmail, password);
+                if (newCred.user && db) {
+                  await setDoc(doc(db, 'doctors', newCred.user.uid), defaultAdminProfile, { merge: true });
+                }
               } catch (err) {}
             }
           }

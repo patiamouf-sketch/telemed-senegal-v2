@@ -98,8 +98,10 @@ export function DoctorOnboardingForm({ onClose, onSuccess }: DoctorOnboardingFor
   const generateSlug = (name: string) => {
     return name
       .toLowerCase()
-      .replace(/^dr\.?\s*/i, 'dr-')
+      .trim()
+      .replace(/^dr[\s.-]*/i, 'dr-')
       .replace(/[^a-z0-9]+/g, '-')
+      .replace(/-+/g, '-')
       .replace(/^-+|-+$/g, '');
   };
 

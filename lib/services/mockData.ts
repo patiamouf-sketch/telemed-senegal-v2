@@ -2,7 +2,28 @@ import { DoctorProfile, PatientQueueItem } from '../types/doctor';
 import { OfficialPrescription } from '../types/prescription';
 import { addDays } from 'date-fns';
 
-export const INITIAL_DOCTORS: DoctorProfile[] = [];
+export const INITIAL_DOCTORS: DoctorProfile[] = [
+  {
+    id: 'admin-thiam-1',
+    fullName: 'Dr. Elhadji Pathé THIAM',
+    email: 'pati.amouf@gmail.com',
+    phone: '+221 78 106 92 98',
+    nin: '1985031500001',
+    speciality: 'Médecine Générale',
+    onmsNumber: '',
+    clinicName: 'Cabinet Médical Virtuel TELEMED SENEGAL',
+    city: 'Dakar',
+    consultationFee: 15000,
+    avisMedicalFee: 5000,
+    visioConsultationFee: 15000,
+    availableForTeleconsult: true,
+    slug: 'dr-elhadji-pathe-thiam',
+    status: 'active',
+    role: 'admin',
+    licenseExpiresAt: '2099-12-31T23:59:59.000Z',
+    createdAt: '2025-01-01T00:00:00.000Z',
+  }
+];
 
 export const INITIAL_PATIENTS_QUEUE: PatientQueueItem[] = [];
 
