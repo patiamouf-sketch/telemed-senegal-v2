@@ -24,11 +24,29 @@ import {
   Stethoscope,
   X,
   Volume2,
+  VolumeX,
   Image as ImageIcon,
   AlertTriangle,
   Lock,
+  Clock,
 } from 'lucide-react';
-import { sendConsultationMessage, archiveConsultationSession, listenToPatient, createOfficialPrescription } from '@/lib/services/doctorService';
+import {
+  startOutgoingCallRing,
+  playCallConnectedSound,
+  playCallEndedSound,
+  playMessagePopSound,
+  isSoundMuted,
+  toggleSoundMuted,
+  listenToSoundMuted,
+} from '@/lib/utils/soundAlert';
+import {
+  sendConsultationMessage,
+  archiveConsultationSession,
+  listenToPatient,
+  listenToConsultationMessages,
+  createOfficialPrescription,
+  getFollowUpStatus
+} from '@/lib/services/doctorService';
 import { isDoctorLicenseValid } from '@/lib/utils/license';
 import { WebRTCManager } from '@/lib/services/webrtcService';
 import { uploadMedia } from '@/lib/services/storageService';
@@ -48,20 +66,80 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
   const [callSeconds, setCallSeconds] = useState(0);
   const [hasRemoteVideo, setHasRemoteVideo] = useState(false);
 
-  // Synchronisation temps réel des messages & ordonnance
+  // Synchronisation temps réel des messages (sous-collection Firestore) & ordonnance
   useEffect(() => {
-    const unsub = listenToPatient(patient.id, updated => {
-      if (updated) {
-        if (updated.messages) {
-          setMessages(updated.messages);
-        }
-        if (updated.prescription) {
-          setLatestPrescription(updated.prescription);
-        }
+    const unsubPatient = listenToPatient(patient.id, updated => {
+      if (updated && updated.prescription) {
+        setLatestPrescription(updated.prescription);
       }
     });
-    return () => unsub();
+
+    const unsubMessages = listenToConsultationMessages(patient.id, msgs => {
+      if (msgs && msgs.length > 0) {
+        setMessages(msgs);
+        // Bip discret lors d'un nouveau message reçu du patient
+        if (prevMessagesCountRef.current > 0 && msgs.length > prevMessagesCountRef.current) {
+          const newMessages = msgs.slice(prevMessagesCountRef.current);
+          if (newMessages.some(m => m.sender === 'patient')) {
+            playMessagePopSound();
+          }
+        }
+        prevMessagesCountRef.current = msgs.length;
+      }
+    });
+
+    return () => {
+      unsubPatient();
+      unsubMessages();
+    };
   }, [patient.id]);
+
+  // État audio et gestion de la tonalité sortante
+  const [isAudioMuted, setIsAudioMuted] = useState(isSoundMuted());
+  const stopOutgoingRingRef = useRef<(() => void) | null>(null);
+  const prevMessagesCountRef = useRef<number>(patient.messages?.length || 0);
+  const prevHasRemoteVideoRef = useRef(false);
+
+  // Synchronisation avec l'état silencieux global
+  useEffect(() => {
+    const unsub = listenToSoundMuted(m => setIsAudioMuted(m));
+    return () => unsub();
+  }, []);
+
+  const handleToggleAudioMute = () => {
+    const next = toggleSoundMuted();
+    setIsAudioMuted(next);
+  };
+
+  // Tonalité d'attente d'appel sortant tant que le patient n'a pas décroché
+  useEffect(() => {
+    const followUpStatus = getFollowUpStatus(patient);
+    if (patient.serviceType === 'visio_consultation' && !followUpStatus.isExpired && !hasRemoteVideo) {
+      if (!isAudioMuted) {
+        stopOutgoingRingRef.current = startOutgoingCallRing();
+      }
+    } else {
+      if (stopOutgoingRingRef.current) {
+        stopOutgoingRingRef.current();
+        stopOutgoingRingRef.current = null;
+      }
+    }
+
+    return () => {
+      if (stopOutgoingRingRef.current) {
+        stopOutgoingRingRef.current();
+        stopOutgoingRingRef.current = null;
+      }
+    };
+  }, [patient.serviceType, patient.status, hasRemoteVideo, isAudioMuted]);
+
+  // Son de connexion quand le patient décroche et active sa caméra
+  useEffect(() => {
+    if (!prevHasRemoteVideoRef.current && hasRemoteVideo) {
+      playCallConnectedSound();
+    }
+    prevHasRemoteVideoRef.current = hasRemoteVideo;
+  }, [hasRemoteVideo]);
 
   // Drawer states
   const [showPrescriptionDrawer, setShowPrescriptionDrawer] = useState(false);
@@ -86,8 +164,9 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // License check
+  // License check & Follow-up status
   const licenseCheck = isDoctorLicenseValid(doctor);
+  const followUp = getFollowUpStatus(patient);
 
   // Real Camera Stream & WebRTC P2P setup for Visio
   useEffect(() => {
@@ -224,23 +303,27 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
         recorder.onstop = async () => {
           const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
           stream.getTracks().forEach(t => t.stop());
+          const recordedSecs = Math.max(1, voiceSeconds);
+          const ext = mimeType.includes('ogg') ? 'ogg' : 'webm';
 
-          const reader = new FileReader();
-          reader.onload = async () => {
-            const dataUrl = reader.result as string;
-            const recordedSecs = Math.max(1, voiceSeconds);
+          try {
+            const audioUrl = await uploadMedia(
+              audioBlob,
+              `consultations/${patient.id}/voices/dr_${Date.now()}.${ext}`
+            );
 
             const msg = await sendConsultationMessage(patient.id, {
               sender: 'doctor',
               type: 'voice',
               text: `Note vocale médicale (${recordedSecs}s)`,
-              audioUrl: dataUrl,
+              audioUrl,
               audioDuration: recordedSecs,
             });
 
-            setMessages(prev => [...prev, msg]);
-          };
-          reader.readAsDataURL(audioBlob);
+            setMessages(prev => (prev.some(m => m.id === msg.id) ? prev : [...prev, msg]));
+          } catch (err) {
+            console.error('Erreur téléversement audio consultation:', err);
+          }
         };
 
         recorder.start(200);
@@ -343,9 +426,14 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
     setMessages(prev => [...prev, msg]);
   };
 
-  // Close and Archive Session
+  // Close and Archive Session (active la période de grâce de suivi 48h)
   const handleCloseSession = async () => {
-    if (confirm('Souhaitez-vous clôturer et archiver cette séance de consultation ?')) {
+    if (confirm('Souhaitez-vous clôturer cette consultation ? Une période de suivi sécurisée de 48h restera automatiquement active pour vous et le patient.')) {
+      if (stopOutgoingRingRef.current) {
+        stopOutgoingRingRef.current();
+        stopOutgoingRingRef.current = null;
+      }
+      playCallEndedSound();
       await archiveConsultationSession(patient.id, latestPrescription);
       confetti({
         particleCount: 70,
@@ -393,49 +481,78 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
                     NIN: {patient.patientNin}
                   </span>
                 )}
-                <Badge variant={patient.serviceType === 'visio_consultation' ? 'sky' : 'emerald'} size="sm">
-                  {patient.serviceType === 'visio_consultation' ? 'Visio HD' : 'Avis Médical'}
+                <Badge variant={followUp.inFollowUp ? 'amber' : followUp.isExpired ? 'slate' : patient.serviceType === 'visio_consultation' ? 'sky' : 'emerald'} size="sm">
+                  {followUp.inFollowUp ? `Suivi Actif (Reste ${followUp.remainingHours}h)` : followUp.isExpired ? 'Archivé (Lecture seule)' : patient.serviceType === 'visio_consultation' ? 'Visio HD' : 'Avis Médical'}
                 </Badge>
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
                 Tél : <strong className="font-mono text-slate-700">{patient.patientPhone}</strong> • Réf : {patient.id}
+                {followUp.inFollowUp && <span className="text-amber-700 font-semibold ml-2">• Suivi post-consultation 48h actif</span>}
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
-            {patient.serviceType === 'visio_consultation' && (
+            {patient.serviceType === 'visio_consultation' && !followUp.isExpired && (
               <div className="px-3.5 py-1.5 rounded-full bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold font-mono flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
                 {formatTimer(callSeconds)}
               </div>
             )}
 
-            <GlassButton
-              variant="primary"
-              size="sm"
-              onClick={() => {
-                if (!licenseCheck.isValid) {
-                  alert(licenseCheck.message || 'Votre licence médicale a expiré.');
-                  return;
-                }
-                setShowPrescriptionDrawer(true);
-              }}
-              className="text-xs font-bold shadow-pill"
+            {/* Bouton Muet / Audio Actif pour le Praticien */}
+            <button
+              type="button"
+              onClick={handleToggleAudioMute}
+              className={`p-2 rounded-full border transition-all text-xs flex items-center gap-1.5 shadow-sm ${
+                isAudioMuted
+                  ? 'bg-rose-50 border-rose-200 text-rose-600 hover:bg-rose-100'
+                  : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
+              }`}
+              title={isAudioMuted ? 'Activer les alertes sonores' : 'Couper le son (Mode silencieux)'}
             >
-              <FileText className="w-3.5 h-3.5" />
-              <span>Rédiger l'Ordonnance</span>
-            </GlassButton>
+              {isAudioMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+              <span className="hidden md:inline font-bold">{isAudioMuted ? 'Muet' : 'Audio actif'}</span>
+            </button>
 
-            <GlassButton
-              variant="danger"
-              size="sm"
-              onClick={handleCloseSession}
-              className="text-xs bg-rose-50 text-rose-700 hover:bg-rose-100"
-            >
-              <PhoneOff className="w-3.5 h-3.5" />
-              <span>Clôturer la séance</span>
-            </GlassButton>
+            {!followUp.isExpired && (
+              <GlassButton
+                variant="primary"
+                size="sm"
+                onClick={() => {
+                  if (!licenseCheck.isValid) {
+                    alert(licenseCheck.message || 'Votre licence médicale a expiré.');
+                    return;
+                  }
+                  setShowPrescriptionDrawer(true);
+                }}
+                className="text-xs font-bold shadow-pill"
+              >
+                <FileText className="w-3.5 h-3.5" />
+                <span>Rédiger l'Ordonnance</span>
+              </GlassButton>
+            )}
+
+            {patient.status !== 'completed' ? (
+              <GlassButton
+                variant="danger"
+                size="sm"
+                onClick={handleCloseSession}
+                className="text-xs bg-rose-50 text-rose-700 hover:bg-rose-100"
+              >
+                <PhoneOff className="w-3.5 h-3.5" />
+                <span>Clôturer séance (Ouvre suivi 48h)</span>
+              </GlassButton>
+            ) : (
+              <GlassButton
+                variant="secondary"
+                size="sm"
+                onClick={onClose}
+                className="text-xs"
+              >
+                <span>Fermer le dossier</span>
+              </GlassButton>
+            )}
           </div>
         </div>
 
@@ -471,7 +588,11 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
                     </div>
                     <div>
                       <h3 className="text-base font-bold text-white">{patient.patientName}</h3>
-                      <p className="text-[11px] text-sky-400 font-mono">Patient en direct • Négociation WebRTC P2P...</p>
+                      <div className="inline-flex items-center gap-2 mt-1 px-3.5 py-1 rounded-full bg-sky-500/20 border border-sky-400/30 text-sky-300 text-xs font-semibold">
+                        <span className="w-2 h-2 rounded-full bg-sky-400 animate-ping" />
+                        <span>Appel en cours... En attente du patient</span>
+                      </div>
+                      <p className="text-[11px] text-slate-400 mt-1 font-mono">Tonalité d'attente active • Liaison WebRTC P2P</p>
                     </div>
                   </div>
                 )}
@@ -672,69 +793,96 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
               <div ref={messagesEndRef} />
             </div>
 
-            {/* Input Bar (Text + Voice MediaRecorder + Image upload) */}
-            <div className="p-3 border-t border-slate-100 bg-white/90 backdrop-blur-md flex items-center gap-2">
-              <input
-                type="file"
-                ref={fileInputRef}
-                accept="image/*"
-                onChange={handleImageSelected}
-                className="hidden"
-              />
+            {/* Input Bar or Read-Only State */}
+            {followUp.isExpired ? (
+              <div className="p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-center gap-2.5 text-slate-500 text-xs text-center">
+                <Lock className="w-4 h-4 text-slate-400 flex-shrink-0" />
+                <span>
+                  Cette consultation est archivée en <strong>lecture seule</strong>. Le délai de suivi de 48h est expiré. L'historique et les ordonnances scellées restent accessibles.
+                </span>
+              </div>
+            ) : (
+              <div className="border-t border-slate-100 bg-white/95 backdrop-blur-md">
+                {followUp.inFollowUp && (
+                  <div className="px-4 py-2 bg-gradient-to-r from-amber-50 to-orange-50/50 border-b border-amber-200/60 flex items-center justify-between text-[11px] text-amber-900">
+                    <span className="flex items-center gap-1.5 font-medium">
+                      <Clock className="w-3.5 h-3.5 text-amber-600 flex-shrink-0" />
+                      Mode Suivi Post-Consultation (48h) — Il reste <strong>{followUp.remainingHours}h</strong> d'échanges avec le patient.
+                    </span>
+                    <span className="text-[10px] text-amber-800 bg-amber-200/60 px-2 py-0.5 rounded-full font-bold">
+                      Sans frais additionnels
+                    </span>
+                  </div>
+                )}
 
-              {/* Attach Image button */}
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="p-2.5 rounded-full text-slate-400 hover:text-[#3B82F6] hover:bg-blue-50 transition-colors"
-                title="Joindre un bilan ou une photo de lésion"
-              >
-                <ImageIcon className="w-5 h-5" />
-              </button>
+                <div className="p-3 flex items-center gap-2">
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    accept="image/*"
+                    onChange={handleImageSelected}
+                    className="hidden"
+                  />
 
-              {/* Voice Record button */}
-              <button
-                type="button"
-                onClick={handleToggleVoiceRecording}
-                className={`p-2.5 rounded-full transition-all ${
-                  isRecordingVoice
-                    ? 'bg-rose-500 text-white animate-pulse shadow-lg ring-4 ring-rose-500/20'
-                    : 'text-slate-400 hover:text-[#3B82F6] hover:bg-blue-50'
-                }`}
-                title={isRecordingVoice ? 'Arrêter et envoyer' : 'Enregistrer une note vocale'}
-              >
-                <Mic className="w-5 h-5" />
-              </button>
-
-              {isRecordingVoice ? (
-                <div className="flex-1 px-4 py-2.5 rounded-full bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold flex items-center justify-between">
-                  <span className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping" />
-                    Enregistrement micro en cours ({voiceSeconds}s)...
-                  </span>
+                  {/* Attach Image button */}
                   <button
                     type="button"
-                    className="text-[11px] font-extrabold underline cursor-pointer bg-rose-600 text-white px-3 py-1 rounded-full hover:bg-rose-700 transition-colors"
-                    onClick={handleToggleVoiceRecording}
+                    onClick={() => fileInputRef.current?.click()}
+                    className="p-2.5 rounded-full text-slate-400 hover:text-[#3B82F6] hover:bg-blue-50 transition-colors"
+                    title="Joindre un bilan ou une photo de lésion"
                   >
-                    Envoyer
+                    <ImageIcon className="w-5 h-5" />
                   </button>
+
+                  {/* Voice Record button */}
+                  <button
+                    type="button"
+                    onClick={handleToggleVoiceRecording}
+                    className={`p-2.5 rounded-full transition-all ${
+                      isRecordingVoice
+                        ? 'bg-rose-500 text-white animate-pulse shadow-lg ring-4 ring-rose-500/20'
+                        : 'text-slate-400 hover:text-[#3B82F6] hover:bg-blue-50'
+                    }`}
+                    title={isRecordingVoice ? 'Arrêter et envoyer' : 'Enregistrer une note vocale'}
+                  >
+                    <Mic className="w-5 h-5" />
+                  </button>
+
+                  {isRecordingVoice ? (
+                    <div className="flex-1 px-4 py-2.5 rounded-full bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold flex items-center justify-between">
+                      <span className="flex items-center gap-2">
+                        <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping" />
+                        Enregistrement micro en cours ({voiceSeconds}s)...
+                      </span>
+                      <button
+                        type="button"
+                        className="text-[11px] font-extrabold underline cursor-pointer bg-rose-600 text-white px-3 py-1 rounded-full hover:bg-rose-700 transition-colors"
+                        onClick={handleToggleVoiceRecording}
+                      >
+                        Envoyer
+                      </button>
+                    </div>
+                  ) : (
+                    <form onSubmit={handleSendMessage} className="flex-1 flex items-center gap-2">
+                      <input
+                        type="text"
+                        placeholder={
+                          followUp.inFollowUp
+                            ? "Répondre au suivi du patient (conseils, ajustement posologique...)"
+                            : "Écrivez votre message ou conseil médical..."
+                        }
+                        value={inputText}
+                        onChange={e => setInputText(e.target.value)}
+                        className="flex-1 px-4 py-2.5 rounded-full bg-slate-50 border border-slate-200/80 text-xs focus:outline-none focus:bg-white text-[#0F172A]"
+                      />
+                      <GlassButton type="submit" variant="primary" size="sm">
+                        <Send className="w-4 h-4" />
+                      </GlassButton>
+                    </form>
+                  )}
                 </div>
-              ) : (
-                <form onSubmit={handleSendMessage} className="flex-1 flex items-center gap-2">
-                  <input
-                    type="text"
-                    placeholder="Écrivez votre message ou conseil médical..."
-                    value={inputText}
-                    onChange={e => setInputText(e.target.value)}
-                    className="flex-1 px-4 py-2.5 rounded-full bg-slate-50 border border-slate-200/80 text-xs focus:outline-none focus:bg-white text-[#0F172A]"
-                  />
-                  <GlassButton type="submit" variant="primary" size="sm">
-                    <Send className="w-4 h-4" />
-                  </GlassButton>
-                </form>
-              )}
-            </div>
+              </div>
+            )}
           </div>
         </div>
 

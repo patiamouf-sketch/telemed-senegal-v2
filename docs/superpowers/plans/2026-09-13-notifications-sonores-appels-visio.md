@@ -37,17 +37,17 @@
   - `playCallEndedSound(): void`
   - `playMedicalChime(): void` (enrichi pour respecter le mode muet)
 
-- [ ] **Étape 1 : Implémenter la gestion de contexte et de sourdine**
+- [x] **Étape 1 : Implémenter la gestion de contexte et de sourdine**
   - Définir `isSoundMuted`, `setSoundMuted`, `toggleSoundMuted` avec synchronisation `localStorage` (`telemed_audio_muted`).
   - Définir `ensureAudioUnlocked()` pour reprendre un contexte suspendu sur clic/toucher.
-- [ ] **Étape 2 : Implémenter les sonneries en boucle avec fonction `stop()`**
+- [x] **Étape 2 : Implémenter les sonneries en boucle avec fonction `stop()`**
   - `startIncomingCallRing()` : cycle de sonnerie polyphonique Ré5 (587 Hz) et La5 (880 Hz), 1,8s actif / 1,2s silence, répété. Renvoie `stop()`.
   - `startOutgoingCallRing()` : tonalité 440 Hz, 1,2s actif / 2,5s silence. Renvoie `stop()`.
-- [ ] **Étape 3 : Implémenter les sons courts événementiels**
+- [x] **Étape 3 : Implémenter les sons courts événementiels**
   - `playMessagePopSound()` : tintement Do6 (1046.5 Hz) de 140ms.
   - `playCallConnectedSound()` : accord ascendant Do5-Mi5-Sol5.
   - `playCallEndedSound()` : accord descendant Sol4-Mi4-Do4.
-- [ ] **Étape 4 : Vérifier la compilation et exporter les signatures**
+- [x] **Étape 4 : Vérifier la compilation et exporter les signatures**
 
 ---
 
@@ -61,18 +61,18 @@
 - Consomme : `startIncomingCallRing`, `playCallConnectedSound`, `playMessagePopSound`, `isSoundMuted`, `toggleSoundMuted`, `ensureAudioUnlocked`
 - Produit : Composant `IncomingCallModal` et gestion de l'appel visio entrant chez le patient.
 
-- [ ] **Étape 1 : Créer le composant `IncomingCallModal.tsx`**
+- [x] **Étape 1 : Créer le composant `IncomingCallModal.tsx`**
   - Affichage plein écran flouté avec ondes lumineuses pulsantes.
   - Photo du médecin, nom, spécialité, badge ONMS.
   - Bouton vert "Décrocher & Rejoindre la Visio".
   - Bouton "Silence" pour couper la sonnerie tout en laissant le modal actif.
-- [ ] **Étape 2 : Intégrer la détection de l'appel entrant dans `app/dr/[slug]/page.tsx`**
+- [x] **Étape 2 : Intégrer la détection de l'appel entrant dans `app/dr/[slug]/page.tsx`**
   - Déclencher l'état `isIncomingCall` dès que `step === 'waiting'` et `updated.paymentConfirmedByDoctor` passe à vrai avec `serviceType === 'visio_consultation'`.
   - Lancer `startIncomingCallRing()`.
   - Sur clic "Décrocher" : couper la sonnerie, jouer `playCallConnectedSound()`, activer la caméra et WebRTC.
-- [ ] **Étape 3 : Intégrer les alertes sonores de messages dans le chat patient**
+- [x] **Étape 3 : Intégrer les alertes sonores de messages dans le chat patient**
   - Dans `listenToConsultationMessages` : détecter les nouveaux messages avec `msg.sender === 'doctor'` et jouer `playMessagePopSound()`.
-- [ ] **Étape 4 : Ajouter le bouton de bascule Son/Muet dans la barre patient**
+- [x] **Étape 4 : Ajouter le bouton de bascule Son/Muet dans la barre patient**
 
 ---
 
@@ -85,15 +85,15 @@
 **Interfaces :**
 - Consomme : `startOutgoingCallRing`, `playCallConnectedSound`, `playCallEndedSound`, `playMessagePopSound`, `isSoundMuted`, `toggleSoundMuted`
 
-- [ ] **Étape 1 : Intégrer la tonalité sortante dans `LiveConsultationRoom.tsx`**
+- [x] **Étape 1 : Intégrer la tonalité sortante dans `LiveConsultationRoom.tsx`**
   - Démarrer `startOutgoingCallRing()` lors de l'ouverture d'une visio tant que `!hasRemoteVideo`.
   - Afficher l'indicateur visuel d'ondes *"En attente du décrochage du patient... (Sonnerie en cours)"*.
   - Stopper la sonnerie et jouer `playCallConnectedSound()` dès que `hasRemoteVideo === true`.
-- [ ] **Étape 2 : Intégrer le son de fin d'appel lors de la clôture**
+- [x] **Étape 2 : Intégrer le son de fin d'appel lors de la clôture**
   - Jouer `playCallEndedSound()` dans `handleCloseSession`.
-- [ ] **Étape 3 : Intégrer les notifications de messages reçus du patient**
+- [x] **Étape 3 : Intégrer les notifications de messages reçus du patient**
   - Dans `listenToConsultationMessages` : si un nouveau message arrive avec `msg.sender === 'patient'`, déclencher `playMessagePopSound()`.
-- [ ] **Étape 4 : Ajouter le bouton Son/Muet dans `LiveConsultationRoom.tsx` et `DoctorDashboard.tsx`**
+- [x] **Étape 4 : Ajouter le bouton Son/Muet dans `LiveConsultationRoom.tsx` et `DoctorDashboard.tsx`**
 
 ---
 
@@ -102,6 +102,6 @@
 **Fichiers :**
 - Tester l'ensemble des parcours et compiler le projet.
 
-- [ ] **Étape 1 : Vérifier la compilation TypeScript sans aucune erreur**
-- [ ] **Étape 2 : Vérifier le comportement sonore sur les différents scénarios (appel entrant, décrochage, tonalité d'attente, message, mode muet)**
-- [ ] **Étape 3 : Mettre à jour le walkthrough et documenter les fonctionnalités déployées**
+- [x] **Étape 1 : Vérifier la compilation TypeScript sans aucune erreur**
+- [x] **Étape 2 : Vérifier le comportement sonore sur les différents scénarios (appel entrant, décrochage, tonalité d'attente, message, mode muet)**
+- [x] **Étape 3 : Mettre à jour le walkthrough et documenter les fonctionnalités déployées**

@@ -35,6 +35,8 @@ import {
   Sliders,
   User,
   FilePlus2,
+  Volume2,
+  VolumeX,
 } from 'lucide-react';
 import { DoctorProfileModal } from './DoctorProfileModal';
 import {
@@ -43,11 +45,17 @@ import {
   confirmPatientPayment,
   updateDoctorProfile,
   getDoctorArchive,
-  listenToDoctorQueue
+  listenToDoctorQueue,
+  getFollowUpStatus
 } from '@/lib/services/doctorService';
 import { PatientQueueItem } from '@/lib/types/doctor';
 import { differenceInDays } from 'date-fns';
-import { playMedicalChime } from '@/lib/utils/soundAlert';
+import {
+  playMedicalChime,
+  isSoundMuted,
+  toggleSoundMuted,
+  listenToSoundMuted,
+} from '@/lib/utils/soundAlert';
 import { isDoctorLicenseValid } from '@/lib/utils/license';
 import Link from 'next/link';
 import confetti from 'canvas-confetti';
@@ -64,6 +72,19 @@ export function DoctorDashboard() {
   const [showDirectPrescription, setShowDirectPrescription] = useState(false);
   const [origin, setOrigin] = useState('');
   const [newPaymentAlert, setNewPaymentAlert] = useState<PatientQueueItem | null>(null);
+
+  // Gestion du mode silencieux / alertes sonores
+  const [isAudioMuted, setIsAudioMuted] = useState(isSoundMuted());
+
+  useEffect(() => {
+    const unsub = listenToSoundMuted(m => setIsAudioMuted(m));
+    return () => unsub();
+  }, []);
+
+  const handleToggleAudioMute = () => {
+    const next = toggleSoundMuted();
+    setIsAudioMuted(next);
+  };
 
   // Pricing & service settings state
   const [avisFee, setAvisFee] = useState<number>(doctorProfile?.avisMedicalFee || 3000);
@@ -242,6 +263,21 @@ export function DoctorDashboard() {
             <QrCode className="w-4 h-4 text-[#3B82F6]" />
             <span>QR Code</span>
           </GlassButton>
+
+          {/* Bouton Muet / Audio Actif */}
+          <button
+            type="button"
+            onClick={handleToggleAudioMute}
+            className={`px-3 py-2 rounded-2xl border transition-all text-xs flex items-center gap-1.5 shadow-sm font-semibold ${
+              isAudioMuted
+                ? 'bg-rose-50 border-rose-200 text-rose-700 hover:bg-rose-100'
+                : 'bg-white/80 border-slate-200 text-slate-700 hover:bg-white hover:text-[#0F172A]'
+            }`}
+            title={isAudioMuted ? 'Activer les alertes sonores' : 'Couper le son (Mode silencieux)'}
+          >
+            {isAudioMuted ? <VolumeX className="w-4 h-4 text-rose-600" /> : <Volume2 className="w-4 h-4 text-emerald-600" />}
+            <span>{isAudioMuted ? 'Muet' : 'Audio actif'}</span>
+          </button>
 
           <Link href={`/dr/${doctorSlug}`} target="_blank">
             <GlassButton variant="primary" size="sm">
@@ -668,86 +704,197 @@ export function DoctorDashboard() {
         </GlassCard>
       )}
 
-      {/* View 2: Archived Sessions & Sealed Prescriptions */}
-      {activeTab === 'archive' && (
-        <GlassCard className="p-6 sm:p-8 space-y-6">
-          <div>
-            <div className="flex items-center gap-2.5">
-              <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-800 flex items-center justify-center font-bold shadow-sm">
-                <Archive className="w-5 h-5" />
+      {/* View 2: Archived Sessions, Active Follow-Ups & Sealed Prescriptions */}
+      {activeTab === 'archive' && (() => {
+        const followUpItems = archive.filter(item => getFollowUpStatus(item).inFollowUp);
+        const closedItems = archive.filter(item => !getFollowUpStatus(item).inFollowUp);
+
+        return (
+          <GlassCard className="p-6 sm:p-8 space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-800 flex items-center justify-center font-bold shadow-sm">
+                  <Archive className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-extrabold text-[#0F172A]">
+                    Dossiers Médicaux & Suivis ({archive.length})
+                  </h2>
+                  <p className="text-xs text-slate-500">
+                    Suivis actifs sous délai de grâce de 48h et archives avec signature SHA-256.
+                  </p>
+                </div>
               </div>
-              <div>
-                <h2 className="text-xl font-extrabold text-[#0F172A]">
-                  Consultations Archivées ({archive.length})
-                </h2>
-                <p className="text-xs text-slate-500">
-                  Historique médical, horodatages et ordonnances scellées par signature SHA-256.
+
+              {followUpItems.length > 0 && (
+                <Badge variant="amber" size="md" className="self-start sm:self-auto font-bold">
+                  {followUpItems.length} patient{followUpItems.length > 1 ? 's' : ''} en suivi actif
+                </Badge>
+              )}
+            </div>
+
+            {archive.length === 0 ? (
+              <div className="py-12 text-center rounded-[28px] bg-white/60 border border-dashed border-slate-200">
+                <Archive className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+                <p className="text-sm font-bold text-[#0F172A]">Aucune consultation archivée</p>
+                <p className="text-xs text-slate-500 mt-1">
+                  Les consultations terminées apparaîtront ici avec leur délai de grâce et leur preuve cryptographique.
                 </p>
               </div>
-            </div>
-          </div>
-
-          {archive.length === 0 ? (
-            <div className="py-12 text-center rounded-[28px] bg-white/60 border border-dashed border-slate-200">
-              <Archive className="w-10 h-10 text-slate-300 mx-auto mb-2" />
-              <p className="text-sm font-bold text-[#0F172A]">Aucune consultation archivée</p>
-              <p className="text-xs text-slate-500 mt-1">
-                Les consultations terminées apparaîtront ici avec leur preuve cryptographique.
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {archive.map(item => (
-                <div
-                  key={item.id}
-                  className="p-5 rounded-[28px] bg-white border border-slate-100 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4"
-                >
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <h4 className="font-bold text-[#0F172A] text-base">{item.patientName}</h4>
-                      <Badge variant="blue" size="sm">
-                        NIN: {item.patientNin}
-                      </Badge>
-                      <Badge variant="slate" size="sm">
-                        {item.gender === 'F' ? 'Femme' : 'Homme'} • {item.age} ans
-                      </Badge>
-                      <Badge variant={item.serviceType === 'visio_consultation' ? 'sky' : 'emerald'} size="sm">
-                        {item.serviceType === 'visio_consultation' ? 'Visio' : 'Avis'}
-                      </Badge>
+            ) : (
+              <div className="space-y-6">
+                {/* SECTION 1: Suivis Médicaux Actifs (48h) */}
+                {followUpItems.length > 0 && (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 text-xs font-bold text-amber-900 uppercase tracking-wider">
+                      <Clock className="w-4 h-4 text-amber-600" />
+                      <span>Suivis Post-Consultation en cours (Délai de grâce 48h)</span>
                     </div>
 
-                    <p className="text-xs text-slate-500">{item.reason}</p>
-                    <div className="flex items-center gap-2 text-[11px] text-slate-400">
-                      <Calendar className="w-3 h-3" />
-                      <span>Clôturé le {new Date(item.completedAt || item.joinedAt).toLocaleDateString('fr-FR')} à {new Date(item.completedAt || item.joinedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</span>
-                      <span>•</span>
-                      <strong className="text-slate-700">{item.amountPaid.toLocaleString('fr-FR')} FCFA ({item.paymentMethod.toUpperCase()})</strong>
+                    <div className="grid grid-cols-1 gap-3">
+                      {followUpItems.map(item => {
+                        const status = getFollowUpStatus(item);
+                        return (
+                          <div
+                            key={item.id}
+                            className={`p-5 rounded-[28px] border transition-all duration-300 flex flex-col md:flex-row md:items-center justify-between gap-4 ${
+                              item.hasUnreadFollowUp
+                                ? 'bg-gradient-to-r from-amber-50 via-white to-sky-50/70 border-amber-300 shadow-md ring-2 ring-amber-400/30'
+                                : 'bg-amber-50/40 border-amber-200/70 shadow-sm'
+                            }`}
+                          >
+                            <div className="space-y-1.5">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <h4 className="font-bold text-[#0F172A] text-base">{item.patientName}</h4>
+                                <Badge variant="amber" size="sm" className="font-mono">
+                                  Reste {status.remainingHours}h
+                                </Badge>
+                                {item.hasUnreadFollowUp && (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-rose-500 text-white animate-pulse shadow-sm">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
+                                    Nouveau message du patient
+                                  </span>
+                                )}
+                              </div>
+
+                              <p className="text-xs text-slate-600">
+                                <span className="font-medium text-slate-900">Motif :</span> {item.reason}
+                              </p>
+
+                              <div className="flex items-center gap-2 text-[11px] text-slate-400 flex-wrap">
+                                <span className="font-mono font-semibold text-slate-700">{item.patientPhone}</span>
+                                <span>•</span>
+                                <span>Clôturé le {new Date(item.completedAt || item.joinedAt).toLocaleDateString('fr-FR')}</span>
+                                {item.lastMessageText && (
+                                  <>
+                                    <span>•</span>
+                                    <span className="italic text-slate-500 truncate max-w-xs">
+                                      Dernier échange : {item.lastMessageText}
+                                    </span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Action buttons */}
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                              <GlassButton
+                                size="sm"
+                                variant="primary"
+                                onClick={() => setActiveConsultation(item)}
+                                className="text-xs shadow-pill"
+                              >
+                                <MessageSquare className="w-3.5 h-3.5" />
+                                <span>Accéder au Suivi</span>
+                              </GlassButton>
+
+                              {item.prescription && (
+                                <Link href={`/verify/${item.prescription.hash}`} target="_blank">
+                                  <GlassButton size="sm" variant="success" className="text-xs">
+                                    <ShieldCheck className="w-3.5 h-3.5" />
+                                    <span>Preuve SHA-256</span>
+                                  </GlassButton>
+                                </Link>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
+                )}
 
-                  {/* Action buttons */}
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <Link href={`/consultation/${item.id}`}>
-                      <GlassButton size="sm" variant="secondary" className="text-xs">
-                        Revoir Dossier
-                      </GlassButton>
-                    </Link>
-
-                    {item.prescription && (
-                      <Link href={`/verify/${item.prescription.hash}`} target="_blank">
-                        <GlassButton size="sm" variant="success" className="text-xs">
-                          <ShieldCheck className="w-3.5 h-3.5" />
-                          <span>Preuve SHA-256</span>
-                        </GlassButton>
-                      </Link>
+                {/* SECTION 2: Archives Clôturées Définitives */}
+                {closedItems.length > 0 && (
+                  <div className="space-y-3">
+                    {followUpItems.length > 0 && (
+                      <div className="flex items-center gap-2 text-xs font-bold text-slate-500 uppercase tracking-wider pt-2">
+                        <Lock className="w-3.5 h-3.5 text-slate-400" />
+                        <span>Archives Clôturées Définitives (Lecture seule)</span>
+                      </div>
                     )}
+
+                    <div className="space-y-3">
+                      {closedItems.map(item => (
+                        <div
+                          key={item.id}
+                          className="p-5 rounded-[28px] bg-white border border-slate-100 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4 opacity-90 hover:opacity-100 transition-opacity"
+                        >
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h4 className="font-bold text-[#0F172A] text-base">{item.patientName}</h4>
+                              {item.patientNin && (
+                                <Badge variant="blue" size="sm">
+                                  NIN: {item.patientNin}
+                                </Badge>
+                              )}
+                              <Badge variant="slate" size="sm">
+                                {item.gender === 'F' ? 'Femme' : 'Homme'} • {item.age} ans
+                              </Badge>
+                              <Badge variant="slate" size="sm">
+                                Clôturé
+                              </Badge>
+                            </div>
+
+                            <p className="text-xs text-slate-500">{item.reason}</p>
+                            <div className="flex items-center gap-2 text-[11px] text-slate-400">
+                              <Calendar className="w-3 h-3" />
+                              <span>Clôturé le {new Date(item.completedAt || item.joinedAt).toLocaleDateString('fr-FR')}</span>
+                              <span>•</span>
+                              <strong className="text-slate-700">{item.amountPaid.toLocaleString('fr-FR')} FCFA ({item.paymentMethod.toUpperCase()})</strong>
+                            </div>
+                          </div>
+
+                          {/* Action buttons */}
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            <GlassButton
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => setActiveConsultation(item)}
+                              className="text-xs"
+                            >
+                              Consulter Dossier
+                            </GlassButton>
+
+                            {item.prescription && (
+                              <Link href={`/verify/${item.prescription.hash}`} target="_blank">
+                                <GlassButton size="sm" variant="success" className="text-xs">
+                                  <ShieldCheck className="w-3.5 h-3.5" />
+                                  <span>Preuve SHA-256</span>
+                                </GlassButton>
+                              </Link>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </GlassCard>
-      )}
+                )}
+              </div>
+            )}
+          </GlassCard>
+        );
+      })()}
 
       {/* QR Code Modal */}
       {showQRModal && (

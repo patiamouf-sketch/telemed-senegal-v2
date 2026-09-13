@@ -2,7 +2,15 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams } from 'next/navigation';
-import { getDoctorBySlug, addPatientToQueue, getPatientById, sendConsultationMessage, listenToPatient } from '@/lib/services/doctorService';
+import {
+  getDoctorBySlug,
+  addPatientToQueue,
+  getPatientById,
+  sendConsultationMessage,
+  listenToPatient,
+  listenToConsultationMessages,
+  getFollowUpStatus
+} from '@/lib/services/doctorService';
 import { DoctorProfile, PatientQueueItem, ServiceType, ChatMessage } from '@/lib/types/doctor';
 import { isDoctorLicenseValid } from '@/lib/utils/license';
 import { GlassCard } from '@/components/ui/GlassCard';
@@ -36,13 +44,22 @@ import {
   Play,
   Pause,
   Volume2,
+  VolumeX,
   Image as ImageIcon,
   RefreshCw,
   ExternalLink,
-  Printer
+  Printer,
+  Link as LinkIcon
 } from 'lucide-react';
 import { WebRTCManager } from '@/lib/services/webrtcService';
 import { uploadMedia } from '@/lib/services/storageService';
+import { IncomingCallModal } from '@/components/consultation/IncomingCallModal';
+import {
+  playMessagePopSound,
+  isSoundMuted,
+  toggleSoundMuted,
+  listenToSoundMuted
+} from '@/lib/utils/soundAlert';
 import confetti from 'canvas-confetti';
 import Link from 'next/link';
 
@@ -80,6 +97,39 @@ export default function PatientRoomPage() {
   // Active queue session
   const [createdPatient, setCreatedPatient] = useState<PatientQueueItem | null>(null);
   const [copiedNum, setCopiedNum] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
+
+  // Restauration de session patient (via paramètre URL ?session=... ou localStorage)
+  useEffect(() => {
+    if (typeof window !== 'undefined' && slug) {
+      const urlParams = new URLSearchParams(window.location.search);
+      const querySessionId = urlParams.get('session');
+      const savedId = querySessionId || localStorage.getItem(`telemed_session_${slug}`);
+
+      if (savedId && !createdPatient) {
+        getPatientById(savedId).then((p) => {
+          if (p) {
+            setCreatedPatient(p);
+            localStorage.setItem(`telemed_session_${slug}`, p.id);
+            if (p.paymentConfirmedByDoctor || p.status === 'in_consultation' || p.status === 'completed') {
+              setStep('consultation');
+            } else if (p.paymentDeclared) {
+              setStep('waiting');
+            }
+          }
+        }).catch(() => {});
+      }
+    }
+  }, [slug]);
+
+  const handleResetSession = () => {
+    if (typeof window !== 'undefined' && slug) {
+      localStorage.removeItem(`telemed_session_${slug}`);
+    }
+    setCreatedPatient(null);
+    setChatMessages([]);
+    setStep('form');
+  };
 
   // Chat in consultation room for patient
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -87,6 +137,22 @@ export default function PatientRoomPage() {
   const [patientImagePreview, setPatientImagePreview] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
+
+  // État de l'appel visio entrant et notifications audio
+  const [isIncomingCall, setIsIncomingCall] = useState(false);
+  const [isAudioMuted, setIsAudioMuted] = useState(isSoundMuted());
+  const prevMessagesCountRef = useRef<number>(0);
+
+  // Synchronisation de l'état silencieux global
+  useEffect(() => {
+    const unsub = listenToSoundMuted(m => setIsAudioMuted(m));
+    return () => unsub();
+  }, []);
+
+  const handleToggleAudioMute = () => {
+    const next = toggleSoundMuted();
+    setIsAudioMuted(next);
+  };
 
   // Voice note recording states (MediaRecorder)
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
@@ -116,9 +182,9 @@ export default function PatientRoomPage() {
     return () => clearInterval(interval);
   }, [isRecordingVoice]);
 
-  // Video camera stream effect & WebRTC connection when patient enters visio
+  // Video camera stream effect & WebRTC connection when patient enters visio (après décrochage)
   useEffect(() => {
-    if (step === 'consultation' && serviceType === 'visio_consultation' && createdPatient?.id && typeof navigator !== 'undefined' && navigator.mediaDevices) {
+    if (step === 'consultation' && serviceType === 'visio_consultation' && !isIncomingCall && createdPatient?.id && typeof navigator !== 'undefined' && navigator.mediaDevices) {
       navigator.mediaDevices
         .getUserMedia({ video: true, audio: true })
         .then(stream => {
@@ -160,7 +226,7 @@ export default function PatientRoomPage() {
         }
       };
     }
-  }, [step, serviceType, createdPatient?.id]);
+  }, [step, serviceType, createdPatient?.id, isIncomingCall]);
 
   // Toggle Video Track
   const toggleVideoTrack = () => {
@@ -213,23 +279,27 @@ export default function PatientRoomPage() {
         recorder.onstop = async () => {
           const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
           stream.getTracks().forEach(t => t.stop());
+          const recordedSecs = Math.max(1, voiceSeconds);
+          const ext = mimeType.includes('ogg') ? 'ogg' : 'webm';
 
-          const reader = new FileReader();
-          reader.onload = async () => {
-            const dataUrl = reader.result as string;
-            const recordedSecs = Math.max(1, voiceSeconds);
+          try {
+            const audioUrl = await uploadMedia(
+              audioBlob,
+              `consultations/${createdPatient.id}/voices/patient_${Date.now()}.${ext}`
+            );
 
             const msg = await sendConsultationMessage(createdPatient.id, {
               sender: 'patient',
               type: 'voice',
               text: `Note vocale patient (${recordedSecs}s)`,
-              audioUrl: dataUrl,
+              audioUrl,
               audioDuration: recordedSecs,
             });
 
-            setChatMessages(prev => [...prev, msg]);
-          };
-          reader.readAsDataURL(audioBlob);
+            setChatMessages(prev => (prev.some(m => m.id === msg.id) ? prev : [...prev, msg]));
+          } catch (err) {
+            console.error('Erreur téléversement audio patient:', err);
+          }
         };
 
         recorder.start(200);
@@ -349,17 +419,17 @@ export default function PatientRoomPage() {
     return () => clearInterval(interval);
   }, [loadDoctorData]);
 
-  // Écouteur temps réel dès que la session patient est créée
+  // Écouteur temps réel dès que la session patient est créée (statut de paiement + sous-collection messages)
   useEffect(() => {
     if (!createdPatient?.id) return;
 
-    const unsub = listenToPatient(createdPatient.id, updated => {
+    const unsubPatient = listenToPatient(createdPatient.id, updated => {
       if (updated) {
         setCreatedPatient(updated);
-        if (updated.messages) {
-          setChatMessages(updated.messages);
-        }
         if (updated.paymentConfirmedByDoctor && step === 'waiting') {
+          if (updated.serviceType === 'visio_consultation') {
+            setIsIncomingCall(true);
+          }
           setStep('consultation');
           confetti({
             particleCount: 80,
@@ -370,7 +440,24 @@ export default function PatientRoomPage() {
       }
     });
 
-    return () => unsub();
+    const unsubMessages = listenToConsultationMessages(createdPatient.id, msgs => {
+      if (msgs && msgs.length > 0) {
+        setChatMessages(msgs);
+        // Bip discret lors de la réception d'un nouveau message du médecin
+        if (prevMessagesCountRef.current > 0 && msgs.length > prevMessagesCountRef.current) {
+          const newMessages = msgs.slice(prevMessagesCountRef.current);
+          if (newMessages.some(m => m.sender === 'doctor')) {
+            playMessagePopSound();
+          }
+        }
+        prevMessagesCountRef.current = msgs.length;
+      }
+    });
+
+    return () => {
+      unsubPatient();
+      unsubMessages();
+    };
   }, [createdPatient?.id, step]);
 
   // Handle Form Submit -> Go to Payment Step
@@ -448,6 +535,9 @@ export default function PatientRoomPage() {
       });
 
       setCreatedPatient(item);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(`telemed_session_${slug}`, item.id);
+      }
       setChatMessages(item.messages || []);
       setStep('waiting');
 
@@ -1002,23 +1092,108 @@ export default function PatientRoomPage() {
         )}
 
         {/* STEP 4: Live Consultation (Patient Room with Chat, Audio Notes, Video, and Sealed Prescriptions) */}
-        {step === 'consultation' && createdPatient && (
-          <GlassCard className="p-6 sm:p-8 space-y-5">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-emerald-500 text-white flex items-center justify-center shadow-md">
-                  {serviceType === 'visio_consultation' ? <Video className="w-5 h-5" /> : <MessageSquare className="w-5 h-5" />}
+        {step === 'consultation' && createdPatient && (() => {
+          const followUp = getFollowUpStatus(createdPatient);
+          const consultationUrl = typeof window !== 'undefined' ? `${window.location.origin}/consultation/${createdPatient.id}` : '';
+
+          return (
+            <GlassCard className="p-6 sm:p-8 space-y-5">
+              {/* Header Consultation & Praticien */}
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-emerald-500 text-white flex items-center justify-center shadow-md">
+                    {serviceType === 'visio_consultation' ? <Video className="w-5 h-5" /> : <MessageSquare className="w-5 h-5" />}
+                  </div>
+                  <div>
+                    <h3 className="font-extrabold text-[#0F172A] text-base">
+                      Consultation avec {doctor.fullName}
+                    </h3>
+                    <Badge variant={followUp.inFollowUp ? 'amber' : 'emerald'} size="sm">
+                      {followUp.inFollowUp ? followUp.label : (serviceType === 'visio_consultation' ? 'Vidéoconsultation HD' : 'Avis Médical Direct')}
+                    </Badge>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="font-extrabold text-[#0F172A] text-base">
-                    Consultation avec {doctor.fullName}
-                  </h3>
-                  <Badge variant="emerald" size="sm">
-                    {serviceType === 'visio_consultation' ? 'Vidéoconsultation HD' : 'Avis Médical Direct'}
-                  </Badge>
+
+                <div className="flex items-center gap-2">
+                  {/* Bouton Muet / Sonnerie Active */}
+                  <button
+                    type="button"
+                    onClick={handleToggleAudioMute}
+                    className={`p-2 rounded-full border transition-all text-xs flex items-center gap-1.5 shadow-sm ${
+                      isAudioMuted
+                        ? 'bg-rose-50 border-rose-200 text-rose-600 hover:bg-rose-100'
+                        : 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200'
+                    }`}
+                    title={isAudioMuted ? 'Activer les alertes sonores' : 'Couper le son (Mode silencieux)'}
+                  >
+                    {isAudioMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+                    <span className="hidden sm:inline font-bold">{isAudioMuted ? 'Muet' : 'Son actif'}</span>
+                  </button>
+
+                  {followUp.isExpired && (
+                    <GlassButton size="sm" variant="secondary" onClick={handleResetSession} className="text-xs">
+                      Nouvelle Consultation
+                    </GlassButton>
+                  )}
                 </div>
               </div>
-            </div>
+
+              {/* Bandeau Lien Permanent & Dossier Médical */}
+              <div className="p-3 bg-blue-50/70 rounded-[18px] border border-blue-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                <div className="flex items-center gap-2 text-slate-700 min-w-0">
+                  <LinkIcon className="w-4 h-4 text-[#3B82F6] flex-shrink-0" />
+                  <span className="font-semibold text-slate-600 flex-shrink-0">Lien direct de votre dossier :</span>
+                  <span className="font-mono font-bold text-[#0F172A] truncate">{consultationUrl}</span>
+                </div>
+                <GlassButton
+                  size="sm"
+                  variant={copiedLink ? 'success' : 'secondary'}
+                  onClick={() => {
+                    if (consultationUrl) {
+                      navigator.clipboard.writeText(consultationUrl);
+                      setCopiedLink(true);
+                      setTimeout(() => setCopiedLink(false), 2000);
+                    }
+                  }}
+                  className="flex-shrink-0 text-xs py-1 px-3"
+                >
+                  {copiedLink ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedLink ? 'Lien copié' : 'Copier mon lien'}</span>
+                </GlassButton>
+              </div>
+
+              {/* Bannière de Suivi Post-Consultation (48h) */}
+              {followUp.inFollowUp && (
+                <div className="p-4 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200/80 rounded-[20px] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-sm">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-full bg-amber-500 text-white flex items-center justify-center flex-shrink-0 shadow-sm">
+                      <Clock className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="font-extrabold text-sm text-[#0F172A]">Suivi Médical Actif (Délai de grâce 48h)</h4>
+                      <p className="text-[11px] text-amber-800 leading-relaxed">
+                        La consultation est clôturée, mais vous pouvez continuer à échanger avec le Dr. {doctor.fullName} pour poser vos questions d'ajustement ou transmettre vos résultats d'analyses complémentaires.
+                      </p>
+                    </div>
+                  </div>
+                  <Badge variant="amber" size="md" className="flex-shrink-0 font-mono font-bold">
+                    Reste {followUp.remainingHours}h
+                  </Badge>
+                </div>
+              )}
+
+              {/* Bannière de Clôture Expirée (Après 48h) */}
+              {followUp.isExpired && (
+                <div className="p-3.5 bg-slate-100 border border-slate-200 rounded-[20px] flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-slate-700">
+                  <div className="flex items-center gap-2">
+                    <Lock className="w-4 h-4 text-slate-500 flex-shrink-0" />
+                    <span>Le délai de grâce de suivi (48h) est écoulé. Votre dossier médical et vos ordonnances restent accessibles en lecture seule.</span>
+                  </div>
+                  <GlassButton size="sm" variant="primary" onClick={handleResetSession} className="flex-shrink-0 text-xs">
+                    Demander une nouvelle consultation
+                  </GlassButton>
+                </div>
+              )}
 
             {/* Video Window if Visio */}
             {serviceType === 'visio_consultation' && (
@@ -1217,70 +1392,86 @@ export default function PatientRoomPage() {
               <div ref={chatEndRef} />
             </div>
 
-            {/* Patient Message Input with Image & Voice MediaRecorder */}
-            <div className="p-3 border-t border-slate-100 bg-white/95 backdrop-blur-md flex items-center gap-2">
-              <input
-                type="file"
-                ref={fileInputRef}
-                accept="image/*"
-                onChange={handlePatientImageUpload}
-                className="hidden"
-              />
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="p-2.5 rounded-full text-slate-400 hover:text-[#3B82F6] hover:bg-blue-50"
-                title="Joindre une ordonnance ou une photo"
-              >
-                <ImageIcon className="w-5 h-5" />
-              </button>
+            {/* Patient Message Input ou Verrouillage si délai expiré */}
+            {followUp.isExpired ? (
+              <div className="p-4 bg-slate-50 border-t border-slate-200 text-center space-y-2.5 rounded-b-[24px]">
+                <p className="text-xs text-slate-500">
+                  Le délai de suivi post-consultation de 48h est achevé. Vos ordonnances scellées SHA-256 restent vérifiables et téléchargeables ci-dessus.
+                </p>
+                <GlassButton
+                  variant="primary"
+                  size="sm"
+                  onClick={handleResetSession}
+                >
+                  Demander une nouvelle consultation avec le {doctor.fullName}
+                </GlassButton>
+              </div>
+            ) : (
+              <div className="p-3 border-t border-slate-100 bg-white/95 backdrop-blur-md flex items-center gap-2">
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  accept="image/*"
+                  onChange={handlePatientImageUpload}
+                  className="hidden"
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="p-2.5 rounded-full text-slate-400 hover:text-[#3B82F6] hover:bg-blue-50"
+                  title="Joindre une ordonnance ou une photo"
+                >
+                  <ImageIcon className="w-5 h-5" />
+                </button>
 
-              {/* Voice Record Button for Patient */}
-              <button
-                type="button"
-                onClick={handleToggleVoiceRecording}
-                className={`p-2.5 rounded-full transition-all ${
-                  isRecordingVoice
-                    ? 'bg-rose-500 text-white animate-pulse shadow-lg ring-4 ring-rose-500/20'
-                    : 'text-slate-400 hover:text-[#3B82F6] hover:bg-blue-50'
-                }`}
-                title={isRecordingVoice ? 'Arrêter et envoyer' : 'Enregistrer une note vocale'}
-              >
-                <Mic className="w-5 h-5" />
-              </button>
+                {/* Voice Record Button for Patient */}
+                <button
+                  type="button"
+                  onClick={handleToggleVoiceRecording}
+                  className={`p-2.5 rounded-full transition-all ${
+                    isRecordingVoice
+                      ? 'bg-rose-500 text-white animate-pulse shadow-lg ring-4 ring-rose-500/20'
+                      : 'text-slate-400 hover:text-[#3B82F6] hover:bg-blue-50'
+                  }`}
+                  title={isRecordingVoice ? 'Arrêter et envoyer' : 'Enregistrer une note vocale'}
+                >
+                  <Mic className="w-5 h-5" />
+                </button>
 
-              {isRecordingVoice ? (
-                <div className="flex-1 px-4 py-2.5 rounded-full bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold flex items-center justify-between">
-                  <span className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping" />
-                    Enregistrement ({voiceSeconds}s)...
-                  </span>
-                  <button
-                    type="button"
-                    className="text-[11px] font-extrabold underline cursor-pointer bg-rose-600 text-white px-3 py-1 rounded-full hover:bg-rose-700 transition-colors"
-                    onClick={handleToggleVoiceRecording}
-                  >
-                    Envoyer
-                  </button>
-                </div>
-              ) : (
-                <form onSubmit={handleSendPatientMessage} className="flex-1 flex items-center gap-2">
-                  <input
-                    type="text"
-                    placeholder="Écrivez votre message au médecin..."
-                    value={chatInput}
-                    onFocus={e => setTimeout(() => e.target.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 300)}
-                    onChange={e => setChatInput(e.target.value)}
-                    className="flex-1 px-4 py-2.5 rounded-full bg-slate-50 border border-slate-200/80 text-xs focus:outline-none focus:bg-white text-[#0F172A]"
-                  />
-                  <GlassButton type="submit" variant="primary" size="sm">
-                    <Send className="w-4 h-4" />
-                  </GlassButton>
-                </form>
-              )}
-            </div>
+                {isRecordingVoice ? (
+                  <div className="flex-1 px-4 py-2.5 rounded-full bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold flex items-center justify-between">
+                    <span className="flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping" />
+                      Enregistrement ({voiceSeconds}s)...
+                    </span>
+                    <button
+                      type="button"
+                      className="text-[11px] font-extrabold underline cursor-pointer bg-rose-600 text-white px-3 py-1 rounded-full hover:bg-rose-700 transition-colors"
+                      onClick={handleToggleVoiceRecording}
+                    >
+                      Envoyer
+                    </button>
+                  </div>
+                ) : (
+                  <form onSubmit={handleSendPatientMessage} className="flex-1 flex items-center gap-2">
+                    <input
+                      type="text"
+                      placeholder={followUp.inFollowUp ? "Posez votre question de suivi au médecin..." : "Écrivez votre message au médecin..."}
+                      value={chatInput}
+                      onFocus={e => setTimeout(() => e.target.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 300)}
+                      onChange={e => setChatInput(e.target.value)}
+                      className="flex-1 px-4 py-2.5 rounded-full bg-slate-50 border border-slate-200/80 text-xs focus:outline-none focus:bg-white text-[#0F172A]"
+                    />
+                    <GlassButton type="submit" variant="primary" size="sm">
+                      <Send className="w-4 h-4" />
+                    </GlassButton>
+                  </form>
+                )}
+              </div>
+            )}
           </GlassCard>
-        )}
+        );
+      })()}
       </div>
 
       {/* Fullscreen Image Preview */}
@@ -1298,6 +1489,22 @@ export default function PatientRoomPage() {
             />
           </div>
         </div>
+      )}
+
+      {/* Modal d'Appel Visio Entrant Immersif */}
+      {isIncomingCall && doctor && (
+        <IncomingCallModal
+          doctorName={doctor.fullName}
+          doctorSpecialty={doctor.speciality}
+          doctorAvatarUrl={doctor.avatarUrl}
+          doctorOnms={doctor.onmsNumber}
+          onAccept={() => {
+            setIsIncomingCall(false);
+          }}
+          onDecline={() => {
+            setIsIncomingCall(false);
+          }}
+        />
       )}
     </div>
   );
