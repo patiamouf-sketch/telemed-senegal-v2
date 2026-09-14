@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Inter, Poppins } from 'next/font/google';
 import './globals.css';
 import { AuthProvider } from '@/lib/context/AuthContext';
@@ -20,6 +20,14 @@ const poppins = Poppins({
 export const metadata: Metadata = {
   title: 'TELEMED SENEGAL • Plateforme Médicale',
   description: 'Plateforme de télémédecine pour praticiens et patients au Sénégal.',
+};
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  interactiveWidget: 'resizes-content',
 };
 
 export default function RootLayout({

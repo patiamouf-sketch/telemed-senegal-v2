@@ -119,6 +119,18 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
     setIsAudioMuted(next);
   };
 
+  // Gestion ultra-robuste du viewport mobile (clavier virtuel iOS/Android)
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.visualViewport) return;
+    const updateViewport = () => {
+      document.documentElement.style.setProperty('--vh', `${window.visualViewport!.height * 0.01}px`);
+      setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+    };
+    window.visualViewport.addEventListener('resize', updateViewport);
+    updateViewport();
+    return () => window.visualViewport?.removeEventListener('resize', updateViewport);
+  }, []);
+
   // Tonalité d'attente d'appel sortant tant que le patient n'a pas décroché
   useEffect(() => {
     const followUpStatus = getFollowUpStatus(patient);
@@ -469,8 +481,8 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-4 bg-slate-900/60 backdrop-blur-md font-sans max-h-[100dvh] h-[100dvh] overflow-hidden">
-      <GlassCard className="relative w-full max-w-5xl h-[100dvh] sm:h-[92vh] max-h-[100dvh] sm:max-h-[850px] bg-white/95 backdrop-blur-2xl border border-white/80 shadow-2xl flex flex-col justify-between overflow-hidden rounded-none sm:rounded-[32px]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-4 bg-slate-900/60 backdrop-blur-md font-sans chat-fixed-viewport overflow-hidden">
+      <GlassCard className="relative w-full max-w-5xl h-full sm:h-[92vh] max-h-[100dvh] sm:max-h-[850px] bg-white/95 backdrop-blur-2xl border border-white/80 shadow-2xl flex flex-col justify-between overflow-hidden rounded-none sm:rounded-[32px]">
         {/* Top Header Bar with Clean Patient Badge & License Status */}
         <div className="px-4 sm:px-6 py-3.5 border-b border-slate-100/90 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-gradient-to-r from-sky-50/70 via-white to-blue-50/50 flex-shrink-0">
           <div className="flex items-center gap-3">
@@ -820,7 +832,7 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
                 </span>
               </div>
             ) : (
-              <div className="border-t border-slate-100 bg-white/95 backdrop-blur-md">
+              <div className="border-t border-slate-100 bg-white/95 backdrop-blur-md safe-bottom-padding">
                 {followUp.inFollowUp && (
                   <div className="px-4 py-2 bg-gradient-to-r from-amber-50 to-orange-50/50 border-b border-amber-200/60 flex items-center justify-between text-[11px] text-amber-900">
                     <span className="flex items-center gap-1.5 font-medium">
@@ -886,13 +898,18 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
                         type="text"
                         placeholder={
                           followUp.inFollowUp
-                            ? "Répondre au suivi du patient (conseils, ajustement posologique...)"
-                            : "Écrivez votre message ou conseil médical..."
+                            ? "Répondre au suivi du patient..."
+                            : "Écrivez votre message ou conseil..."
                         }
                         value={inputText}
                         onChange={e => setInputText(e.target.value)}
                         disabled={isSendingText}
                         className="flex-1 px-4 py-2.5 rounded-full bg-slate-50 border border-slate-200/80 text-xs focus:outline-none focus:bg-white text-[#0F172A] disabled:opacity-60"
+                        onFocus={(e) => {
+                          setTimeout(() => {
+                            e.target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                          }, 300);
+                        }}
                       />
                       <GlassButton type="submit" variant="primary" size="sm" disabled={isSendingText || !inputText.trim()} isLoading={isSendingText}>
                         <Send className="w-4 h-4" />

@@ -78,3 +78,20 @@
     margin: 15mm 15mm 15mm 15mm;
   }
 }
+
+/* Verrouillage overscroll et layout fixe mobile pour le chat */
+.chat-fixed-viewport {
+  height: 100dvh; /* Fallback moderne */
+  height: calc(var(--vh, 1dvh) * 100);
+  max-height: calc(var(--vh, 1dvh) * 100);
+  overscroll-behavior-y: none;
+  position: fixed;
+  width: 100%;
+  left: 0;
+  top: 0;
+}
+
+.safe-bottom-padding {
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+}
+

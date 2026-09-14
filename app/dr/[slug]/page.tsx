@@ -131,12 +131,26 @@ export default function PatientRoomPage() {
     setStep('form');
   };
 
-  // Chat in consultation room for patient
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState('');
+  const [isSendingText, setIsSendingText] = useState(false);
   const [patientImagePreview, setPatientImagePreview] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Gestion ultra-robuste du viewport mobile (clavier virtuel iOS/Android)
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.visualViewport) return;
+    const updateViewport = () => {
+      document.documentElement.style.setProperty('--vh', `${window.visualViewport!.height * 0.01}px`);
+      // Scroll to bottom quand le clavier apparaît
+      setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+    };
+    window.visualViewport.addEventListener('resize', updateViewport);
+    updateViewport(); // init
+    return () => window.visualViewport?.removeEventListener('resize', updateViewport);
+  }, []);
 
   // État de l'appel visio entrant et notifications audio
   const [isIncomingCall, setIsIncomingCall] = useState(false);
@@ -365,12 +379,13 @@ export default function PatientRoomPage() {
   };
 
   // Envoi de message texte par le patient
-  const handleSendPatientMessage = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!chatInput.trim() || !createdPatient?.id) return;
+  const handleSendPatientMessage = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!chatInput.trim() || !createdPatient?.id || isSendingText) return;
 
     const text = chatInput.trim();
     setChatInput('');
+    setIsSendingText(true);
 
     try {
       const msg = await sendConsultationMessage(createdPatient.id, {
@@ -378,9 +393,16 @@ export default function PatientRoomPage() {
         type: 'text',
         text,
       });
-      setChatMessages(prev => (prev.some(m => m.id === msg.id) ? prev : [...prev, msg]));
+      setChatMessages(prev => {
+        if (prev.some(m => m.id === msg.id)) return prev;
+        const newList = [...prev, msg];
+        return newList.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+      });
     } catch (err) {
       console.warn('Erreur envoi message patient:', err);
+      setChatInput(text);
+    } finally {
+      setIsSendingText(false);
     }
   };
 
@@ -426,6 +448,27 @@ export default function PatientRoomPage() {
     const unsubPatient = listenToPatient(createdPatient.id, updated => {
       if (updated) {
         setCreatedPatient(updated);
+
+        // Fallback robuste : si des messages sont stockés dans le parent, on les synchronise
+        if (updated.messages && updated.messages.length > 0) {
+          setChatMessages(prev => {
+            const map = new Map<string, ChatMessage>();
+            prev.forEach(m => map.set(m.id, m));
+            updated.messages!.forEach(m => map.set(m.id, m));
+            const newArray = Array.from(map.values()).sort(
+              (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+            );
+            // Éviter un state update inutile si la taille n'a pas changé
+            if (newArray.length === prev.length) return prev;
+            return newArray;
+          });
+        }
+
+        if ((updated.status === 'consultation' || updated.status === 'in_consultation') && step !== 'consultation') setStep('consultation');
+        if (updated.status === 'completed' && step === 'consultation') {
+          setHasDoctorEnded(true);
+        }
+
         if (updated.paymentConfirmedByDoctor && step === 'waiting') {
           if (updated.serviceType === 'visio_consultation') {
             setIsIncomingCall(true);
@@ -610,6 +653,281 @@ export default function PatientRoomPage() {
   const activeTransferNum = paymentMethod === 'wave'
     ? (doctor.waveNumber || doctor.phone)
     : (doctor.omNumber || doctor.phone);
+
+  if (step === 'consultation' && createdPatient) {
+    const followUp = getFollowUpStatus(createdPatient);
+    const consultationUrl = typeof window !== 'undefined' ? `${window.location.origin}/consultation/${createdPatient.id}` : '';
+
+    return (
+      <div className="fixed inset-0 flex flex-col bg-slate-50 font-sans chat-fixed-viewport z-50">
+        {/* Top Header */}
+        <div className="flex-none bg-white border-b border-slate-200 px-4 py-3 sm:px-6 shadow-sm z-20 sticky top-0">
+          <div className="max-w-3xl mx-auto flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-emerald-500 to-teal-400 text-white flex items-center justify-center shadow-md">
+                {serviceType === 'visio_consultation' ? <Video className="w-5 h-5" /> : <MessageSquare className="w-5 h-5" />}
+              </div>
+              <div className="flex flex-col">
+                <h3 className="font-extrabold text-[#0F172A] text-sm sm:text-base leading-tight">
+                  Consultation: {doctor.fullName}
+                </h3>
+                <span className="text-[10px] sm:text-xs text-emerald-600 font-semibold flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                  {followUp.inFollowUp ? followUp.label : (serviceType === 'visio_consultation' ? 'Vidéoconsultation HD' : 'Avis Médical Direct')}
+                </span>
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleToggleAudioMute}
+                className={`p-2 rounded-full transition-all text-xs flex items-center gap-1.5 shadow-sm ${
+                  isAudioMuted
+                    ? 'bg-rose-50 text-rose-600 border border-rose-100'
+                    : 'bg-slate-50 text-slate-700 border border-slate-200'
+                }`}
+              >
+                {isAudioMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+              </button>
+              {followUp.isExpired && (
+                <GlassButton size="sm" variant="secondary" onClick={handleResetSession} className="text-[10px] !px-2 !py-1">
+                  Quitter
+                </GlassButton>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Main Scrollable Content */}
+        <div className="flex-1 overflow-y-auto overscroll-contain bg-slate-50 relative flex flex-col">
+          <div className="max-w-3xl mx-auto w-full flex-1 flex flex-col p-4 space-y-4">
+            
+            {/* Banner Link */}
+            <div className="flex-none p-3 bg-blue-50/70 rounded-[16px] border border-blue-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs shadow-sm">
+              <div className="flex items-center gap-2 text-slate-700 min-w-0">
+                <LinkIcon className="w-4 h-4 text-[#3B82F6] flex-shrink-0" />
+                <span className="font-semibold text-slate-600 flex-shrink-0">Dossier :</span>
+                <span className="font-mono font-bold text-[#0F172A] truncate">{consultationUrl}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (consultationUrl) {
+                    navigator.clipboard.writeText(consultationUrl);
+                    setCopiedLink(true);
+                    setTimeout(() => setCopiedLink(false), 2000);
+                  }
+                }}
+                className="flex-shrink-0 text-[11px] font-bold text-[#3B82F6] bg-white px-3 py-1.5 rounded-full shadow-sm border border-blue-100 flex items-center justify-center gap-1"
+              >
+                {copiedLink ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                {copiedLink ? 'Copié' : 'Copier'}
+              </button>
+            </div>
+
+            {/* Bannières Follow Up */}
+            {followUp.inFollowUp && (
+              <div className="flex-none p-3.5 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200/80 rounded-[16px] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-sm">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-amber-500 text-white flex items-center justify-center flex-shrink-0 shadow-sm">
+                    <Clock className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="font-extrabold text-xs text-[#0F172A]">Suivi Médical Actif</h4>
+                    <p className="text-[10px] text-amber-800 leading-relaxed mt-0.5">
+                      Consultation clôturée, délai de 48h pour vos questions.
+                    </p>
+                  </div>
+                </div>
+                <Badge variant="amber" size="sm" className="flex-shrink-0 font-mono font-bold">
+                  Reste {followUp.remainingHours}h
+                </Badge>
+              </div>
+            )}
+            
+            {followUp.isExpired && (
+              <div className="flex-none p-3 bg-slate-100 border border-slate-200 rounded-[16px] flex items-center gap-2 text-[11px] text-slate-600">
+                <Lock className="w-4 h-4 text-slate-400 flex-shrink-0" />
+                <span>Le délai de grâce de 48h est écoulé. Dossier en lecture seule.</span>
+              </div>
+            )}
+
+            {/* Video Window */}
+            {serviceType === 'visio_consultation' && (
+              <div className="flex-none h-64 sm:h-72 bg-slate-950 p-3 rounded-[24px] border border-slate-800 flex flex-col justify-between relative overflow-hidden shadow-lg">
+                <div className="flex-1 rounded-[16px] bg-slate-900 border border-slate-800 relative flex items-center justify-center overflow-hidden">
+                  <video ref={remoteDoctorVideoRef} autoPlay playsInline className={`w-full h-full object-cover ${hasDoctorVideo ? 'block' : 'hidden'}`} />
+                  {!hasDoctorVideo && (
+                    <div className="text-center space-y-2 p-4">
+                      <div className="w-14 h-14 rounded-full bg-gradient-to-tr from-blue-600 to-sky-400 text-white flex items-center justify-center text-xl font-extrabold mx-auto shadow-xl ring-4 ring-sky-400/30 animate-pulse">
+                        Dr
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-bold text-white">{doctor.fullName}</h4>
+                        <p className="text-[10px] text-sky-400 font-mono mt-1">Médecin en direct...</p>
+                      </div>
+                    </div>
+                  )}
+                  <div className="absolute bottom-2 right-2 w-24 h-32 sm:w-32 sm:h-40 rounded-[12px] bg-slate-800 border-2 border-white/20 shadow-2xl flex flex-col items-center justify-center overflow-hidden z-10">
+                    <video ref={localVideoRef} autoPlay playsInline muted className={`w-full h-full object-cover ${isVideoOff ? 'hidden' : 'block'}`} />
+                    {isVideoOff && (
+                      <div className="w-full h-full bg-slate-900 flex flex-col items-center justify-center text-white p-1 text-center">
+                        <span className="text-[9px] font-bold">Caméra Off</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="pt-2 flex items-center justify-center gap-3">
+                  <button type="button" onClick={toggleAudioTrack} className={`p-2.5 rounded-full transition-all ${isVideoMuted ? 'bg-rose-500 text-white' : 'bg-white/20 hover:bg-white/30 text-white'}`}>
+                    {isVideoMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                  </button>
+                  <button type="button" onClick={toggleVideoTrack} className={`p-2.5 rounded-full transition-all ${isVideoOff ? 'bg-rose-500 text-white' : 'bg-white/20 hover:bg-white/30 text-white'}`}>
+                    {isVideoOff ? <VideoOff className="w-4 h-4" /> : <Video className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Chat Messages */}
+            <div className="flex-1 flex flex-col space-y-3 pb-4">
+              {chatMessages.map(msg => (
+                <div key={msg.id} className={`flex flex-col ${msg.sender === 'patient' ? 'items-end' : msg.sender === 'system' ? 'items-center' : 'items-start'}`}>
+                  {msg.sender === 'system' ? (
+                    <div className="px-3 py-1 rounded-full bg-slate-200/60 text-slate-500 text-[10px] font-medium my-1">
+                      {msg.text}
+                    </div>
+                  ) : msg.prescriptionData ? (
+                    <div className="max-w-[90%] sm:max-w-md w-full rounded-[20px] bg-gradient-to-br from-emerald-50 via-white to-teal-50 border-2 border-emerald-300 p-4 shadow-sm space-y-3">
+                      <div className="flex items-center justify-between border-b border-emerald-100 pb-2">
+                        <div className="flex items-center gap-2">
+                          <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                          <strong className="text-[11px] sm:text-xs text-emerald-900 uppercase">Ordonnance Scellée</strong>
+                        </div>
+                      </div>
+                      <div className="bg-white/90 p-3 rounded-[12px] border border-emerald-100 space-y-1 text-xs">
+                        {msg.prescriptionData.items.map((it, idx) => (
+                          <div key={idx} className="text-slate-800">
+                            <strong>• {it.medication}</strong> : {it.dosage} ({it.duration})
+                          </div>
+                        ))}
+                      </div>
+                      {msg.prescriptionData.dietaryAdvice && (
+                        <p className="text-[10px] text-slate-600 italic">Conseils : {msg.prescriptionData.dietaryAdvice}</p>
+                      )}
+                      <div className="pt-2">
+                        <a href={msg.prescriptionData.verificationUrl} target="_blank" rel="noopener noreferrer" className="text-[11px] font-bold text-emerald-700 hover:underline flex items-center gap-1 bg-emerald-100/50 p-2 rounded-[10px] justify-center">
+                          <Printer className="w-3.5 h-3.5" /> Voir l'Ordonnance Officielle
+                        </a>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className={`max-w-[85%] rounded-[18px] p-3 shadow-sm space-y-2 ${msg.sender === 'patient' ? 'bg-[#3B82F6] text-white rounded-br-none' : 'bg-white border border-slate-100 text-[#1E293B] rounded-bl-none'}`}>
+                      {msg.imageUrl && (
+                        <div className="rounded-[12px] overflow-hidden cursor-pointer bg-slate-900/5" onClick={() => setPatientImagePreview(msg.imageUrl || null)}>
+                          <img src={msg.imageUrl} alt="Document" className="max-h-40 w-auto rounded-[12px] object-contain" />
+                        </div>
+                      )}
+                      {msg.type === 'voice' && (
+                        <div className="flex items-center gap-2 p-1">
+                          <button type="button" onClick={() => handlePlayVoice(msg.id, msg.audioUrl)} className={`p-2 rounded-full transition-transform active:scale-95 flex-shrink-0 ${msg.sender === 'patient' ? 'bg-white/20 text-white' : 'bg-[#3B82F6] text-white'}`}>
+                            {playingVoiceId === msg.id ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 translate-x-0.5" />}
+                          </button>
+                          <div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-bold text-[11px]">Note Vocale ({msg.audioDuration || 5}s)</span>
+                              {playingVoiceId === msg.id && (
+                                <span className="flex items-center gap-0.5">
+                                  <span className="w-1 h-2 bg-current animate-pulse rounded-full" />
+                                  <span className="w-1 h-3 bg-current animate-pulse delay-75 rounded-full" />
+                                  <span className="w-1 h-1.5 bg-current animate-pulse delay-150 rounded-full" />
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      {msg.text && msg.type !== 'voice' && <p className="text-xs sm:text-sm leading-relaxed">{msg.text}</p>}
+                      <span className={`text-[9px] block text-right mt-1 ${msg.sender === 'patient' ? 'text-blue-100' : 'text-slate-400'}`}>
+                        {new Date(msg.timestamp).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              ))}
+              <div ref={chatEndRef} className="h-2" />
+            </div>
+          </div>
+        </div>
+
+        {/* Input Area */}
+        <div className="flex-none bg-white border-t border-slate-200 safe-bottom-padding z-20">
+          <div className="max-w-3xl mx-auto p-2 sm:p-3">
+            {followUp.isExpired ? (
+              <div className="text-center p-2">
+                <GlassButton variant="primary" size="sm" onClick={handleResetSession} className="w-full text-xs">
+                  Demander une nouvelle consultation
+                </GlassButton>
+              </div>
+            ) : (
+              <div className="flex items-end gap-2">
+                <input type="file" ref={fileInputRef} accept="image/*" onChange={handlePatientImageUpload} className="hidden" />
+                <button type="button" onClick={() => fileInputRef.current?.click()} className="p-2.5 rounded-full text-slate-400 hover:text-[#3B82F6] hover:bg-blue-50 flex-shrink-0 mb-0.5" title="Joindre une photo">
+                  <ImageIcon className="w-5 h-5" />
+                </button>
+                <button type="button" onClick={handleToggleVoiceRecording} className={`p-2.5 rounded-full transition-all flex-shrink-0 mb-0.5 ${isRecordingVoice ? 'bg-rose-500 text-white animate-pulse' : 'text-slate-400 hover:text-[#3B82F6] hover:bg-blue-50'}`} title="Note vocale">
+                  <Mic className="w-5 h-5" />
+                </button>
+                {isRecordingVoice ? (
+                  <div className="flex-1 min-h-[44px] px-4 rounded-[22px] bg-rose-50 border border-rose-200 flex items-center justify-between">
+                    <span className="flex items-center gap-2 text-rose-700 text-xs font-bold">
+                      <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping" />
+                      {voiceSeconds}s
+                    </span>
+                    <button type="button" onClick={handleToggleVoiceRecording} className="text-[11px] font-extrabold text-white bg-rose-600 px-3 py-1 rounded-full">
+                      Envoyer
+                    </button>
+                  </div>
+                ) : (
+                  <form onSubmit={handleSendPatientMessage} className="flex-1 flex items-end gap-2 bg-slate-50 border border-slate-200 rounded-[22px] focus-within:border-[#3B82F6] focus-within:bg-white transition-colors overflow-hidden p-1 pr-1.5">
+                    <textarea
+                      rows={1}
+                      placeholder="Message..."
+                      value={chatInput}
+                      onFocus={e => setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 300)}
+                      onChange={e => setChatInput(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          if (!isSendingText) handleSendPatientMessage(e as any);
+                        }
+                      }}
+                      style={{ minHeight: '36px', maxHeight: '120px' }}
+                      className="flex-1 px-3 py-2 text-xs sm:text-sm text-[#0F172A] bg-transparent focus:outline-none resize-none self-center disabled:opacity-60"
+                      disabled={isSendingText}
+                    />
+                    <button type="submit" disabled={!chatInput.trim() || isSendingText} className="w-8 h-8 rounded-full bg-[#3B82F6] text-white disabled:opacity-50 flex items-center justify-center flex-shrink-0 self-end mb-0.5 shadow-md">
+                      {isSendingText ? <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Send className="w-3.5 h-3.5 translate-x-px" />}
+                    </button>
+                  </form>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Modals attachés au layout fixe */}
+        {patientImagePreview && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md" onClick={() => setPatientImagePreview(null)}>
+            <img src={patientImagePreview} alt="Aperçu" className="max-h-[80vh] max-w-full rounded-[20px]" />
+          </div>
+        )}
+        {isIncomingCall && doctor && (
+          <IncomingCallModal doctorName={doctor.fullName} doctorSpecialty={doctor.speciality} doctorAvatarUrl={doctor.avatarUrl} doctorOnms={doctor.onmsNumber} onAccept={() => setIsIncomingCall(false)} onDecline={() => setIsIncomingCall(false)} />
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen py-8 px-4 sm:px-6 lg:px-8 font-sans">
@@ -1098,387 +1416,7 @@ export default function PatientRoomPage() {
           </GlassCard>
         )}
 
-        {/* STEP 4: Live Consultation (Patient Room with Chat, Audio Notes, Video, and Sealed Prescriptions) */}
-        {step === 'consultation' && createdPatient && (() => {
-          const followUp = getFollowUpStatus(createdPatient);
-          const consultationUrl = typeof window !== 'undefined' ? `${window.location.origin}/consultation/${createdPatient.id}` : '';
 
-          return (
-            <GlassCard className="p-6 sm:p-8 space-y-5">
-              {/* Header Consultation & Praticien */}
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-emerald-500 text-white flex items-center justify-center shadow-md">
-                    {serviceType === 'visio_consultation' ? <Video className="w-5 h-5" /> : <MessageSquare className="w-5 h-5" />}
-                  </div>
-                  <div>
-                    <h3 className="font-extrabold text-[#0F172A] text-base">
-                      Consultation avec {doctor.fullName}
-                    </h3>
-                    <Badge variant={followUp.inFollowUp ? 'amber' : 'emerald'} size="sm">
-                      {followUp.inFollowUp ? followUp.label : (serviceType === 'visio_consultation' ? 'Vidéoconsultation HD' : 'Avis Médical Direct')}
-                    </Badge>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  {/* Bouton Muet / Sonnerie Active */}
-                  <button
-                    type="button"
-                    onClick={handleToggleAudioMute}
-                    className={`p-2 rounded-full border transition-all text-xs flex items-center gap-1.5 shadow-sm ${
-                      isAudioMuted
-                        ? 'bg-rose-50 border-rose-200 text-rose-600 hover:bg-rose-100'
-                        : 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200'
-                    }`}
-                    title={isAudioMuted ? 'Activer les alertes sonores' : 'Couper le son (Mode silencieux)'}
-                  >
-                    {isAudioMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-                    <span className="hidden sm:inline font-bold">{isAudioMuted ? 'Muet' : 'Son actif'}</span>
-                  </button>
-
-                  {followUp.isExpired && (
-                    <GlassButton size="sm" variant="secondary" onClick={handleResetSession} className="text-xs">
-                      Nouvelle Consultation
-                    </GlassButton>
-                  )}
-                </div>
-              </div>
-
-              {/* Bandeau Lien Permanent & Dossier Médical */}
-              <div className="p-3 bg-blue-50/70 rounded-[18px] border border-blue-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
-                <div className="flex items-center gap-2 text-slate-700 min-w-0">
-                  <LinkIcon className="w-4 h-4 text-[#3B82F6] flex-shrink-0" />
-                  <span className="font-semibold text-slate-600 flex-shrink-0">Lien direct de votre dossier :</span>
-                  <span className="font-mono font-bold text-[#0F172A] truncate">{consultationUrl}</span>
-                </div>
-                <GlassButton
-                  size="sm"
-                  variant={copiedLink ? 'success' : 'secondary'}
-                  onClick={() => {
-                    if (consultationUrl) {
-                      navigator.clipboard.writeText(consultationUrl);
-                      setCopiedLink(true);
-                      setTimeout(() => setCopiedLink(false), 2000);
-                    }
-                  }}
-                  className="flex-shrink-0 text-xs py-1 px-3"
-                >
-                  {copiedLink ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copiedLink ? 'Lien copié' : 'Copier mon lien'}</span>
-                </GlassButton>
-              </div>
-
-              {/* Bannière de Suivi Post-Consultation (48h) */}
-              {followUp.inFollowUp && (
-                <div className="p-4 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200/80 rounded-[20px] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-sm">
-                  <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-full bg-amber-500 text-white flex items-center justify-center flex-shrink-0 shadow-sm">
-                      <Clock className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <h4 className="font-extrabold text-sm text-[#0F172A]">Suivi Médical Actif (Délai de grâce 48h)</h4>
-                      <p className="text-[11px] text-amber-800 leading-relaxed">
-                        La consultation est clôturée, mais vous pouvez continuer à échanger avec le Dr. {doctor.fullName} pour poser vos questions d'ajustement ou transmettre vos résultats d'analyses complémentaires.
-                      </p>
-                    </div>
-                  </div>
-                  <Badge variant="amber" size="md" className="flex-shrink-0 font-mono font-bold">
-                    Reste {followUp.remainingHours}h
-                  </Badge>
-                </div>
-              )}
-
-              {/* Bannière de Clôture Expirée (Après 48h) */}
-              {followUp.isExpired && (
-                <div className="p-3.5 bg-slate-100 border border-slate-200 rounded-[20px] flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-slate-700">
-                  <div className="flex items-center gap-2">
-                    <Lock className="w-4 h-4 text-slate-500 flex-shrink-0" />
-                    <span>Le délai de grâce de suivi (48h) est écoulé. Votre dossier médical et vos ordonnances restent accessibles en lecture seule.</span>
-                  </div>
-                  <GlassButton size="sm" variant="primary" onClick={handleResetSession} className="flex-shrink-0 text-xs">
-                    Demander une nouvelle consultation
-                  </GlassButton>
-                </div>
-              )}
-
-            {/* Video Window if Visio */}
-            {serviceType === 'visio_consultation' && (
-              <div className="h-64 sm:h-72 bg-slate-950 p-4 rounded-[28px] border border-slate-800 flex flex-col justify-between relative overflow-hidden flex-shrink-0">
-                <div className="flex-1 rounded-[20px] bg-slate-900 border border-slate-800 relative flex items-center justify-center overflow-hidden">
-                  {/* Doctor Remote Stream */}
-                  <video
-                    ref={remoteDoctorVideoRef}
-                    autoPlay
-                    playsInline
-                    className={`w-full h-full object-cover ${hasDoctorVideo ? 'block' : 'hidden'}`}
-                  />
-
-                  {!hasDoctorVideo && (
-                    <div className="text-center space-y-2 p-4">
-                      <div className="w-16 h-16 rounded-full bg-gradient-to-tr from-blue-600 to-sky-400 text-white flex items-center justify-center text-2xl font-extrabold mx-auto shadow-2xl ring-4 ring-sky-400/30 animate-pulse">
-                        Dr
-                      </div>
-                      <div>
-                        <h4 className="text-base font-bold text-white">{doctor.fullName}</h4>
-                        <p className="text-[11px] text-sky-400 font-mono">Médecin en direct • Négociation WebRTC HD...</p>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Patient Local Camera Pip */}
-                  <div className="absolute bottom-3 right-3 w-28 h-20 sm:w-32 sm:h-24 rounded-[16px] bg-slate-800 border-2 border-white/20 shadow-2xl flex flex-col items-center justify-center overflow-hidden">
-                    <video
-                      ref={localVideoRef}
-                      autoPlay
-                      playsInline
-                      muted
-                      className={`w-full h-full object-cover ${isVideoOff ? 'hidden' : 'block'}`}
-                    />
-                    {isVideoOff && (
-                      <div className="w-full h-full bg-slate-900 flex flex-col items-center justify-center text-white p-1 text-center">
-                        <span className="text-[9px] font-bold">Caméra Off</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Patient Video Controls Bar */}
-                <div className="pt-2 flex items-center justify-center gap-3">
-                  <button
-                    type="button"
-                    onClick={toggleAudioTrack}
-                    className={`p-2.5 rounded-full transition-all ${
-                      isVideoMuted ? 'bg-rose-500 text-white' : 'bg-white/20 hover:bg-white/30 text-white'
-                    }`}
-                    title={isVideoMuted ? 'Activer micro' : 'Couper micro'}
-                  >
-                    {isVideoMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={toggleVideoTrack}
-                    className={`p-2.5 rounded-full transition-all ${
-                      isVideoOff ? 'bg-rose-500 text-white' : 'bg-white/20 hover:bg-white/30 text-white'
-                    }`}
-                    title={isVideoOff ? 'Activer caméra' : 'Couper caméra'}
-                  >
-                    {isVideoOff ? <VideoOff className="w-4 h-4" /> : <Video className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Interactive Chat Messages */}
-            <div className="rounded-[24px] bg-white border border-slate-100 p-4 h-80 overflow-y-auto space-y-3 text-xs shadow-sm">
-              {chatMessages.map(msg => (
-                <div
-                  key={msg.id}
-                  className={`flex flex-col ${
-                    msg.sender === 'patient'
-                      ? 'items-end'
-                      : msg.sender === 'system'
-                      ? 'items-center'
-                      : 'items-start'
-                  }`}
-                >
-                  {msg.sender === 'system' ? (
-                    <div className="px-3 py-1 rounded-full bg-slate-100 text-slate-500 text-[10px] font-medium my-1">
-                      {msg.text}
-                    </div>
-                  ) : msg.prescriptionData ? (
-                    /* Official Sealed Prescription Card for Patient */
-                    <div className="max-w-md w-full rounded-[24px] bg-gradient-to-br from-emerald-50 via-white to-teal-50 border-2 border-emerald-300 p-4 shadow-lg space-y-3">
-                      <div className="flex items-center justify-between border-b border-emerald-100 pb-2">
-                        <div className="flex items-center gap-2">
-                          <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                          <strong className="text-xs text-emerald-900 uppercase">Ordonnance Médicale Scellée</strong>
-                        </div>
-                        <Badge variant="emerald" size="sm">
-                          ONMS {doctor.onmsNumber || 'Certifié'}
-                        </Badge>
-                      </div>
-
-                      <div className="bg-white/90 p-3 rounded-[16px] border border-emerald-100 space-y-1 text-xs">
-                        {msg.prescriptionData.items.map((it, idx) => (
-                          <div key={idx} className="text-slate-800">
-                            <strong>• {it.medication}</strong> : {it.dosage} ({it.duration})
-                          </div>
-                        ))}
-                      </div>
-
-                      {msg.prescriptionData.dietaryAdvice && (
-                        <p className="text-[11px] text-slate-600 italic">
-                          Conseils : {msg.prescriptionData.dietaryAdvice}
-                        </p>
-                      )}
-
-                      <div className="pt-2 flex items-center justify-between">
-                        <a
-                          href={msg.prescriptionData.verificationUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-xs font-bold text-emerald-700 hover:underline flex items-center gap-1"
-                        >
-                          <Printer className="w-3.5 h-3.5" />
-                          <span>Voir & Imprimer l'Ordonnance Officielle</span>
-                        </a>
-                      </div>
-                    </div>
-                  ) : (
-                    <div
-                      className={`max-w-[85%] rounded-[20px] p-3.5 shadow-sm space-y-2 ${
-                        msg.sender === 'patient'
-                          ? 'bg-[#3B82F6] text-white rounded-br-none'
-                          : 'bg-slate-100 text-[#1E293B] rounded-bl-none'
-                      }`}
-                    >
-                      {msg.imageUrl && (
-                        <div
-                          className="rounded-[16px] overflow-hidden cursor-pointer"
-                          onClick={() => setPatientImagePreview(msg.imageUrl || null)}
-                        >
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={msg.imageUrl}
-                            alt="Document transmis"
-                            className="max-h-40 w-auto rounded-[12px]"
-                          />
-                        </div>
-                      )}
-
-                      {/* Voice Note with Audio Playback */}
-                      {msg.type === 'voice' && (
-                        <div className="flex items-center gap-3 p-1">
-                          <button
-                            type="button"
-                            onClick={() => handlePlayVoice(msg.id, msg.audioUrl)}
-                            className={`p-2 rounded-full transition-transform active:scale-95 ${
-                              msg.sender === 'patient' ? 'bg-white/20 text-white' : 'bg-[#3B82F6] text-white'
-                            }`}
-                          >
-                            {playingVoiceId === msg.id ? (
-                              <Pause className="w-4 h-4" />
-                            ) : (
-                              <Play className="w-4 h-4 ml-0.5" />
-                            )}
-                          </button>
-                          <div>
-                            <div className="flex items-center gap-1.5">
-                              <span className="font-bold text-xs">Note Vocale ({msg.audioDuration || 5}s)</span>
-                              {playingVoiceId === msg.id && (
-                                <span className="flex items-center gap-0.5">
-                                  <span className="w-1 h-3 bg-current animate-pulse rounded-full" />
-                                  <span className="w-1 h-4 bg-current animate-pulse delay-75 rounded-full" />
-                                  <span className="w-1 h-2 bg-current animate-pulse delay-150 rounded-full" />
-                                </span>
-                              )}
-                            </div>
-                            <span className="text-[10px] opacity-80 block">Écouter le message</span>
-                          </div>
-                        </div>
-                      )}
-
-                      {msg.text && msg.type !== 'voice' && <p>{msg.text}</p>}
-
-                      <span
-                        className={`text-[10px] block text-right ${
-                          msg.sender === 'patient' ? 'text-blue-100' : 'text-slate-400'
-                        }`}
-                      >
-                        {new Date(msg.timestamp).toLocaleTimeString('fr-FR', {
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              ))}
-              <div ref={chatEndRef} />
-            </div>
-
-            {/* Patient Message Input ou Verrouillage si délai expiré */}
-            {followUp.isExpired ? (
-              <div className="p-4 bg-slate-50 border-t border-slate-200 text-center space-y-2.5 rounded-b-[24px]">
-                <p className="text-xs text-slate-500">
-                  Le délai de suivi post-consultation de 48h est achevé. Vos ordonnances scellées SHA-256 restent vérifiables et téléchargeables ci-dessus.
-                </p>
-                <GlassButton
-                  variant="primary"
-                  size="sm"
-                  onClick={handleResetSession}
-                >
-                  Demander une nouvelle consultation avec le {doctor.fullName}
-                </GlassButton>
-              </div>
-            ) : (
-              <div className="p-3 border-t border-slate-100 bg-white/95 backdrop-blur-md flex items-center gap-2">
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  accept="image/*"
-                  onChange={handlePatientImageUpload}
-                  className="hidden"
-                />
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="p-2.5 rounded-full text-slate-400 hover:text-[#3B82F6] hover:bg-blue-50"
-                  title="Joindre une ordonnance ou une photo"
-                >
-                  <ImageIcon className="w-5 h-5" />
-                </button>
-
-                {/* Voice Record Button for Patient */}
-                <button
-                  type="button"
-                  onClick={handleToggleVoiceRecording}
-                  className={`p-2.5 rounded-full transition-all ${
-                    isRecordingVoice
-                      ? 'bg-rose-500 text-white animate-pulse shadow-lg ring-4 ring-rose-500/20'
-                      : 'text-slate-400 hover:text-[#3B82F6] hover:bg-blue-50'
-                  }`}
-                  title={isRecordingVoice ? 'Arrêter et envoyer' : 'Enregistrer une note vocale'}
-                >
-                  <Mic className="w-5 h-5" />
-                </button>
-
-                {isRecordingVoice ? (
-                  <div className="flex-1 px-4 py-2.5 rounded-full bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold flex items-center justify-between">
-                    <span className="flex items-center gap-2">
-                      <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping" />
-                      Enregistrement ({voiceSeconds}s)...
-                    </span>
-                    <button
-                      type="button"
-                      className="text-[11px] font-extrabold underline cursor-pointer bg-rose-600 text-white px-3 py-1 rounded-full hover:bg-rose-700 transition-colors"
-                      onClick={handleToggleVoiceRecording}
-                    >
-                      Envoyer
-                    </button>
-                  </div>
-                ) : (
-                  <form onSubmit={handleSendPatientMessage} className="flex-1 flex items-center gap-2">
-                    <input
-                      type="text"
-                      placeholder={followUp.inFollowUp ? "Posez votre question de suivi au médecin..." : "Écrivez votre message au médecin..."}
-                      value={chatInput}
-                      onFocus={e => setTimeout(() => e.target.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 300)}
-                      onChange={e => setChatInput(e.target.value)}
-                      className="flex-1 px-4 py-2.5 rounded-full bg-slate-50 border border-slate-200/80 text-xs focus:outline-none focus:bg-white text-[#0F172A]"
-                    />
-                    <GlassButton type="submit" variant="primary" size="sm">
-                      <Send className="w-4 h-4" />
-                    </GlassButton>
-                  </form>
-                )}
-              </div>
-            )}
-          </GlassCard>
-        );
-      })()}
       </div>
 
       {/* Fullscreen Image Preview */}
