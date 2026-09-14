@@ -28,6 +28,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { uploadMedia } from '@/lib/services/storageService';
+import { DoctorProfile } from '@/lib/types/doctor';
 import confetti from 'canvas-confetti';
 
 const MEDICAL_SPECIALITIES = [
@@ -60,15 +61,20 @@ const SENEGAL_CITIES = [
 interface DoctorOnboardingFormProps {
   onClose?: () => void;
   onSuccess?: () => void;
+  initialData?: Partial<DoctorProfile>;
 }
 
-export function DoctorOnboardingForm({ onClose, onSuccess }: DoctorOnboardingFormProps) {
-  const { signup } = useAuth();
+export function DoctorOnboardingForm({ onClose, onSuccess, initialData }: DoctorOnboardingFormProps) {
+  const { signup, doctorProfile, user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Situation ordinale (Inscrit ONMS vs Non encore inscrit)
   const [isRegisteredOnms, setIsRegisteredOnms] = useState(true);
+
+  // Champs découpés Prénom & Nom pour une expérience mobile et desktop optimale
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
 
   // Pièce justificative obligatoire
   const [verificationDocUrl, setVerificationDocUrl] = useState<string | null>(null);
@@ -114,10 +120,96 @@ export function DoctorOnboardingForm({ onClose, onSuccess }: DoctorOnboardingFor
       .replace(/^-+|-+$/g, '');
   };
 
-  // Réinitialiser systématiquement email et mot de passe au montage pour empêcher l'autofill du navigateur
+  // Pré-remplissage automatique des données praticien (Nom, Prénom, Spécialité, Contact) au montage
   useEffect(() => {
-    setFormData(prev => ({ ...prev, email: '', password: '' }));
-  }, []);
+    let sourceData: Partial<DoctorProfile> | null = initialData || doctorProfile || null;
+
+    if (!sourceData && typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('telemed_session_v2');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed?.profile) sourceData = parsed.profile;
+        }
+      } catch (e) {
+        console.warn('Erreur lecture session locale:', e);
+      }
+    }
+
+    if (sourceData) {
+      if (sourceData.fullName) {
+        const nameWithoutDr = sourceData.fullName.replace(/^(dr|dr\.)\s+/i, '').trim();
+        const parts = nameWithoutDr.split(' ');
+        if (parts.length > 1) {
+          setFirstName(parts[0]);
+          setLastName(parts.slice(1).join(' '));
+        } else {
+          setLastName(nameWithoutDr);
+        }
+        setFormData(prev => ({ ...prev, fullName: sourceData?.fullName || '' }));
+      }
+      if (sourceData.speciality) {
+        setFormData(prev => ({ ...prev, speciality: sourceData?.speciality || prev.speciality }));
+      }
+      if (sourceData.phone || sourceData.waveNumber) {
+        setFormData(prev => ({ ...prev, phone: sourceData?.phone || sourceData?.waveNumber || prev.phone }));
+      }
+      if (sourceData.clinicName) {
+        setFormData(prev => ({ ...prev, clinicName: sourceData?.clinicName || prev.clinicName }));
+      }
+      if (sourceData.city) {
+        setFormData(prev => ({ ...prev, city: sourceData?.city || prev.city }));
+      }
+      if (sourceData.onmsNumber) {
+        setFormData(prev => ({ ...prev, onmsNumber: sourceData?.onmsNumber || '' }));
+        setIsRegisteredOnms(true);
+      }
+      if (sourceData.nin) {
+        setFormData(prev => ({ ...prev, nin: sourceData?.nin || '' }));
+      }
+      if (sourceData.bio) {
+        setFormData(prev => ({ ...prev, bio: sourceData?.bio || prev.bio }));
+      }
+      if (sourceData.email) {
+        setFormData(prev => ({ ...prev, email: sourceData?.email || prev.email }));
+      }
+      if (sourceData.avatarUrl) {
+        setAvatarUrl(sourceData.avatarUrl);
+      }
+      if (sourceData.signatureStampUrl) {
+        setStampUrl(sourceData.signatureStampUrl);
+      }
+      if (sourceData.verificationDocumentUrl) {
+        setVerificationDocUrl(sourceData.verificationDocumentUrl);
+      }
+    } else if (user) {
+      if (user.displayName) {
+        const nameWithoutDr = user.displayName.replace(/^(dr|dr\.)\s+/i, '').trim();
+        const parts = nameWithoutDr.split(' ');
+        if (parts.length > 1) {
+          setFirstName(parts[0]);
+          setLastName(parts.slice(1).join(' '));
+        } else {
+          setLastName(nameWithoutDr);
+        }
+      }
+      if (user.email) {
+        setFormData(prev => ({ ...prev, email: user.email || '' }));
+      }
+    }
+  }, [initialData, doctorProfile, user]);
+
+  // Synchronisation continue des champs Prénom et Nom dans fullName
+  useEffect(() => {
+    if (firstName.trim() || lastName.trim()) {
+      const cleanFirst = firstName.trim();
+      const cleanLast = lastName.trim();
+      setFormData(prev => ({
+        ...prev,
+        fullName: `Dr. ${cleanFirst} ${cleanLast}`.replace(/\s+/g, ' ').trim(),
+      }));
+    }
+  }, [firstName, lastName]);
 
   // Upload Photo de Profil (compression locale immédiate)
   const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -196,8 +288,12 @@ export function DoctorOnboardingForm({ onClose, onSuccess }: DoctorOnboardingFor
     e.preventDefault();
     setError(null);
 
-    if (!formData.fullName.trim()) {
-      setError('Veuillez renseigner votre Nom et Prénom.');
+    const cleanFirst = firstName.trim();
+    const cleanLast = lastName.trim();
+    const finalFullName = (cleanFirst && cleanLast ? `Dr. ${cleanFirst} ${cleanLast}` : formData.fullName).trim();
+
+    if (!cleanFirst || !cleanLast) {
+      setError('Veuillez renseigner votre Prénom et votre Nom de famille.');
       return;
     }
 
@@ -268,9 +364,9 @@ export function DoctorOnboardingForm({ onClose, onSuccess }: DoctorOnboardingFor
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/50 backdrop-blur-md p-3 sm:p-4 font-sans">
-      <div className="min-h-full flex items-start sm:items-center justify-center py-4 sm:py-8">
-        <GlassCard className="relative w-full max-w-2xl bg-white/95 backdrop-blur-2xl border border-white/80 p-5 sm:p-8 shadow-2xl">
+    <div className="fixed inset-0 z-[100] overflow-y-auto bg-slate-900/60 backdrop-blur-sm font-sans">
+      <div className="min-h-full sm:flex sm:items-center sm:justify-center sm:p-4">
+        <GlassCard className="relative w-full max-w-2xl bg-white/95 backdrop-blur-2xl border-x-0 sm:border border-white/80 p-5 sm:p-8 shadow-2xl min-h-screen sm:min-h-0 rounded-none sm:rounded-[28px] sm:my-8 mx-auto">
         {onClose && (
           <button
             onClick={onClose}
@@ -351,18 +447,34 @@ export function DoctorOnboardingForm({ onClose, onSuccess }: DoctorOnboardingFor
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-bold text-[#0F172A] mb-1.5 flex items-center gap-1.5">
-                <User className="w-3.5 h-3.5 text-[#3B82F6]" /> Nom & Prénom du Praticien *
+                <User className="w-3.5 h-3.5 text-[#3B82F6]" /> Prénom du Praticien *
               </label>
               <input
                 type="text"
                 required
-                placeholder="Ex: Dr. Aminata Fall"
-                value={formData.fullName}
-                onChange={e => setFormData({ ...formData, fullName: e.target.value })}
-                className="w-full px-4 py-2.5 rounded-[20px] bg-white border border-slate-200/80 focus:border-[#3B82F6] focus:outline-none focus:ring-4 focus:ring-blue-500/10 text-[#0F172A] shadow-sm"
+                placeholder="Ex: Aminata"
+                value={firstName}
+                onChange={e => setFirstName(e.target.value)}
+                className="w-full px-4 py-2.5 rounded-[20px] bg-white border border-slate-200/80 focus:border-[#3B82F6] focus:outline-none focus:ring-4 focus:ring-blue-500/10 text-[#0F172A] shadow-sm font-medium"
               />
             </div>
 
+            <div>
+              <label className="block text-xs font-bold text-[#0F172A] mb-1.5 flex items-center gap-1.5">
+                <User className="w-3.5 h-3.5 text-[#3B82F6]" /> Nom de Famille *
+              </label>
+              <input
+                type="text"
+                required
+                placeholder="Ex: Fall"
+                value={lastName}
+                onChange={e => setLastName(e.target.value)}
+                className="w-full px-4 py-2.5 rounded-[20px] bg-white border border-slate-200/80 focus:border-[#3B82F6] focus:outline-none focus:ring-4 focus:ring-blue-500/10 text-[#0F172A] shadow-sm font-medium"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-bold text-[#0F172A] mb-1.5 flex items-center gap-1.5">
                 <Stethoscope className="w-3.5 h-3.5 text-[#3B82F6]" /> Spécialité Médicale *
@@ -370,7 +482,7 @@ export function DoctorOnboardingForm({ onClose, onSuccess }: DoctorOnboardingFor
               <select
                 value={formData.speciality}
                 onChange={e => setFormData({ ...formData, speciality: e.target.value })}
-                className="w-full px-4 py-2.5 rounded-[20px] bg-white border border-slate-200/80 focus:border-[#3B82F6] focus:outline-none focus:ring-4 focus:ring-blue-500/10 text-[#0F172A] shadow-sm"
+                className="w-full px-4 py-2.5 rounded-[20px] bg-white border border-slate-200/80 focus:border-[#3B82F6] focus:outline-none focus:ring-4 focus:ring-blue-500/10 text-[#0F172A] shadow-sm font-medium"
               >
                 {MEDICAL_SPECIALITIES.map(spec => (
                   <option key={spec} value={spec}>
@@ -379,9 +491,7 @@ export function DoctorOnboardingForm({ onClose, onSuccess }: DoctorOnboardingFor
                 ))}
               </select>
             </div>
-          </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {isRegisteredOnms ? (
               <div>
                 <label className="block text-xs font-bold text-[#0F172A] mb-1.5 flex items-center gap-1.5">
@@ -406,7 +516,9 @@ export function DoctorOnboardingForm({ onClose, onSuccess }: DoctorOnboardingFor
                 </div>
               </div>
             )}
+          </div>
 
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-bold text-[#0F172A] mb-1.5 flex items-center gap-1.5">
                 <CreditCard className="w-3.5 h-3.5 text-[#3B82F6]" /> N° Identification Nationale (NIN) *
@@ -420,9 +532,7 @@ export function DoctorOnboardingForm({ onClose, onSuccess }: DoctorOnboardingFor
                 className="w-full px-4 py-2.5 rounded-[20px] bg-white border border-slate-200/80 focus:border-[#3B82F6] focus:outline-none focus:ring-4 focus:ring-blue-500/10 text-[#0F172A] font-mono shadow-sm"
               />
             </div>
-          </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-bold text-[#0F172A] mb-1.5 flex items-center gap-1.5">
                 <Phone className="w-3.5 h-3.5 text-[#3B82F6]" /> Téléphone Pro (Wave / OM) *
@@ -436,7 +546,9 @@ export function DoctorOnboardingForm({ onClose, onSuccess }: DoctorOnboardingFor
                 className="w-full px-4 py-2.5 rounded-[20px] bg-white border border-slate-200/80 focus:border-[#3B82F6] focus:outline-none focus:ring-4 focus:ring-blue-500/10 text-[#0F172A] shadow-sm"
               />
             </div>
+          </div>
 
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-bold text-[#0F172A] mb-1.5 flex items-center gap-1.5">
                 <MapPin className="w-3.5 h-3.5 text-[#3B82F6]" /> Ville d'exercice
@@ -452,6 +564,19 @@ export function DoctorOnboardingForm({ onClose, onSuccess }: DoctorOnboardingFor
                   </option>
                 ))}
               </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-[#0F172A] mb-1.5 flex items-center gap-1.5">
+                <Stethoscope className="w-3.5 h-3.5 text-[#3B82F6]" /> Cabinet / Structure d'exercice
+              </label>
+              <input
+                type="text"
+                placeholder="Ex: Cabinet Médical Privé ou Clinique"
+                value={formData.clinicName}
+                onChange={e => setFormData({ ...formData, clinicName: e.target.value })}
+                className="w-full px-4 py-2.5 rounded-[20px] bg-white border border-slate-200/80 focus:border-[#3B82F6] focus:outline-none focus:ring-4 focus:ring-blue-500/10 text-[#0F172A] shadow-sm"
+              />
             </div>
           </div>
 
@@ -521,6 +646,7 @@ export function DoctorOnboardingForm({ onClose, onSuccess }: DoctorOnboardingFor
 
             <input
               type="file"
+              id="verification-upload"
               accept="image/*,application/pdf,.pdf"
               ref={fileInputRef}
               onChange={handleFileChange}
@@ -562,13 +688,12 @@ export function DoctorOnboardingForm({ onClose, onSuccess }: DoctorOnboardingFor
                   </p>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    className="px-3 py-1.5 text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-full transition-colors"
+                  <label
+                    htmlFor="verification-upload"
+                    className="cursor-pointer px-3 py-1.5 text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-full transition-colors"
                   >
                     Changer
-                  </button>
+                  </label>
                   <button
                     type="button"
                     onClick={() => {
@@ -583,10 +708,9 @@ export function DoctorOnboardingForm({ onClose, onSuccess }: DoctorOnboardingFor
                 </div>
               </div>
             ) : (
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className={`w-full py-5 px-4 rounded-[20px] border-2 border-dashed bg-white/80 hover:bg-white font-semibold flex flex-col items-center justify-center gap-1.5 transition-all shadow-sm group ${
+              <label
+                htmlFor="verification-upload"
+                className={`cursor-pointer w-full py-5 px-4 rounded-[20px] border-2 border-dashed bg-white/80 hover:bg-white font-semibold flex flex-col items-center justify-center gap-1.5 transition-all shadow-sm group ${
                   !isRegisteredOnms
                     ? 'border-emerald-300 hover:border-emerald-500 text-emerald-700'
                     : 'border-blue-300 hover:border-blue-500 text-blue-600'
@@ -603,7 +727,7 @@ export function DoctorOnboardingForm({ onClose, onSuccess }: DoctorOnboardingFor
                 <span className="text-[10px] text-slate-400 text-center">
                   Appareil photo, galerie photo ou document PDF acceptés (JPG, PNG, WEBP, PDF)
                 </span>
-              </button>
+              </label>
             )}
           </div>
 
@@ -625,6 +749,7 @@ export function DoctorOnboardingForm({ onClose, onSuccess }: DoctorOnboardingFor
               </p>
               <input
                 type="file"
+                id="avatar-upload"
                 accept="image/*"
                 ref={avatarInputRef}
                 onChange={handleAvatarChange}
@@ -653,13 +778,12 @@ export function DoctorOnboardingForm({ onClose, onSuccess }: DoctorOnboardingFor
                       <Check className="w-3 h-3" /> Intégrée au profil
                     </span>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => avatarInputRef.current?.click()}
-                    className="text-[10px] font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-full transition-colors"
+                  <label
+                    htmlFor="avatar-upload"
+                    className="cursor-pointer text-[10px] font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-full transition-colors"
                   >
                     Changer
-                  </button>
+                  </label>
                   <button
                     type="button"
                     onClick={() => {
@@ -673,14 +797,13 @@ export function DoctorOnboardingForm({ onClose, onSuccess }: DoctorOnboardingFor
                   </button>
                 </div>
               ) : (
-                <button
-                  type="button"
-                  onClick={() => avatarInputRef.current?.click()}
-                  className="w-full py-2.5 px-3 rounded-[16px] border border-dashed border-slate-300 hover:border-blue-400 bg-white text-xs font-bold text-slate-700 flex items-center justify-center gap-2 transition-all shadow-sm"
+                <label
+                  htmlFor="avatar-upload"
+                  className="cursor-pointer w-full py-2.5 px-3 rounded-[16px] border border-dashed border-slate-300 hover:border-blue-400 bg-white text-xs font-bold text-slate-700 flex items-center justify-center gap-2 transition-all shadow-sm"
                 >
                   <Camera className="w-4 h-4 text-[#3B82F6]" />
                   <span>Prendre ou importer une photo</span>
-                </button>
+                </label>
               )}
             </div>
 
@@ -700,6 +823,7 @@ export function DoctorOnboardingForm({ onClose, onSuccess }: DoctorOnboardingFor
               </p>
               <input
                 type="file"
+                id="stamp-upload"
                 accept="image/*"
                 ref={stampInputRef}
                 onChange={handleStampChange}
@@ -728,13 +852,12 @@ export function DoctorOnboardingForm({ onClose, onSuccess }: DoctorOnboardingFor
                       <Check className="w-3 h-3" /> Ordonnances officielles
                     </span>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => stampInputRef.current?.click()}
-                    className="text-[10px] font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-full transition-colors"
+                  <label
+                    htmlFor="stamp-upload"
+                    className="cursor-pointer text-[10px] font-bold text-emerald-600 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-full transition-colors"
                   >
                     Changer
-                  </button>
+                  </label>
                   <button
                     type="button"
                     onClick={() => {
@@ -748,14 +871,13 @@ export function DoctorOnboardingForm({ onClose, onSuccess }: DoctorOnboardingFor
                   </button>
                 </div>
               ) : (
-                <button
-                  type="button"
-                  onClick={() => stampInputRef.current?.click()}
-                  className="w-full py-2.5 px-3 rounded-[16px] border border-dashed border-slate-300 hover:border-emerald-400 bg-white text-xs font-bold text-slate-700 flex items-center justify-center gap-2 transition-all shadow-sm"
+                <label
+                  htmlFor="stamp-upload"
+                  className="cursor-pointer w-full py-2.5 px-3 rounded-[16px] border border-dashed border-slate-300 hover:border-emerald-400 bg-white text-xs font-bold text-slate-700 flex items-center justify-center gap-2 transition-all shadow-sm"
                 >
-                  <UploadCloud className="w-4 h-4 text-emerald-600" />
-                  <span>Importer mon cachet</span>
-                </button>
+                  <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                  <span>Importer cachet ou signature</span>
+                </label>
               )}
             </div>
           </div>
