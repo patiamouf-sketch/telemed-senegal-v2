@@ -67,32 +67,67 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
   const [callSeconds, setCallSeconds] = useState(0);
   const [hasRemoteVideo, setHasRemoteVideo] = useState(false);
 
-  // Synchronisation temps réel des messages (sous-collection Firestore) & ordonnance
+  // Synchronisation temps réel double canal (sous-collection Firestore & document parent)
   useEffect(() => {
-    const unsubPatient = listenToPatient(patient.id, updated => {
-      if (updated && updated.prescription) {
-        setLatestPrescription(updated.prescription);
-      }
-    });
+    // Fonction unifiée de synchronisation et déduplication des messages
+    const syncIncomingMessages = (incoming: ChatMessage[]) => {
+      if (!incoming || incoming.length === 0) return;
 
-    const unsubMessages = listenToConsultationMessages(patient.id, msgs => {
-      if (msgs && msgs.length > 0) {
-        setMessages(prev => {
-          const map = new Map<string, ChatMessage>();
-          prev.forEach(m => map.set(m.id, m));
-          msgs.forEach(m => map.set(m.id, m));
-          return Array.from(map.values()).sort(
-            (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-          );
+      setMessages(prev => {
+        const map = new Map<string, ChatMessage>();
+        prev.forEach(m => map.set(m.id, m));
+        incoming.forEach(m => {
+          const existing = map.get(m.id);
+          map.set(m.id, { ...existing, ...m });
         });
-        // Bip discret lors d'un nouveau message reçu du patient
-        if (prevMessagesCountRef.current > 0 && msgs.length > prevMessagesCountRef.current) {
-          const newMessages = msgs.slice(prevMessagesCountRef.current);
-          if (newMessages.some(m => m.sender === 'patient')) {
+
+        const nextArray = Array.from(map.values()).sort((a, b) => {
+          const timeA = new Date(a.timestamp).getTime() || (a as any).createdAt || 0;
+          const timeB = new Date(b.timestamp).getTime() || (b as any).createdAt || 0;
+          return timeA - timeB;
+        });
+
+        const isIdentical =
+          prev.length === nextArray.length &&
+          prev.every(
+            (m, i) =>
+              m.id === nextArray[i].id &&
+              m.text === nextArray[i].text &&
+              m.type === nextArray[i].type &&
+              m.audioUrl === nextArray[i].audioUrl &&
+              m.imageUrl === nextArray[i].imageUrl
+          );
+        if (isIdentical) return prev;
+
+        // Détection de nouveau message émanant du patient pour émettre le bip sonore
+        if (prev.length > 0) {
+          const prevIds = new Set(prev.map(p => p.id));
+          const newFromPatient = nextArray.filter(m => !prevIds.has(m.id) && m.sender === 'patient');
+          if (newFromPatient.length > 0) {
             playMessagePopSound();
           }
         }
-        prevMessagesCountRef.current = msgs.length;
+
+        return nextArray;
+      });
+    };
+
+    // 1. Canal Document Parent (patient_queues/{patientId})
+    const unsubPatient = listenToPatient(patient.id, updated => {
+      if (updated) {
+        if (updated.prescription) {
+          setLatestPrescription(updated.prescription);
+        }
+        if (updated.messages && updated.messages.length > 0) {
+          syncIncomingMessages(updated.messages);
+        }
+      }
+    });
+
+    // 2. Canal Sous-Collection Messages (patient_queues/{patientId}/messages)
+    const unsubMessages = listenToConsultationMessages(patient.id, msgs => {
+      if (msgs && msgs.length > 0) {
+        syncIncomingMessages(msgs);
       }
     });
 
@@ -255,8 +290,13 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
 
   // Scroll to bottom on new message
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    if (messages.length > 0) {
+      const timer = setTimeout(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [messages.length]);
 
   // Toggle Video Track
   const toggleVideoTrack = () => {

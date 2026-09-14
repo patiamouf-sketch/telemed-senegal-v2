@@ -744,25 +744,42 @@ export function listenToConsultationMessages(
   if (isFirebaseConfigured && firestoreDb) {
     try {
       const messagesCol = collection(firestoreDb, 'patient_queues', patientId, 'messages');
-      const q = query(messagesCol, orderBy('timestamp', 'asc'));
 
+      // Écoute directe de la collection sans index d'ordre rigide (tri déterministe en mémoire JS)
       firestoreUnsub = onSnapshot(
-        q,
+        messagesCol,
         snap => {
           if (isUnsubscribed) return;
           if (!snap.empty) {
-            const items = snap.docs.map(d => d.data() as ChatMessage);
+            const items = snap.docs.map(d => {
+              const data = d.data() as ChatMessage;
+              return {
+                ...data,
+                id: data.id || d.id,
+                timestamp: data.timestamp || (data as any).createdAt ? new Date((data as any).createdAt).toISOString() : new Date().toISOString(),
+              };
+            }).sort((a, b) => {
+              const timeA = new Date(a.timestamp).getTime() || (a as any).createdAt || 0;
+              const timeB = new Date(b.timestamp).getTime() || (b as any).createdAt || 0;
+              return timeA - timeB;
+            });
+
             syncMessagesToLocal(patientId, items);
             callback(items);
           } else {
-            // Rétrocompatibilité : si la sous-collection est vide, vérifier si le document parent a un historique
+            // Rétrocompatibilité immédiate : si la sous-collection est encore vide, lire le document parent
             getDoc(doc(firestoreDb, 'patient_queues', patientId)).then(parentSnap => {
               if (isUnsubscribed) return;
               if (parentSnap.exists()) {
                 const pData = parentSnap.data() as PatientQueueItem;
                 if (pData.messages && pData.messages.length > 0) {
-                  syncMessagesToLocal(patientId, pData.messages);
-                  callback(pData.messages);
+                  const sortedParentMsgs = [...pData.messages].sort((a, b) => {
+                    const timeA = new Date(a.timestamp).getTime() || (a as any).createdAt || 0;
+                    const timeB = new Date(b.timestamp).getTime() || (b as any).createdAt || 0;
+                    return timeA - timeB;
+                  });
+                  syncMessagesToLocal(patientId, sortedParentMsgs);
+                  callback(sortedParentMsgs);
                 }
               }
             }).catch(e => console.warn('Erreur fallback lecture parent messages:', e));
@@ -874,19 +891,13 @@ export async function sendConsultationMessage(
     isPrescription: message.isPrescription || Boolean(message.prescriptionData),
   };
 
-  // 1. Envoi temps réel Firestore dans la sous-collection dédiée messages
+  // 1. Envoi temps réel Firestore dans la sous-collection dédiée messages et le document parent en parallèle
   if (isFirebaseConfigured && db) {
     try {
-      // 1.1 Écriture du message dans la sous-collection
       const msgRef = doc(db, 'patient_queues', patientId, 'messages', newMsg.id);
-      await setDoc(msgRef, cleanFirestoreData({
-        ...newMsg,
-        createdAt: Date.now(),
-      }));
-
-      // 1.2 Mise à jour légère des métadonnées du document parent patient_queues
       const parentRef = doc(db, 'patient_queues', patientId);
       const summaryText = newMsg.text || (newMsg.type === 'voice' ? 'Note vocale' : newMsg.type === 'image' ? 'Image partagée' : newMsg.type === 'prescription' ? 'Ordonnance scellée' : 'Message');
+      
       const parentUpdates: any = {
         id: patientId,
         lastMessageAt: newMsg.timestamp,
@@ -899,7 +910,15 @@ export async function sendConsultationMessage(
       } else if (newMsg.sender === 'doctor') {
         parentUpdates.hasUnreadFollowUp = false;
       }
-      await setDoc(parentRef, parentUpdates, { merge: true });
+
+      // Écriture concurrente ultra-rapide
+      await Promise.all([
+        setDoc(msgRef, cleanFirestoreData({
+          ...newMsg,
+          createdAt: Date.now(),
+        })),
+        setDoc(parentRef, parentUpdates, { merge: true })
+      ]);
     } catch (e) {
       console.warn('Firebase sendConsultationMessage failed:', e);
     }

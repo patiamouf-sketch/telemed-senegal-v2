@@ -137,7 +137,19 @@ export default function PatientRoomPage() {
   const [patientImagePreview, setPatientImagePreview] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [showScrollBottom, setShowScrollBottom] = useState(false);
+
+  // Auto-scroll systématique lors de l'arrivée ou mise à jour de messages
+  useEffect(() => {
+    if (chatMessages.length > 0) {
+      const timer = setTimeout(() => {
+        chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }, 60);
+      return () => clearTimeout(timer);
+    }
+  }, [chatMessages.length]);
 
   // Gestion ultra-robuste du viewport mobile (clavier virtuel iOS/Android)
   useEffect(() => {
@@ -441,30 +453,68 @@ export default function PatientRoomPage() {
     return () => clearInterval(interval);
   }, [loadDoctorData]);
 
-  // Écouteur temps réel dès que la session patient est créée (statut de paiement + sous-collection messages)
+  // Écouteur temps réel dès que la session patient est créée (statut de paiement + double canal messages)
   useEffect(() => {
     if (!createdPatient?.id) return;
 
+    // Fonction unifiée de synchronisation et déduplication des messages
+    const syncIncomingMessages = (incoming: ChatMessage[]) => {
+      if (!incoming || incoming.length === 0) return;
+
+      setChatMessages(prev => {
+        const map = new Map<string, ChatMessage>();
+        prev.forEach(m => map.set(m.id, m));
+        incoming.forEach(m => {
+          const existing = map.get(m.id);
+          // Remplacer si nouveau ou données plus complètes
+          map.set(m.id, { ...existing, ...m });
+        });
+
+        const nextArray = Array.from(map.values()).sort((a, b) => {
+          const timeA = new Date(a.timestamp).getTime() || (a as any).createdAt || 0;
+          const timeB = new Date(b.timestamp).getTime() || (b as any).createdAt || 0;
+          return timeA - timeB;
+        });
+
+        // Vérification fine : éviter un re-render si strictement inchangé
+        const isIdentical =
+          prev.length === nextArray.length &&
+          prev.every(
+            (m, i) =>
+              m.id === nextArray[i].id &&
+              m.text === nextArray[i].text &&
+              m.type === nextArray[i].type &&
+              m.audioUrl === nextArray[i].audioUrl &&
+              m.imageUrl === nextArray[i].imageUrl
+          );
+        if (isIdentical) return prev;
+
+        // Notification sonore : détecter si de nouveaux messages émanent du médecin
+        if (prev.length > 0) {
+          const prevIds = new Set(prev.map(p => p.id));
+          const newFromDoctor = nextArray.filter(m => !prevIds.has(m.id) && m.sender === 'doctor');
+          if (newFromDoctor.length > 0) {
+            playMessagePopSound();
+          }
+        }
+
+        return nextArray;
+      });
+    };
+
+    // 1. Canal Document Parent (patient_queues/{patientId})
     const unsubPatient = listenToPatient(createdPatient.id, updated => {
       if (updated) {
         setCreatedPatient(updated);
 
-        // Fallback robuste : si des messages sont stockés dans le parent, on les synchronise
+        // Synchronisation immédiate des messages présents sur le document parent
         if (updated.messages && updated.messages.length > 0) {
-          setChatMessages(prev => {
-            const map = new Map<string, ChatMessage>();
-            prev.forEach(m => map.set(m.id, m));
-            updated.messages!.forEach(m => map.set(m.id, m));
-            const newArray = Array.from(map.values()).sort(
-              (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-            );
-            // Éviter un state update inutile si la taille n'a pas changé
-            if (newArray.length === prev.length) return prev;
-            return newArray;
-          });
+          syncIncomingMessages(updated.messages);
         }
 
-        if ((updated.status === 'consultation' || updated.status === 'in_consultation') && step !== 'consultation') setStep('consultation');
+        if ((updated.status === 'consultation' || updated.status === 'in_consultation') && step !== 'consultation') {
+          setStep('consultation');
+        }
         if (updated.status === 'completed' && step === 'consultation') {
           setHasDoctorEnded(true);
         }
@@ -483,24 +533,10 @@ export default function PatientRoomPage() {
       }
     });
 
+    // 2. Canal Sous-Collection Messages (patient_queues/{patientId}/messages)
     const unsubMessages = listenToConsultationMessages(createdPatient.id, msgs => {
       if (msgs && msgs.length > 0) {
-        setChatMessages(prev => {
-          const map = new Map<string, ChatMessage>();
-          prev.forEach(m => map.set(m.id, m));
-          msgs.forEach(m => map.set(m.id, m));
-          return Array.from(map.values()).sort(
-            (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-          );
-        });
-        // Bip discret lors de la réception d'un nouveau message du médecin
-        if (prevMessagesCountRef.current > 0 && msgs.length > prevMessagesCountRef.current) {
-          const newMessages = msgs.slice(prevMessagesCountRef.current);
-          if (newMessages.some(m => m.sender === 'doctor')) {
-            playMessagePopSound();
-          }
-        }
-        prevMessagesCountRef.current = msgs.length;
+        syncIncomingMessages(msgs);
       }
     });
 
@@ -700,7 +736,14 @@ export default function PatientRoomPage() {
         </div>
 
         {/* Main Scrollable Content */}
-        <div className="flex-1 overflow-y-auto overscroll-contain bg-slate-50 relative flex flex-col">
+        <div
+          ref={chatContainerRef}
+          onScroll={e => {
+            const t = e.currentTarget;
+            setShowScrollBottom(t.scrollHeight - t.scrollTop - t.clientHeight > 140);
+          }}
+          className="flex-1 overflow-y-auto overscroll-contain bg-slate-50 relative flex flex-col"
+        >
           <div className="max-w-3xl mx-auto w-full flex-1 flex flex-col p-4 space-y-4">
             
             {/* Banner Link */}
@@ -859,6 +902,19 @@ export default function PatientRoomPage() {
             </div>
           </div>
         </div>
+
+        {/* Pastille flottante de défilement vers le bas */}
+        {showScrollBottom && (
+          <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-30">
+            <button
+              type="button"
+              onClick={() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })}
+              className="bg-[#3B82F6] hover:bg-blue-600 text-white font-bold text-xs px-4 py-2 rounded-full shadow-lg flex items-center gap-1.5 animate-bounce transition-transform active:scale-95"
+            >
+              <span>Nouveaux messages ↓</span>
+            </button>
+          </div>
+        )}
 
         {/* Input Area */}
         <div className="flex-none bg-white border-t border-slate-200 safe-bottom-padding z-20">
