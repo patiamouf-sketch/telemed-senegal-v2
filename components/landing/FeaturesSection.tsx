@@ -3,7 +3,7 @@
 import React from 'react';
 import { GlassCard } from '../ui/GlassCard';
 import { Badge } from '../ui/Badge';
-import { Video, ShieldCheck, CreditCard, Clock, CheckCircle2 } from 'lucide-react';
+import { MessageSquare, ShieldCheck, CreditCard, Clock, CheckCircle2 } from 'lucide-react';
 
 export function FeaturesSection() {
   const features = [
@@ -15,11 +15,11 @@ export function FeaturesSection() {
       badge: 'Conformité 100%',
     },
     {
-      icon: Video,
+      icon: MessageSquare,
       color: 'emerald',
-      title: 'Accès Patient Éphémère /dr/[slug]',
-      desc: 'Un lien web direct envoyé au patient via SMS/WhatsApp. Aucune création de compte requise pour le patient.',
-      badge: 'Zéro friction',
+      title: 'Téléconsultation Audio & Imagerie',
+      desc: 'Échanges fluides par notes vocales, photos médicales et messagerie sécurisée via un lien direct /dr/[slug]. Zéro friction réseau.',
+      badge: 'Faible bande passante',
     },
     {
       icon: CreditCard,
