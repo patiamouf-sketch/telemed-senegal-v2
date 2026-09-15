@@ -2,7 +2,7 @@ import { OfficialPrescription } from './prescription';
 
 export type DoctorStatus = 'pending' | 'active' | 'rejected' | 'banned' | 'blocked';
 
-export type ServiceType = 'avis_medical' | 'visio_consultation';
+export type ServiceType = 'teleconsultation' | 'avis_medical' | 'visio_consultation';
 
 export interface DoctorProfile {
   id: string;
@@ -24,9 +24,9 @@ export interface DoctorProfile {
   banReason?: string;
   licenseExpiresAt?: string; // ISO date string (ex: +30 jours)
   createdAt: string;
-  consultationFee: number;
-  avisMedicalFee: number; // Prix Avis Médical (Messagerie/Audio), ex: 3000 FCFA
-  visioConsultationFee: number; // Prix Visio Consultation (Vidéo), ex: 7000 FCFA
+  consultationFee: number; // Tarif unique de Téléconsultation (Audio, Image, Message, Ordonnance), ex: 5000 FCFA
+  avisMedicalFee?: number; // Déprécié (conservé pour rétrocompatibilité)
+  visioConsultationFee?: number; // Déprécié (conservé pour rétrocompatibilité)
   bio?: string;
   avatarUrl?: string; // Photo de profil HD
   signatureStampUrl?: string; // Cachet + Signature numérisés

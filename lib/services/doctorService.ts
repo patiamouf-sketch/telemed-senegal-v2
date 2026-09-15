@@ -59,9 +59,9 @@ export async function createDoctorProfile(
     status: profileData.status || 'pending', // Nouveau médecin en attente d'homologation
     licenseExpiresAt,
     createdAt: new Date().toISOString(),
-    consultationFee: profileData.consultationFee || 7000,
-    avisMedicalFee: profileData.avisMedicalFee || 3000,
-    visioConsultationFee: profileData.visioConsultationFee || 7000,
+    consultationFee: profileData.consultationFee || profileData.visioConsultationFee || profileData.avisMedicalFee || 5000,
+    avisMedicalFee: profileData.avisMedicalFee || profileData.consultationFee || 5000,
+    visioConsultationFee: profileData.visioConsultationFee || profileData.consultationFee || 5000,
     waveNumber: profileData.waveNumber || profileData.phone,
     omNumber: profileData.omNumber || profileData.phone,
     availableForTeleconsult: true,

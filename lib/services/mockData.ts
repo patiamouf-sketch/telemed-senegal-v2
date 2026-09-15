@@ -14,8 +14,6 @@ export const INITIAL_DOCTORS: DoctorProfile[] = [
     clinicName: 'Cabinet Médical Virtuel TELEMED SENEGAL',
     city: 'Dakar',
     consultationFee: 15000,
-    avisMedicalFee: 5000,
-    visioConsultationFee: 15000,
     availableForTeleconsult: true,
     slug: 'dr-elhadji-pathe-thiam',
     status: 'active',

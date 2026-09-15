@@ -160,8 +160,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         clinicName: '',
         city: 'Dakar',
         consultationFee: 15000,
-        avisMedicalFee: 5000,
-        visioConsultationFee: 15000,
         availableForTeleconsult: true,
         slug: 'dr-elhadji-pathe-thiam',
         status: 'active',
