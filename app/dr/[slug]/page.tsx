@@ -442,11 +442,8 @@ export default function PatientRoomPage() {
           syncIncomingMessages(updated.messages);
         }
 
-        if ((updated.status === 'consultation' || updated.status === 'in_consultation') && step !== 'consultation') {
+        if (updated.status === 'in_consultation' && step !== 'consultation') {
           setStep('consultation');
-        }
-        if (updated.status === 'completed' && step === 'consultation') {
-          setHasDoctorEnded(true);
         }
 
         if (updated.paymentConfirmedByDoctor && step === 'waiting') {
@@ -897,12 +894,8 @@ export default function PatientRoomPage() {
 
             <div className="flex items-center gap-2 text-xs">
               <div className="p-3 rounded-[20px] bg-white border border-slate-100 shadow-sm text-center">
-                <span className="text-[10px] text-slate-400 font-semibold block">Avis Médical</span>
-                <strong className="text-[#0F172A] font-extrabold">{avisPrice.toLocaleString('fr-FR')} F</strong>
-              </div>
-              <div className="p-3 rounded-[20px] bg-white border border-slate-100 shadow-sm text-center">
-                <span className="text-[10px] text-slate-400 font-semibold block">Visio Consultation</span>
-                <strong className="text-[#3B82F6] font-extrabold">{visioPrice.toLocaleString('fr-FR')} F</strong>
+                <span className="text-[10px] text-slate-400 font-semibold block">Téléconsultation</span>
+                <strong className="text-[#3B82F6] font-extrabold">{(doctor.consultationFee || 5000).toLocaleString('fr-FR')} FCFA</strong>
               </div>
             </div>
           </div>

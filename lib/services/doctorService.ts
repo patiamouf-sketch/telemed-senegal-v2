@@ -142,10 +142,11 @@ export async function getDoctorById(id: string): Promise<DoctorProfile | null> {
 
   // 1. FIRESTORE DATABASE DIRECT (avec timeout résilient de 2000ms)
   if (isFirebaseConfigured && db) {
+    const firestoreDb = db;
     try {
       const fetchDirect = async (): Promise<DoctorProfile | null> => {
         // Essai A : Recherche directe par Document ID
-        const docRef = doc(db, 'doctors', cleanId);
+        const docRef = doc(firestoreDb, 'doctors', cleanId);
         const snap = await getDoc(docRef);
         if (snap.exists()) {
           const data = snap.data() as DoctorProfile;
@@ -156,7 +157,7 @@ export async function getDoctorById(id: string): Promise<DoctorProfile | null> {
         const isEmail = lowerId.includes('@');
         const targetEmail = isEmail ? lowerId : '';
         if (targetEmail) {
-          const qEmail = query(collection(db, 'doctors'), where('email', '==', targetEmail));
+          const qEmail = query(collection(firestoreDb, 'doctors'), where('email', '==', targetEmail));
           const emailSnap = await getDocs(qEmail);
           if (!emailSnap.empty) {
             const activeDoc = emailSnap.docs.find(d => (d.data() as DoctorProfile).status === 'active') || emailSnap.docs[0];
@@ -166,7 +167,7 @@ export async function getDoctorById(id: string): Promise<DoctorProfile | null> {
         }
 
         // Essai C : Recherche par champ 'id'
-        const qId = query(collection(db, 'doctors'), where('id', '==', cleanId));
+        const qId = query(collection(firestoreDb, 'doctors'), where('id', '==', cleanId));
         const idSnap = await getDocs(qId);
         if (!idSnap.empty) {
           const activeDoc = idSnap.docs.find(d => (d.data() as DoctorProfile).status === 'active') || idSnap.docs[0];
@@ -302,10 +303,11 @@ export async function getDoctorBySlug(slug: string): Promise<DoctorProfile | nul
 
   // 1. FIRESTORE DATABASE DIRECT (avec timeout résilient de 2000ms)
   if (isFirebaseConfigured && db) {
+    const firestoreDb = db;
     try {
       const fetchSlug = async (): Promise<DoctorProfile | null> => {
         // A. Recherche par champ 'slug'
-        const q = query(collection(db, 'doctors'), where('slug', '==', normalizedSlug));
+        const q = query(collection(firestoreDb, 'doctors'), where('slug', '==', normalizedSlug));
         const snap = await getDocs(q);
         if (!snap.empty) {
           const activeDoc = snap.docs.find(d => (d.data() as DoctorProfile).status === 'active') || snap.docs[0];
@@ -314,7 +316,7 @@ export async function getDoctorBySlug(slug: string): Promise<DoctorProfile | nul
         }
 
         // B. Recherche par ID direct de document (ex: doc 'dr-elhadji-pathe-thiam' ou 'admin-thiam-1')
-        const directDocRef = doc(db, 'doctors', normalizedSlug);
+        const directDocRef = doc(firestoreDb, 'doctors', normalizedSlug);
         const directSnap = await getDoc(directDocRef);
         if (directSnap.exists()) {
           const data = directSnap.data() as DoctorProfile;
@@ -322,7 +324,7 @@ export async function getDoctorBySlug(slug: string): Promise<DoctorProfile | nul
         }
 
         // C. Recherche par champ 'id'
-        const qId = query(collection(db, 'doctors'), where('id', '==', normalizedSlug));
+        const qId = query(collection(firestoreDb, 'doctors'), where('id', '==', normalizedSlug));
         const idSnap = await getDocs(qId);
         if (!idSnap.empty) {
           const activeDoc = idSnap.docs.find(d => (d.data() as DoctorProfile).status === 'active') || idSnap.docs[0];
@@ -332,7 +334,7 @@ export async function getDoctorBySlug(slug: string): Promise<DoctorProfile | nul
 
         // D. Résilience spécifique pour Dr. Pathé THIAM (alias fréquents)
         if (normalizedSlug.includes('thiam') || normalizedSlug.includes('pathe')) {
-          const adminDocRef = doc(db, 'doctors', 'admin-thiam-1');
+          const adminDocRef = doc(firestoreDb, 'doctors', 'admin-thiam-1');
           const adminSnap = await getDoc(adminDocRef);
           if (adminSnap.exists()) {
             const data = adminSnap.data() as DoctorProfile;

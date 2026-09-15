@@ -142,12 +142,14 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
     setIsAudioMuted(next);
   };
 
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
   // Gestion ultra-robuste du viewport mobile (clavier virtuel iOS/Android)
   useEffect(() => {
     if (typeof window === 'undefined' || !window.visualViewport) return;
     const updateViewport = () => {
       document.documentElement.style.setProperty('--vh', `${window.visualViewport!.height * 0.01}px`);
-      setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+      setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
     };
     window.visualViewport.addEventListener('resize', updateViewport);
     updateViewport();
@@ -169,7 +171,6 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
   // Image preview state
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // License check & Follow-up status
   const licenseCheck = isDoctorLicenseValid(doctor);
