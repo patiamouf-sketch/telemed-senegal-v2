@@ -6,7 +6,7 @@ import { addDays } from 'date-fns';
 
 function mergeDoctorRecord(existing: DoctorProfile | undefined, incoming: DoctorProfile): DoctorProfile {
   if (!existing) return incoming;
-  // RÈGLE DE SÉCURITÉ ABSOLUE : Un statut validé (active, banned, blocked, rejected) prime
+  // RÈGLE DE SÉCURITÉ ABSOLUE : Un statut validé (active, banned, blocked, rejected) prime toujours sur pending
   const finalStatus = (existing.status === 'banned' || incoming.status === 'banned')
     ? 'banned'
     : (existing.status === 'blocked' || incoming.status === 'blocked')
@@ -17,12 +17,16 @@ function mergeDoctorRecord(existing: DoctorProfile | undefined, incoming: Doctor
           ? 'rejected'
           : existing.status || incoming.status || 'pending';
 
-  const finalLicense = (existing.status === 'active' ? existing.licenseExpiresAt : incoming.licenseExpiresAt) ||
-    existing.licenseExpiresAt || incoming.licenseExpiresAt;
+  const finalLicense = (finalStatus === 'active'
+    ? (existing.status === 'active' ? existing.licenseExpiresAt : incoming.licenseExpiresAt) || existing.licenseExpiresAt || incoming.licenseExpiresAt
+    : existing.licenseExpiresAt || incoming.licenseExpiresAt);
+
+  const base = incoming.status === 'active' ? incoming : existing;
+  const other = incoming.status === 'active' ? existing : incoming;
 
   return {
-    ...incoming,
-    ...existing,
+    ...other,
+    ...base,
     id: existing.id || incoming.id,
     status: finalStatus,
     banReason: existing.banReason || incoming.banReason,
@@ -33,27 +37,33 @@ function mergeDoctorRecord(existing: DoctorProfile | undefined, incoming: Doctor
 
 /**
  * Récupère tous les médecins enregistrés (Firestore + API Serverless Cloud + LocalStorage)
+ * Protégé par un timeout résilient strict de 2,5s pour éliminer tout blocage de chargement.
  */
 export async function getAllDoctors(): Promise<DoctorProfile[]> {
   const emailMap = new Map<string, DoctorProfile>();
 
-  // 1. PRIORITÉ ABSOLUE N°1 : FIRESTORE DATABASE
+  // 1. PRIORITÉ ABSOLUE N°1 : FIRESTORE DATABASE (avec timeout résilient de 2500ms)
   if (isFirebaseConfigured && db) {
     try {
-      const snap = await getDocs(collection(db, 'doctors'));
+      const fetchPromise = getDocs(collection(db, 'doctors'));
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Délai Firestore getAllDoctors dépassé (2.5s)')), 2500)
+      );
+
+      const snap = await Promise.race([fetchPromise, timeoutPromise]);
       snap.docs.forEach(docSnap => {
         const data = docSnap.data() as DoctorProfile;
         const docWithId: DoctorProfile = {
           ...data,
           id: data.id || docSnap.id,
         };
-        const key = docWithId.email ? docWithId.email.toLowerCase().trim() : docWithId.id;
+        const key = docWithId.email ? docWithId.email.toLowerCase().trim() : (docWithId.id || docSnap.id);
         if (key) {
           emailMap.set(key, mergeDoctorRecord(emailMap.get(key), docWithId));
         }
       });
     } catch (e) {
-      console.warn('Firebase getAllDoctors notice:', e);
+      console.warn('Firebase getAllDoctors notice (bascule sur cache local):', e);
     }
   }
 
@@ -93,7 +103,7 @@ export async function logAdminAction(
     timestamp: new Date().toISOString(),
   };
 
-  // 1. Enregistrement LocalStorage (miroir hors-ligne)
+  // 1. Enregistrement LocalStorage (miroir hors-ligne immédiat)
   if (typeof window !== 'undefined') {
     try {
       const raw = localStorage.getItem('telemed_admin_audit_logs');
@@ -103,13 +113,17 @@ export async function logAdminAction(
     } catch (e) {}
   }
 
-  // 2. Enregistrement Firestore
+  // 2. Enregistrement Firestore non-bloquant
   const firestoreDb = db;
   if (isFirebaseConfigured && firestoreDb) {
     try {
-      await setDoc(doc(firestoreDb, 'admin_audit_logs', auditLog.id), auditLog);
+      const writePromise = setDoc(doc(firestoreDb, 'admin_audit_logs', auditLog.id), auditLog);
+      const timeoutPromise = new Promise<void>((_, reject) =>
+        setTimeout(() => reject(new Error('Timeout logAdminAction')), 2000)
+      );
+      await Promise.race([writePromise, timeoutPromise]);
     } catch (e) {
-      console.warn('Erreur Firestore logAdminAction:', e);
+      console.warn('Erreur Firestore logAdminAction (enregistré localement):', e);
     }
   }
 
@@ -118,11 +132,12 @@ export async function logAdminAction(
 
 /**
  * Récupère le journal d'audit médico-légal ordonné par date antéchronologique
+ * Protégé par un timeout résilient strict de 2000ms.
  */
 export async function getAdminAuditLogs(limitCount: number = 100): Promise<AdminAuditLog[]> {
   const logsMap = new Map<string, AdminAuditLog>();
 
-  // 1. Priorité N°1 : Cloud Firestore
+  // 1. Priorité N°1 : Cloud Firestore (avec timeout de 2000ms)
   const firestoreDb = db;
   if (isFirebaseConfigured && firestoreDb) {
     try {
@@ -131,13 +146,17 @@ export async function getAdminAuditLogs(limitCount: number = 100): Promise<Admin
         orderBy('timestamp', 'desc'),
         limit(limitCount)
       );
-      const snap = await getDocs(q);
+      const fetchPromise = getDocs(q);
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Délai getAdminAuditLogs dépassé')), 2000)
+      );
+      const snap = await Promise.race([fetchPromise, timeoutPromise]);
       snap.docs.forEach(d => {
         const item = d.data() as AdminAuditLog;
         logsMap.set(item.id, item);
       });
     } catch (e) {
-      console.warn('Erreur Firestore getAdminAuditLogs:', e);
+      console.warn('Erreur Firestore getAdminAuditLogs (bascule locale):', e);
     }
   }
 
@@ -162,14 +181,15 @@ export async function getAdminAuditLogs(limitCount: number = 100): Promise<Admin
 }
 
 /**
- * Synchronisation atomique multi-cibles vers Firestore (Doc ID direct, clean ID, alias email)
- * Exécutée en parallèle avec un timeout strict de 3s pour ne jamais bloquer l'interface.
+ * Synchronisation atomique multi-cibles vers Firestore (Doc ID direct, clean ID, alias email, slug)
+ * Exécutée en parallèle avec un timeout strict de 2s pour ne jamais bloquer l'interface.
  */
 async function syncDoctorUpdateToFirestore(
   targetId: string,
   clean: string,
   targetEmail: string,
-  firestoreUpdates: Record<string, any>
+  firestoreUpdates: Record<string, any>,
+  targetSlug?: string
 ): Promise<void> {
   if (!isFirebaseConfigured || !db) return;
 
@@ -192,10 +212,25 @@ async function syncDoctorUpdateToFirestore(
     updatePromises.push(setDoc(doc(targetDb, 'doctors', cleanEmail), firestoreUpdates, { merge: true }));
   }
 
+  // 4. Mise à jour sur le slug si fourni
+  const cleanSlug = targetSlug?.trim();
+  if (cleanSlug && cleanSlug !== targetId && cleanSlug !== clean && cleanSlug !== cleanEmail) {
+    updatePromises.push(setDoc(doc(targetDb, 'doctors', cleanSlug), firestoreUpdates, { merge: true }));
+  }
+
+  // 5. Recherche et mise à jour de tout document Firestore ayant cet email ou cet id
+  if (cleanEmail) {
+    updatePromises.push(
+      getDocs(query(collection(targetDb, 'doctors'), where('email', '==', cleanEmail))).then(snap => {
+        return Promise.all(snap.docs.map(dSnap => setDoc(dSnap.ref, firestoreUpdates, { merge: true })));
+      }).catch(() => {})
+    );
+  }
+
   try {
-    const syncAction = Promise.all(updatePromises);
+    const syncAction = Promise.allSettled(updatePromises);
     const timeout = new Promise<void>((_, reject) =>
-      setTimeout(() => reject(new Error('Délai de synchronisation Firestore dépassé')), 3000)
+      setTimeout(() => reject(new Error('Délai de synchronisation Firestore dépassé')), 2000)
     );
     await Promise.race([syncAction, timeout]);
   } catch (e) {
@@ -221,6 +256,8 @@ export async function approveDoctor(
   const target = localDocs.find(d => d.id === clean || d.email?.toLowerCase() === lower);
   const targetId = target?.id || clean;
   const targetEmail = target?.email?.toLowerCase().trim() || (lower.includes('@') ? lower : '');
+
+  const targetSlug = target?.slug || (target?.fullName ? `dr-${target.fullName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}` : '');
 
   // 1. Mise à jour LocalStorage et Session immédiate
   let updatedDoc: DoctorProfile | null = null;
@@ -263,7 +300,7 @@ export async function approveDoctor(
     rejectionReason: deleteField(),
     banReason: deleteField(),
   };
-  await syncDoctorUpdateToFirestore(targetId, clean, targetEmail, firestoreUpdates);
+  await syncDoctorUpdateToFirestore(targetId, clean, targetEmail, firestoreUpdates, targetSlug);
 
   // 3. Traçabilité Médico-Légale (Journal d'audit)
   await logAdminAction({
@@ -294,6 +331,7 @@ export async function rejectDoctor(
   const target = localDocs.find(d => d.id === clean || d.email?.toLowerCase() === lower);
   const targetId = target?.id || clean;
   const targetEmail = target?.email?.toLowerCase().trim() || (lower.includes('@') ? lower : '');
+  const targetSlug = target?.slug;
 
   // 1. Mise à jour LocalStorage et Session
   let updatedDoc: DoctorProfile | null = null;
@@ -330,7 +368,7 @@ export async function rejectDoctor(
   }
 
   // 2. Mise à jour Firestore Multi-Cibles
-  await syncDoctorUpdateToFirestore(targetId, clean, targetEmail, updates);
+  await syncDoctorUpdateToFirestore(targetId, clean, targetEmail, updates, targetSlug);
 
   // 3. Traçabilité Médico-Légale (Journal d'audit)
   await logAdminAction({
@@ -362,6 +400,7 @@ export async function banDoctor(
   const target = localDocs.find(d => d.id === clean || d.email?.toLowerCase() === lower);
   const targetId = target?.id || clean;
   const targetEmail = target?.email?.toLowerCase().trim() || (lower.includes('@') ? lower : '');
+  const targetSlug = target?.slug;
 
   // 1. Mise à jour LocalStorage et Session
   let updatedDoc: DoctorProfile | null = null;
@@ -398,7 +437,7 @@ export async function banDoctor(
   }
 
   // 2. Mise à jour Firestore Multi-Cibles
-  await syncDoctorUpdateToFirestore(targetId, clean, targetEmail, updates);
+  await syncDoctorUpdateToFirestore(targetId, clean, targetEmail, updates, targetSlug);
 
   // 3. Traçabilité Médico-Légale (Journal d'audit)
   await logAdminAction({
@@ -433,6 +472,7 @@ export async function unbanDoctor(
   const target = localDocs.find(d => d.id === clean || d.email?.toLowerCase() === lower);
   const targetId = target?.id || clean;
   const targetEmail = target?.email?.toLowerCase().trim() || (lower.includes('@') ? lower : '');
+  const targetSlug = target?.slug;
 
   let updatedDoc: DoctorProfile | null = null;
   const updatedList = localDocs.map(d => {
@@ -467,7 +507,20 @@ export async function unbanDoctor(
     } catch (e) {}
   }
 
-  await syncDoctorUpdateToFirestore(targetId, clean, targetEmail, firestoreUpdates);
+  await syncDoctorUpdateToFirestore(targetId, clean, targetEmail, firestoreUpdates, targetSlug);
+
+  // 3. Traçabilité Médico-Légale (Journal d'audit)
+  await logAdminAction({
+    action: 'unban_doctor',
+    adminEmail,
+    targetId,
+    targetName: target?.fullName || targetEmail || doctorId,
+    targetType: 'doctor',
+    details: 'Levée de la suspension ordinale et réactivation complète de la licence d’exercice.',
+  });
+
+  return updatedDoc || (target ? { ...target, ...updates } : null);
+}
 
   // 3. Traçabilité Médico-Légale (Journal d'audit)
   await logAdminAction({
@@ -592,7 +645,7 @@ export async function renewDoctorLicense(
   }
 
   // 2. Mise à jour Firestore Multi-Cibles
-  await syncDoctorUpdateToFirestore(targetId, clean, targetEmail, firestoreUpdates);
+  await syncDoctorUpdateToFirestore(targetId, clean, targetEmail, firestoreUpdates, docProfile?.slug);
 
   // 3. Traçabilité Médico-Légale (Journal d'audit)
   await logAdminAction({
