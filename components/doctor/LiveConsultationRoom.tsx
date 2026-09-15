@@ -20,6 +20,7 @@ import {
   ExternalLink,
   Printer,
   Stethoscope,
+  MessageCircle,
   X,
   Volume2,
   VolumeX,
@@ -46,6 +47,7 @@ import {
 } from '@/lib/services/doctorService';
 import { isDoctorLicenseValid } from '@/lib/utils/license';
 import { uploadMedia } from '@/lib/services/storageService';
+import { getPrescriptionShareWhatsAppUrl } from '@/lib/utils/whatsappHelper';
 import confetti from 'canvas-confetti';
 
 interface LiveConsultationRoomProps {
@@ -551,19 +553,39 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
                         )}
                       </div>
 
-                      <div className="pt-1 flex items-center justify-between">
-                        <span className="text-[9px] font-mono text-slate-400 truncate max-w-[180px]">
+                      <div className="pt-2 border-t border-emerald-100 flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-[9px] font-mono text-slate-400 truncate max-w-[140px]">
                           Hash : {msg.prescriptionData.hash}
                         </span>
-                        <a
-                          href={msg.prescriptionData.verificationUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 hover:underline"
-                        >
-                          <span>Certificat QR</span>
-                          <ExternalLink className="w-3 h-3" />
-                        </a>
+                        <div className="flex items-center gap-2">
+                          {patient.patientPhone && (
+                            <a
+                              href={getPrescriptionShareWhatsAppUrl({
+                                patientPhone: patient.patientPhone,
+                                doctorName: doctor.fullName,
+                                patientName: patient.patientName,
+                                rxUrl: msg.prescriptionData.verificationUrl,
+                                hash: msg.prescriptionData.hash,
+                              })}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-800 bg-emerald-100/90 hover:bg-emerald-200 px-2.5 py-1 rounded-full shadow-sm transition-colors"
+                              title="Transmettre l'ordonnance sur le WhatsApp du patient"
+                            >
+                              <MessageCircle className="w-3 h-3 text-emerald-600" />
+                              <span>WhatsApp Patient</span>
+                            </a>
+                          )}
+                          <a
+                            href={msg.prescriptionData.verificationUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 hover:underline"
+                          >
+                            <span>Certificat QR</span>
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
+                        </div>
                       </div>
                     </div>
                   ) : (

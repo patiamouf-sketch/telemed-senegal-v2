@@ -15,7 +15,7 @@ import {
   Check,
   ExternalLink,
   Users,
-  Video,
+  MessageCircle,
   CreditCard,
   Clock,
   ShieldCheck,
@@ -41,6 +41,7 @@ import {
   Download,
 } from 'lucide-react';
 import { DoctorProfileModal } from './DoctorProfileModal';
+import { getDoctorInviteWhatsAppUrl } from '@/lib/utils/whatsappHelper';
 import {
   getDoctorQueue,
   addPatientToQueue,
@@ -657,6 +658,31 @@ export function DoctorDashboard() {
                     </div>
 
                     <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap justify-end w-full sm:w-auto">
+                      {/* WhatsApp Invite Button */}
+                      {patient.patientPhone && (
+                        <a
+                          href={getDoctorInviteWhatsAppUrl({
+                            patientPhone: patient.patientPhone,
+                            doctorName: doctor.fullName,
+                            patientName: patient.patientName,
+                            consultationUrl: typeof window !== 'undefined' ? `${window.location.origin}/dr/${doctorSlug}?session=${patient.id}` : `https://telemed.sn/dr/${doctorSlug}?session=${patient.id}`,
+                          })}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="w-full sm:w-auto"
+                          title="Avertir le patient sur WhatsApp"
+                        >
+                          <GlassButton
+                            size="sm"
+                            variant="secondary"
+                            className="text-xs w-full sm:w-auto bg-emerald-50 text-emerald-700 border-emerald-200/80 hover:bg-emerald-100/80"
+                          >
+                            <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>WhatsApp</span>
+                          </GlassButton>
+                        </a>
+                      )}
+
                       {!patient.paymentConfirmedByDoctor && (
                         <GlassButton
                           size="sm"
@@ -682,11 +708,7 @@ export function DoctorDashboard() {
                         disabled={!licenseCheck.isValid}
                         className={`text-xs w-full sm:w-auto shadow-pill ${!licenseCheck.isValid ? 'opacity-50 cursor-not-allowed' : ''}`}
                       >
-                        {patient.serviceType === 'visio_consultation' ? (
-                          <Video className="w-3.5 h-3.5" />
-                        ) : (
-                          <MessageSquare className="w-3.5 h-3.5" />
-                        )}
+                        <MessageSquare className="w-3.5 h-3.5" />
                         <span>Ouvrir la Salle de Soin</span>
                       </GlassButton>
                     </div>

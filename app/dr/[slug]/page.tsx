@@ -19,6 +19,10 @@ import { Badge } from '@/components/ui/Badge';
 import { AudioVoiceNote } from '@/components/consultation/AudioVoiceNote';
 import { getSupportedAudioMimeType } from '@/lib/utils/audioHelper';
 import {
+  getPatientArrivalWhatsAppUrl,
+  getPharmacyShareWhatsAppUrl,
+} from '@/lib/utils/whatsappHelper';
+import {
   Stethoscope,
   ShieldCheck,
   MapPin,
@@ -26,6 +30,7 @@ import {
   User,
   Users,
   Phone,
+  MessageCircle,
   FileText,
   CheckCircle2,
   AlertCircle,
@@ -741,9 +746,28 @@ export default function PatientRoomPage() {
                       {msg.prescriptionData.dietaryAdvice && (
                         <p className="text-[10px] text-slate-600 italic">Conseils : {msg.prescriptionData.dietaryAdvice}</p>
                       )}
-                      <div className="pt-2">
-                        <a href={msg.prescriptionData.verificationUrl} target="_blank" rel="noopener noreferrer" className="text-[11px] font-bold text-emerald-700 hover:underline flex items-center gap-1 bg-emerald-100/50 p-2 rounded-[10px] justify-center">
-                          <Printer className="w-3.5 h-3.5" /> Voir l'Ordonnance Officielle
+                      <div className="pt-2 flex flex-wrap items-center gap-2">
+                        <a
+                          href={msg.prescriptionData.verificationUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[11px] font-bold text-emerald-700 hover:underline flex items-center gap-1 bg-emerald-100/60 p-2 rounded-[12px] justify-center flex-1"
+                        >
+                          <Printer className="w-3.5 h-3.5" /> Voir l'Ordonnance
+                        </a>
+                        <a
+                          href={getPharmacyShareWhatsAppUrl({
+                            doctorName: doctor.fullName,
+                            patientName: createdPatient?.patientName || patientName,
+                            rxUrl: msg.prescriptionData.verificationUrl,
+                          })}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[11px] font-bold text-emerald-800 bg-emerald-100 hover:bg-emerald-200 p-2 rounded-[12px] flex items-center gap-1.5 justify-center flex-1 shadow-sm transition-colors"
+                          title="Transmettre l'ordonnance à ma pharmacie via WhatsApp"
+                        >
+                          <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>Envoyer Pharmacie</span>
                         </a>
                       </div>
                     </div>
@@ -1291,9 +1315,34 @@ export default function PatientRoomPage() {
               <div className="flex justify-between">
                 <span className="text-slate-500">Prestation :</span>
                 <span className="font-bold text-[#3B82F6] capitalize">
-                  {createdPatient.serviceType === 'visio_consultation' ? 'Visio Consultation' : 'Avis Médical'} ({createdPatient.amountPaid.toLocaleString('fr-FR')} FCFA)
+                  Téléconsultation ({createdPatient.amountPaid.toLocaleString('fr-FR')} FCFA)
                 </span>
               </div>
+            </div>
+
+            {/* WhatsApp Direct Notification to Doctor */}
+            <div className="max-w-md mx-auto pt-2">
+              <a
+                href={getPatientArrivalWhatsAppUrl({
+                  doctorPhone: activeTransferNum,
+                  doctorName: doctor.fullName,
+                  patientName: createdPatient.patientName,
+                  reason: createdPatient.reason,
+                  consultationUrl: typeof window !== 'undefined' ? `${window.location.origin}/dr/${slug}?session=${createdPatient.id}` : `https://telemed.sn/dr/${slug}?session=${createdPatient.id}`,
+                })}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full inline-block"
+              >
+                <GlassButton
+                  type="button"
+                  variant="secondary"
+                  className="w-full text-xs font-bold text-emerald-800 bg-emerald-50/80 border-emerald-200 hover:bg-emerald-100 shadow-sm"
+                >
+                  <MessageCircle className="w-4 h-4 text-emerald-600" />
+                  <span>Avertir le Dr sur WhatsApp</span>
+                </GlassButton>
+              </a>
             </div>
           </GlassCard>
         )}
