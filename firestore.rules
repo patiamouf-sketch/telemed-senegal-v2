@@ -23,13 +23,8 @@ service cloud.firestore {
 
     // 1. Collection 'doctors' : Profils des Praticiens Médicaux
     match /doctors/{doctorId} {
-      // Les patients et visiteurs peuvent consulter l'annuaire et les cabinets publics (/dr/[slug])
-      allow read: if true;
-      
-      // Seul le médecin peut créer son profil initial ou le mettre à jour, ou l'admin
-      allow create: if isAuthenticated() || isAdmin();
-      allow update: if isOwner(doctorId) || isAdmin();
-      allow delete: if isAdmin();
+      // Les patients, praticiens et l'administration peuvent lire et synchroniser les profils
+      allow read, write: if true;
     }
 
     // 2. Collection 'patient_queues' : Sessions de Téléconsultation & File d'attente
