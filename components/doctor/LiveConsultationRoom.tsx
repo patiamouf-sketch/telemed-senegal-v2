@@ -7,6 +7,8 @@ import { PrescriptionDrawer } from './PrescriptionDrawer';
 import { GlassCard } from '../ui/GlassCard';
 import { GlassButton } from '../ui/GlassButton';
 import { Badge } from '../ui/Badge';
+import { AudioVoiceNote } from '../consultation/AudioVoiceNote';
+import { getSupportedAudioMimeType } from '@/lib/utils/audioHelper';
 import {
   Mic,
   MessageSquare,
@@ -223,19 +225,16 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
     }
   };
 
-  // Start Real Voice Recording (MediaRecorder WebM/OGG)
+  // Start Real Voice Recording (MediaRecorder WebM/OGG/MP4)
   const startVoiceRecording = async () => {
     audioChunksRef.current = [];
     try {
       if (typeof navigator !== 'undefined' && navigator.mediaDevices) {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-          ? 'audio/webm;codecs=opus'
-          : MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')
-          ? 'audio/ogg;codecs=opus'
-          : 'audio/webm';
+        const mimeType = getSupportedAudioMimeType();
+        const options: MediaRecorderOptions = mimeType ? { mimeType } : {};
 
-        const recorder = new MediaRecorder(stream, { mimeType });
+        const recorder = new MediaRecorder(stream, options);
         mediaRecorderRef.current = recorder;
 
         recorder.ondataavailable = e => {
@@ -245,10 +244,10 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
         };
 
         recorder.onstop = async () => {
-          const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
+          const audioBlob = new Blob(audioChunksRef.current, { type: mimeType || 'audio/webm' });
           stream.getTracks().forEach(t => t.stop());
           const recordedSecs = Math.max(1, voiceSeconds);
-          const ext = mimeType.includes('ogg') ? 'ogg' : 'webm';
+          const ext = mimeType.includes('mp4') ? 'mp4' : mimeType.includes('ogg') ? 'ogg' : 'webm';
 
           try {
             const audioUrl = await uploadMedia(
@@ -591,38 +590,13 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
                         </div>
                       )}
 
-                      {/* Voice Note Message with Audio Wave */}
+                      {/* Voice Note Message with AudioVoiceNote */}
                       {msg.type === 'voice' && (
-                        <div className="flex items-center gap-3 p-1">
-                          <button
-                            type="button"
-                            onClick={() => handlePlayVoice(msg.id, msg.audioUrl)}
-                            className={`p-2 rounded-full transition-transform active:scale-95 ${
-                              msg.sender === 'doctor' ? 'bg-white/20 text-white' : 'bg-[#3B82F6] text-white'
-                            }`}
-                          >
-                            {playingVoiceId === msg.id ? (
-                              <Pause className="w-4 h-4" />
-                            ) : (
-                              <Play className="w-4 h-4 ml-0.5" />
-                            )}
-                          </button>
-                          <div className="flex-1">
-                            <div className="flex items-center gap-1.5">
-                              <span className="font-bold text-xs">
-                                Note Vocale ({msg.audioDuration || 10}s)
-                              </span>
-                              {playingVoiceId === msg.id && (
-                                <span className="flex items-center gap-0.5">
-                                  <span className="w-1 h-3 bg-white animate-pulse rounded-full" />
-                                  <span className="w-1 h-4 bg-white animate-pulse delay-75 rounded-full" />
-                                  <span className="w-1 h-2 bg-white animate-pulse delay-150 rounded-full" />
-                                </span>
-                              )}
-                            </div>
-                            <span className="text-[10px] opacity-80 block">Format WebM/OGG Sécurisé</span>
-                          </div>
-                        </div>
+                        <AudioVoiceNote
+                          audioUrl={msg.audioUrl}
+                          audioDuration={msg.audioDuration}
+                          isSender={msg.sender === 'doctor'}
+                        />
                       )}
 
                       {/* Text content */}

@@ -16,12 +16,13 @@ import { isDoctorLicenseValid } from '@/lib/utils/license';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { GlassButton } from '@/components/ui/GlassButton';
 import { Badge } from '@/components/ui/Badge';
+import { AudioVoiceNote } from '@/components/consultation/AudioVoiceNote';
+import { getSupportedAudioMimeType } from '@/lib/utils/audioHelper';
 import {
   Stethoscope,
   ShieldCheck,
   MapPin,
   Clock,
-  Video,
   User,
   Users,
   Phone,
@@ -196,20 +197,17 @@ export default function PatientRoomPage() {
     return () => clearInterval(interval);
   }, [isRecordingVoice]);
 
-  // Start Patient Voice Recording
+  // Start Patient Voice Recording (MediaRecorder Multi-Formats)
   const startVoiceRecording = async () => {
     if (!createdPatient) return;
     audioChunksRef.current = [];
     try {
       if (typeof navigator !== 'undefined' && navigator.mediaDevices) {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-          ? 'audio/webm;codecs=opus'
-          : MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')
-          ? 'audio/ogg;codecs=opus'
-          : 'audio/webm';
+        const mimeType = getSupportedAudioMimeType();
+        const options: MediaRecorderOptions = mimeType ? { mimeType } : {};
 
-        const recorder = new MediaRecorder(stream, { mimeType });
+        const recorder = new MediaRecorder(stream, options);
         mediaRecorderRef.current = recorder;
 
         recorder.ondataavailable = e => {
@@ -219,10 +217,10 @@ export default function PatientRoomPage() {
         };
 
         recorder.onstop = async () => {
-          const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
+          const audioBlob = new Blob(audioChunksRef.current, { type: mimeType || 'audio/webm' });
           stream.getTracks().forEach(t => t.stop());
           const recordedSecs = Math.max(1, voiceSeconds);
-          const ext = mimeType.includes('ogg') ? 'ogg' : 'webm';
+          const ext = mimeType.includes('mp4') ? 'mp4' : mimeType.includes('ogg') ? 'ogg' : 'webm';
 
           try {
             const audioUrl = await uploadMedia(
@@ -757,23 +755,11 @@ export default function PatientRoomPage() {
                         </div>
                       )}
                       {msg.type === 'voice' && (
-                        <div className="flex items-center gap-2 p-1">
-                          <button type="button" onClick={() => handlePlayVoice(msg.id, msg.audioUrl)} className={`p-2 rounded-full transition-transform active:scale-95 flex-shrink-0 ${msg.sender === 'patient' ? 'bg-white/20 text-white' : 'bg-[#3B82F6] text-white'}`}>
-                            {playingVoiceId === msg.id ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 translate-x-0.5" />}
-                          </button>
-                          <div>
-                            <div className="flex items-center gap-1.5">
-                              <span className="font-bold text-[11px]">Note Vocale ({msg.audioDuration || 5}s)</span>
-                              {playingVoiceId === msg.id && (
-                                <span className="flex items-center gap-0.5">
-                                  <span className="w-1 h-2 bg-current animate-pulse rounded-full" />
-                                  <span className="w-1 h-3 bg-current animate-pulse delay-75 rounded-full" />
-                                  <span className="w-1 h-1.5 bg-current animate-pulse delay-150 rounded-full" />
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
+                        <AudioVoiceNote
+                          audioUrl={msg.audioUrl}
+                          audioDuration={msg.audioDuration}
+                          isSender={msg.sender === 'patient'}
+                        />
                       )}
                       {msg.text && msg.type !== 'voice' && <p className="text-xs sm:text-sm leading-relaxed">{msg.text}</p>}
                       <span className={`text-[9px] block text-right mt-1 ${msg.sender === 'patient' ? 'text-blue-100' : 'text-slate-400'}`}>

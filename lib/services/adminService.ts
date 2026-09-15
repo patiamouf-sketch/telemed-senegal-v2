@@ -88,7 +88,7 @@ export async function getAllDoctors(): Promise<DoctorProfile[]> {
     const dSlug = d.slug?.trim();
     const dName = d.fullName?.toLowerCase().trim();
 
-    for (const [key, existing] of mergedMap.entries()) {
+    for (const [key, existing] of Array.from(mergedMap.entries())) {
       const eEmail = existing.email?.toLowerCase().trim();
       const eNin = existing.nin?.trim();
       const ePhone = existing.phone?.replace(/\D/g, '');

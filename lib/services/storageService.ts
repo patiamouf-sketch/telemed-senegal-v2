@@ -18,20 +18,39 @@ export function fileToDataUrl(fileOrBlob: File | Blob): Promise<string> {
 }
 
 /**
- * Compresse une image côté client pour garantir une taille minimale (< 90 Ko)
- * Si l'image ne peut pas être décodée via Canvas (ex: HEIC, SVG, ou format exotique),
- * bascule gracieusement sur fileToDataUrl sans lever d'exception.
+ * Convertit un DataURL en Blob pour téléversement binaire optimisé
+ */
+export function dataUrlToBlob(dataUrl: string): Blob {
+  try {
+    const parts = dataUrl.split(',');
+    const mimeMatch = parts[0].match(/:(.*?);/);
+    const mime = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+    const bstr = atob(parts[1]);
+    let n = bstr.length;
+    const u8arr = new Uint8Array(n);
+    while (n--) {
+      u8arr[n] = bstr.charCodeAt(n);
+    }
+    return new Blob([u8arr], { type: mime });
+  } catch {
+    return new Blob([], { type: 'image/jpeg' });
+  }
+}
+
+/**
+ * Compresse une photo ou image médicale côté client pour garantir un poids plume (< 120 Ko)
+ * avec une netteté préservée pour les ordonnances, bilans et lésions cliniques.
  */
 export async function compressImage(
   fileOrBlob: File | Blob,
-  maxDimension = 1000,
-  quality = 0.72
+  maxDimension = 1280,
+  quality = 0.78
 ): Promise<string> {
   if (typeof window === 'undefined') {
     return '';
   }
 
-  // Si c'est un PDF ou un document non-image, convertir directement en Data URL
+  // Si c'est un document non-image (ex: PDF), convertir directement en Data URL
   const fileName = 'name' in fileOrBlob ? (fileOrBlob as File).name : '';
   if (fileOrBlob.type === 'application/pdf' || fileName.toLowerCase().endsWith('.pdf')) {
     return fileToDataUrl(fileOrBlob);
@@ -53,6 +72,7 @@ export async function compressImage(
           let width = img.width;
           let height = img.height;
 
+          // Redimensionnement proportionnel adaptatif
           if (width > height && width > maxDimension) {
             height = Math.round((height * maxDimension) / width);
             width = maxDimension;
@@ -69,15 +89,29 @@ export async function compressImage(
             return;
           }
 
+          // Rendu haute netteté
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
           ctx.drawImage(img, 0, 0, width, height);
-          const compressedDataUrl = canvas.toDataURL('image/jpeg', quality);
-          resolve(compressedDataUrl);
+
+          // Tentative format WebP (plus léger) puis fallback JPEG
+          let compressedDataUrl = '';
+          try {
+            compressedDataUrl = canvas.toDataURL('image/webp', quality);
+            if (!compressedDataUrl.startsWith('data:image/webp')) {
+              compressedDataUrl = canvas.toDataURL('image/jpeg', quality);
+            }
+          } catch {
+            compressedDataUrl = canvas.toDataURL('image/jpeg', quality);
+          }
+
+          resolve(compressedDataUrl || src);
         } catch {
           resolve(src);
         }
       };
 
-      // En cas d'erreur de décodage (ex: format HEIC iPhone ou corrompu), ne jamais bloquer
+      // En cas d'erreur de décodage (ex: format HEIC iPhone ou corrompu), fallback gracieux
       img.onerror = () => {
         resolve(src);
       };
@@ -94,42 +128,53 @@ export async function compressImage(
 }
 
 /**
- * Téléverse un fichier média vers Firebase Storage ou renvoie une version compressée sécurisée
- * Si l'utilisateur n'est pas authentifié (ex: formulaire d'adhésion) ou que Storage est indisponible,
- * utilise immédiatement la compression locale pour garantir une réactivité instantanée (< 100ms).
+ * Téléverse un fichier média vers Firebase Storage avec compression préalable automatique
+ * Si l'utilisateur n'est pas authentifié ou en cas de lenteur réseau,
+ * bascule instantanément sur la version locale ultra-compressée (< 100ms).
  */
 export async function uploadMedia(
   fileOrBlob: File | Blob,
   destinationPath: string
 ): Promise<string> {
-  // 1. Tenter Firebase Storage uniquement si l'utilisateur est authentifié et que le SDK est prêt
+  const targetFileName = 'name' in fileOrBlob ? (fileOrBlob as File).name : '';
+  const isImage = fileOrBlob.type.startsWith('image/') || /\.(jpg|jpeg|png|webp|gif|bmp)$/i.test(targetFileName);
+
+  // 1. Si c'est une image, on la compresse d'abord systématiquement
+  let payloadToUpload: File | Blob = fileOrBlob;
+  let compressedLocalDataUrl = '';
+
+  if (isImage) {
+    compressedLocalDataUrl = await compressImage(fileOrBlob, 1280, 0.78);
+    if (compressedLocalDataUrl && compressedLocalDataUrl.startsWith('data:image/')) {
+      payloadToUpload = dataUrlToBlob(compressedLocalDataUrl);
+    }
+  }
+
+  // 2. Tenter l'envoi Firebase Storage si disponible
   const isAuth = Boolean(auth?.currentUser);
   if (isFirebaseConfigured && storage && isAuth) {
     try {
       const storageRef = ref(storage, destinationPath);
       const uploadPromise = (async () => {
-        const snapshot = await uploadBytes(storageRef, fileOrBlob);
+        const snapshot = await uploadBytes(storageRef, payloadToUpload);
         return await getDownloadURL(snapshot.ref);
       })();
 
-      // Timeout strict de 2,5 secondes pour ne jamais geler l'interface utilisateur
+      // Timeout strict de 3 secondes pour ne jamais figer l'écran du patient/médecin
       const timeoutPromise = new Promise<string>((_, reject) =>
-        setTimeout(() => reject(new Error('Timeout Firebase Storage')), 2500)
+        setTimeout(() => reject(new Error('Délai dépassé')), 3000)
       );
 
       return await Promise.race([uploadPromise, timeoutPromise]);
     } catch (err) {
-      console.warn('Firebase Storage indisponible ou délai dépassé, utilisation du fallback compressé :', err);
+      console.warn('Firebase Storage non disponible ou délai dépassé, utilisation du fallback compressé :', err);
     }
   }
 
-  // 2. Traitement local compressé ultra-rapide (< 100ms)
-  const targetFileName = 'name' in fileOrBlob ? (fileOrBlob as File).name : '';
-  const isImage = fileOrBlob.type.startsWith('image/') || /\.(jpg|jpeg|png|webp|gif|bmp)$/i.test(targetFileName);
-  if (isImage) {
-    return await compressImage(fileOrBlob, 1000, 0.72);
+  // 3. Fallback Data URL compressé local
+  if (compressedLocalDataUrl) {
+    return compressedLocalDataUrl;
   }
 
-  // 3. Fallback conversion Base64 pour PDF, documents et audios
   return await fileToDataUrl(fileOrBlob);
 }

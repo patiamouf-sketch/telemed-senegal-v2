@@ -11,7 +11,10 @@ import { addDays } from 'date-fns';
 
 const ADMIN_EMAIL = (process.env.NEXT_PUBLIC_ADMIN_EMAIL || 'pati.amouf@gmail.com').toLowerCase();
 
-function normalizeDoctorStatus(profile: DoctorProfile | null): DoctorProfile | null {
+function normalizeDoctorStatus(profile: DoctorProfile): DoctorProfile;
+function normalizeDoctorStatus(profile: null | undefined): null;
+function normalizeDoctorStatus(profile: DoctorProfile | null | undefined): DoctorProfile | null;
+function normalizeDoctorStatus(profile: DoctorProfile | null | undefined): DoctorProfile | null {
   if (!profile) return null;
   return profile;
 }
@@ -82,6 +85,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const unsub = listenToDoctorProfile(targetKey, (updatedProfile) => {
       if (updatedProfile) {
         const normalized = normalizeDoctorStatus(updatedProfile);
+        if (!normalized) return;
         setDoctorProfile(prev => {
           if (
             prev &&
