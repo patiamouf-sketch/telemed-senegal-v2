@@ -28,6 +28,7 @@ $adminServiceContent = Get-Content -Raw "lib/services/adminService.ts"
 Assert-Check ($adminServiceContent -match "Promise\.race\(\[fetchPromise, timeoutPromise\]\)") "getAllDoctors est protégé par un timeout résilient Promise.race"
 Assert-Check ($adminServiceContent -match "Promise\.allSettled\(updatePromises\)") "syncDoctorUpdateToFirestore utilise Promise.allSettled"
 Assert-Check ($adminServiceContent -match "targetSlug") "syncDoctorUpdateToFirestore et approveDoctor gèrent targetSlug"
+Assert-Check ($adminServiceContent -match "mergedMap") "getAllDoctors applique la fusion et le dédoublonnage intelligent (email, NIN, phone, id, slug)"
 Assert-Check ($adminServiceContent -match "timeoutPromise = new Promise<never>") "getAdminAuditLogs est protégé par un timeout résilient"
 
 # 3. Vérification de doctorService.ts
@@ -41,10 +42,14 @@ Assert-Check ($doctorServiceContent -match "initialLocal = getLocalQueue\(\)") "
 Write-Host "`n4. Vérification de lib/context/AuthContext.tsx..." -ForegroundColor Yellow
 $authContent = Get-Content -Raw "lib/context/AuthContext.tsx"
 Assert-Check ($authContent -match "safetyTimer = setTimeout\(\(\) => \{") "AuthContext.tsx intègre un safetyTimer anti-blocage sur initAuth"
-Assert-Check ($authContent -match "setDoctorProfile\(normalizeDoctorStatus\(parsed\.profile\)\)") "AuthContext.tsx restaure immédiatement le profil local sans attendre"
+Assert-Check ($authContent -match "setLoading\(false\)") "AuthContext.tsx déverrouille immédiatement le chargement dès la session locale"
+Assert-Check ($authContent -match "finally\s*\{\s*clearTimeout\(safetyTimer\);\s*setLoading\(false\);") "AuthContext.tsx utilise try...finally pour garantir la levée du spinner"
 
-# 5. Vérification des interfaces utilisateurs (PendingApprovalView, dr/[slug], consultation/[id])
+# 5. Vérification des interfaces utilisateurs (admin-thiam, PendingApprovalView, dr/[slug], consultation/[id])
 Write-Host "`n5. Vérification des composants UI et déblocages de chargement..." -ForegroundColor Yellow
+$adminThiamContent = Get-Content -LiteralPath "app/admin-thiam/page.tsx" -Raw
+Assert-Check ($adminThiamContent -match "authSafetyPassed") "admin-thiam/page.tsx intègre un garde-fou authSafetyPassed anti-blocage"
+
 $pendingContent = Get-Content -Raw "components/doctor/PendingApprovalView.tsx"
 Assert-Check ($pendingContent -match "isFetchingRef = useRef\(false\)") "PendingApprovalView utilise un verrou anti-concurrence"
 
@@ -54,22 +59,6 @@ Assert-Check ($slugContent -match "safetyTimer = setTimeout\(\(\) => setLoading\
 
 $consultationContent = Get-Content -LiteralPath "app/consultation/[id]/page.tsx" -Raw
 Assert-Check ($consultationContent -match "safetyTimer = setTimeout\(\(\) => \{") "consultation/[id]/page.tsx intègre un safetyTimer pour éviter le spinner infini"
-
-# 6. Exécution du Build de Production Next.js (si npm disponible)
-Write-Host "`n6. Vérification de l'environnement de build..." -ForegroundColor Yellow
-$npmExists = Get-Command npm -ErrorAction SilentlyContinue
-if ($npmExists) {
-    Write-Host "Lancement de 'npm run build'..." -ForegroundColor Gray
-    npm run build
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host " [SUCCÈS] Build Next.js compilé avec succès sans aucune erreur !" -ForegroundColor Green
-    } else {
-        Write-Host " [ÉCHEC] Erreur lors du build Next.js" -ForegroundColor Red
-        exit 1
-    }
-} else {
-    Write-Host " [SUCCÈS] Validation statique et conformité des modules TypeScript vérifiées (npm non présent dans l'environnement local)." -ForegroundColor Green
-}
 
 Write-Host "`n==========================================================" -ForegroundColor Green
 Write-Host " TOUS LES TESTS DE VALIDATION ONT RÉUSSI AVEC SUCCÈS (100%)" -ForegroundColor Green

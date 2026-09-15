@@ -61,6 +61,7 @@ export default function AdminThiamPage() {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'pending' | 'active' | 'banned' | 'medications' | 'audit' | 'all'>('pending');
+  const [authSafetyPassed, setAuthSafetyPassed] = useState(false);
 
   // Modal d'approbation d'un médicament
   const [selectedMedToApprove, setSelectedMedToApprove] = useState<PendingMedication | null>(null);
@@ -75,6 +76,13 @@ export default function AdminThiamPage() {
   const [approveChd, setApproveChd] = useState('Prise au cours des repas avec un grand verre d’eau.');
 
   const isFetchingRef = useRef(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setAuthSafetyPassed(true);
+    }, 600);
+    return () => clearTimeout(timer);
+  }, []);
 
   const loadData = async (silent: boolean = false) => {
     if (!isAdmin) return;
@@ -110,7 +118,7 @@ export default function AdminThiamPage() {
     return () => clearInterval(interval);
   }, [isAdmin]);
 
-  if (authLoading) {
+  if (authLoading && !authSafetyPassed) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#F4F9FD]">
         <GlassCard className="p-8 text-center bg-white/80 max-w-xs shadow-xl">

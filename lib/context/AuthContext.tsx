@@ -113,7 +113,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               if (parsed.profile) {
                 setDoctorProfile(normalizeDoctorStatus(parsed.profile));
               }
-              // Rafraîchissement asynchrone non-bloquant
+              // Déverrouillage immédiat si une session locale existe
+              setLoading(false);
+              // Rafraîchissement asynchrone non-bloquant en arrière-plan
               getDoctorById(parsed.user.uid).then(freshProfile => {
                 if (freshProfile) {
                   setDoctorProfile(normalizeDoctorStatus(freshProfile));
@@ -124,29 +126,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         } catch (e) {}
       }
 
-      // Timer de sécurité : garantit la levée du spinner après 1200ms quoi qu'il arrive
+      // Timer de sécurité : garantit la levée du spinner après 800ms quoi qu'il arrive
       const safetyTimer = setTimeout(() => {
         setLoading(false);
-      }, 1200);
+      }, 800);
 
       if (isFirebaseConfigured && auth) {
         unsubscribe = onAuthStateChanged(auth, async (firebaseUser: User | null) => {
-          clearTimeout(safetyTimer);
-          if (firebaseUser) {
-            const currentUser = {
-              uid: firebaseUser.uid,
-              email: firebaseUser.email || '',
-              displayName: firebaseUser.displayName || undefined,
-            };
-            setUser(currentUser);
-            const profile = await getDoctorById(firebaseUser.uid) || await getDoctorById(firebaseUser.email || '');
-            const normalized = normalizeDoctorStatus(profile);
-            setDoctorProfile(normalized);
-            if (typeof window !== 'undefined') {
-              localStorage.setItem('telemed_session_v2', JSON.stringify({ user: currentUser, profile: normalized }));
+          try {
+            if (firebaseUser) {
+              const currentUser = {
+                uid: firebaseUser.uid,
+                email: firebaseUser.email || '',
+                displayName: firebaseUser.displayName || undefined,
+              };
+              setUser(currentUser);
+              const profile = await getDoctorById(firebaseUser.uid) || await getDoctorById(firebaseUser.email || '');
+              const normalized = normalizeDoctorStatus(profile);
+              setDoctorProfile(normalized);
+              if (typeof window !== 'undefined') {
+                localStorage.setItem('telemed_session_v2', JSON.stringify({ user: currentUser, profile: normalized }));
+              }
             }
+          } catch (err) {
+            console.warn('onAuthStateChanged profile sync notice:', err);
+          } finally {
+            clearTimeout(safetyTimer);
+            setLoading(false);
           }
-          setLoading(false);
         });
       } else {
         clearTimeout(safetyTimer);

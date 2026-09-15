@@ -1,7 +1,7 @@
 import { DoctorProfile, AdminStats, AdminAuditLog, AdminActionType } from '../types/doctor';
 import { db, isFirebaseConfigured } from '../firebase';
 import { getLocalDoctors, saveLocalDoctors, getLocalQueue } from './mockData';
-import { doc, getDoc, getDocs, collection, query, where, setDoc, deleteDoc, deleteField, orderBy, limit } from 'firebase/firestore';
+import { doc, getDoc, getDocs, collection, query, where, setDoc, deleteDoc, orderBy, limit } from 'firebase/firestore';
 import { addDays } from 'date-fns';
 
 function mergeDoctorRecord(existing: DoctorProfile | undefined, incoming: DoctorProfile): DoctorProfile {
@@ -29,18 +29,18 @@ function mergeDoctorRecord(existing: DoctorProfile | undefined, incoming: Doctor
     ...base,
     id: existing.id || incoming.id,
     status: finalStatus,
-    banReason: existing.banReason || incoming.banReason,
-    rejectionReason: existing.rejectionReason || incoming.rejectionReason,
+    banReason: (finalStatus === 'active' ? undefined : (existing.banReason || incoming.banReason)),
+    rejectionReason: (finalStatus === 'active' ? undefined : (existing.rejectionReason || incoming.rejectionReason)),
     licenseExpiresAt: finalLicense,
   };
 }
 
 /**
- * Récupère tous les médecins enregistrés (Firestore + API Serverless Cloud + LocalStorage)
+ * Récupère tous les médecins enregistrés (Firestore + LocalStorage) avec fusion et dédoublonnage intelligent
  * Protégé par un timeout résilient strict de 2,5s pour éliminer tout blocage de chargement.
  */
 export async function getAllDoctors(): Promise<DoctorProfile[]> {
-  const emailMap = new Map<string, DoctorProfile>();
+  const doctorList: DoctorProfile[] = [];
 
   // 1. PRIORITÉ ABSOLUE N°1 : FIRESTORE DATABASE (avec timeout résilient de 2500ms)
   if (isFirebaseConfigured && db) {
@@ -57,10 +57,7 @@ export async function getAllDoctors(): Promise<DoctorProfile[]> {
           ...data,
           id: data.id || docSnap.id,
         };
-        const key = docWithId.email ? docWithId.email.toLowerCase().trim() : (docWithId.id || docSnap.id);
-        if (key) {
-          emailMap.set(key, mergeDoctorRecord(emailMap.get(key), docWithId));
-        }
+        doctorList.push(docWithId);
       });
     } catch (e) {
       console.warn('Firebase getAllDoctors notice (bascule sur cache local):', e);
@@ -69,19 +66,57 @@ export async function getAllDoctors(): Promise<DoctorProfile[]> {
 
   // 2. PRIORITÉ N°2 : Local Storage
   const local = getLocalDoctors();
-  local.forEach(d => {
-    const key = d.email ? d.email.toLowerCase().trim() : d.id;
-    if (key) {
-      const existing = emailMap.get(key);
-      if (!existing) {
-        emailMap.set(key, d);
-      } else {
-        emailMap.set(key, mergeDoctorRecord(existing, d));
+  doctorList.push(...local);
+
+  // 3. FUSION & DÉDOUBLONNAGE INTELLIGENT
+  // Regroupement par email, NIN, téléphone ou identifiant
+  const mergedMap = new Map<string, DoctorProfile>();
+
+  const getCanonicalKey = (d: DoctorProfile): string => {
+    if (d.email && d.email.trim()) return `email:${d.email.toLowerCase().trim()}`;
+    if (d.nin && d.nin.trim()) return `nin:${d.nin.trim()}`;
+    if (d.phone && d.phone.replace(/\D/g, '')) return `phone:${d.phone.replace(/\D/g, '')}`;
+    if (d.slug && d.slug.trim()) return `slug:${d.slug.trim()}`;
+    return `id:${d.id}`;
+  };
+
+  for (const d of doctorList) {
+    let matchedKey: string | null = null;
+    const dEmail = d.email?.toLowerCase().trim();
+    const dNin = d.nin?.trim();
+    const dPhone = d.phone?.replace(/\D/g, '');
+    const dSlug = d.slug?.trim();
+    const dName = d.fullName?.toLowerCase().trim();
+
+    for (const [key, existing] of mergedMap.entries()) {
+      const eEmail = existing.email?.toLowerCase().trim();
+      const eNin = existing.nin?.trim();
+      const ePhone = existing.phone?.replace(/\D/g, '');
+      const eSlug = existing.slug?.trim();
+      const eName = existing.fullName?.toLowerCase().trim();
+
+      if (
+        (dEmail && eEmail && dEmail === eEmail) ||
+        (dNin && eNin && dNin === eNin) ||
+        (dPhone && ePhone && dPhone === ePhone && dPhone.length >= 8) ||
+        (d.id && existing.id && d.id === existing.id) ||
+        (dSlug && eSlug && dSlug === eSlug) ||
+        (dName && eName && dName === eName && dName.length > 5)
+      ) {
+        matchedKey = key;
+        break;
       }
     }
-  });
 
-  const combined = Array.from(emailMap.values());
+    if (matchedKey) {
+      const existing = mergedMap.get(matchedKey)!;
+      mergedMap.set(matchedKey, mergeDoctorRecord(existing, d));
+    } else {
+      mergedMap.set(getCanonicalKey(d), d);
+    }
+  }
+
+  const combined = Array.from(mergedMap.values());
   saveLocalDoctors(combined);
   return combined;
 }
@@ -196,33 +231,48 @@ async function syncDoctorUpdateToFirestore(
   const targetDb = db;
   const updatePromises: Promise<any>[] = [];
 
-  // 1. Mise à jour directe et immédiate sur targetId
+  // Nettoyage de l'objet de mise à jour pour éviter toute exception Firestore
+  const cleanUpdates: Record<string, any> = {};
+  for (const [key, val] of Object.entries(firestoreUpdates)) {
+    if (val !== undefined) {
+      cleanUpdates[key] = val;
+    }
+  }
+
+  // 1. Mise à jour directe sur targetId
   if (targetId) {
-    updatePromises.push(setDoc(doc(targetDb, 'doctors', targetId), firestoreUpdates, { merge: true }));
+    updatePromises.push(setDoc(doc(targetDb, 'doctors', targetId), cleanUpdates, { merge: true }));
   }
 
   // 2. Si clean !== targetId, mise à jour sur clean
   if (clean && clean !== targetId) {
-    updatePromises.push(setDoc(doc(targetDb, 'doctors', clean), firestoreUpdates, { merge: true }));
+    updatePromises.push(setDoc(doc(targetDb, 'doctors', clean), cleanUpdates, { merge: true }));
   }
 
   // 3. Mise à jour sur l'alias email si présent
   const cleanEmail = targetEmail?.toLowerCase().trim();
   if (cleanEmail && cleanEmail !== targetId && cleanEmail !== clean) {
-    updatePromises.push(setDoc(doc(targetDb, 'doctors', cleanEmail), firestoreUpdates, { merge: true }));
+    updatePromises.push(setDoc(doc(targetDb, 'doctors', cleanEmail), cleanUpdates, { merge: true }));
   }
 
   // 4. Mise à jour sur le slug si fourni
   const cleanSlug = targetSlug?.trim();
   if (cleanSlug && cleanSlug !== targetId && cleanSlug !== clean && cleanSlug !== cleanEmail) {
-    updatePromises.push(setDoc(doc(targetDb, 'doctors', cleanSlug), firestoreUpdates, { merge: true }));
+    updatePromises.push(setDoc(doc(targetDb, 'doctors', cleanSlug), cleanUpdates, { merge: true }));
   }
 
   // 5. Recherche et mise à jour de tout document Firestore ayant cet email ou cet id
   if (cleanEmail) {
     updatePromises.push(
       getDocs(query(collection(targetDb, 'doctors'), where('email', '==', cleanEmail))).then(snap => {
-        return Promise.all(snap.docs.map(dSnap => setDoc(dSnap.ref, firestoreUpdates, { merge: true })));
+        return Promise.all(snap.docs.map(dSnap => setDoc(dSnap.ref, cleanUpdates, { merge: true })));
+      }).catch(() => {})
+    );
+  }
+  if (clean) {
+    updatePromises.push(
+      getDocs(query(collection(targetDb, 'doctors'), where('id', '==', clean))).then(snap => {
+        return Promise.all(snap.docs.map(dSnap => setDoc(dSnap.ref, cleanUpdates, { merge: true })));
       }).catch(() => {})
     );
   }
@@ -246,32 +296,61 @@ export async function approveDoctor(
   const updates: Partial<DoctorProfile> = {
     status: 'active',
     licenseExpiresAt,
-    rejectionReason: undefined,
-    banReason: undefined,
+    rejectionReason: '',
+    banReason: '',
   };
 
   const clean = doctorId.trim();
   const lower = clean.toLowerCase();
+  
+  // Chercher le profil dans le cache local ou dans la liste globale
   const localDocs = getLocalDoctors();
-  const target = localDocs.find(d => d.id === clean || d.email?.toLowerCase() === lower);
+  let target = localDocs.find(d => 
+    d.id === clean || 
+    d.email?.toLowerCase() === lower || 
+    d.slug === clean ||
+    (lower.includes('@') && d.email?.toLowerCase() === lower)
+  );
+
+  if (!target) {
+    const all = await getAllDoctors();
+    target = all.find(d => 
+      d.id === clean || 
+      d.email?.toLowerCase() === lower || 
+      d.slug === clean
+    );
+  }
+
   const targetId = target?.id || clean;
   const targetEmail = target?.email?.toLowerCase().trim() || (lower.includes('@') ? lower : '');
-
   const targetSlug = target?.slug || (target?.fullName ? `dr-${target.fullName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}` : '');
 
   // 1. Mise à jour LocalStorage et Session immédiate
   let updatedDoc: DoctorProfile | null = null;
-  const updatedList = localDocs.map(d => {
-    if (d.id === targetId || d.id === clean || (targetEmail && d.email.toLowerCase() === targetEmail)) {
+  const freshDocs = getLocalDoctors();
+  let foundInFresh = false;
+  const updatedList = freshDocs.map(d => {
+    if (
+      d.id === targetId || 
+      d.id === clean || 
+      (targetEmail && d.email?.toLowerCase() === targetEmail) ||
+      (targetSlug && d.slug === targetSlug)
+    ) {
       const up = { ...d, ...updates };
       updatedDoc = up;
+      foundInFresh = true;
       return up;
     }
     return d;
   });
-  if (updatedDoc) {
-    saveLocalDoctors(updatedList);
+
+  if (!foundInFresh && target) {
+    const newUp = { ...target, ...updates };
+    updatedDoc = newUp;
+    updatedList.push(newUp);
   }
+
+  saveLocalDoctors(updatedList);
 
   if (typeof window !== 'undefined') {
     try {
@@ -297,8 +376,8 @@ export async function approveDoctor(
   const firestoreUpdates = {
     status: 'active',
     licenseExpiresAt,
-    rejectionReason: deleteField(),
-    banReason: deleteField(),
+    rejectionReason: '',
+    banReason: '',
   };
   await syncDoctorUpdateToFirestore(targetId, clean, targetEmail, firestoreUpdates, targetSlug);
 
@@ -328,24 +407,37 @@ export async function rejectDoctor(
   const clean = doctorId.trim();
   const lower = clean.toLowerCase();
   const localDocs = getLocalDoctors();
-  const target = localDocs.find(d => d.id === clean || d.email?.toLowerCase() === lower);
+  let target = localDocs.find(d => d.id === clean || d.email?.toLowerCase() === lower || d.slug === clean);
+  if (!target) {
+    const all = await getAllDoctors();
+    target = all.find(d => d.id === clean || d.email?.toLowerCase() === lower || d.slug === clean);
+  }
+
   const targetId = target?.id || clean;
   const targetEmail = target?.email?.toLowerCase().trim() || (lower.includes('@') ? lower : '');
   const targetSlug = target?.slug;
 
   // 1. Mise à jour LocalStorage et Session
   let updatedDoc: DoctorProfile | null = null;
-  const updatedList = localDocs.map(d => {
-    if (d.id === targetId || d.id === clean || (targetEmail && d.email.toLowerCase() === targetEmail)) {
+  const freshDocs = getLocalDoctors();
+  let foundInFresh = false;
+  const updatedList = freshDocs.map(d => {
+    if (d.id === targetId || d.id === clean || (targetEmail && d.email?.toLowerCase() === targetEmail)) {
       const up = { ...d, ...updates };
       updatedDoc = up;
+      foundInFresh = true;
       return up;
     }
     return d;
   });
-  if (updatedDoc) {
-    saveLocalDoctors(updatedList);
+
+  if (!foundInFresh && target) {
+    const newUp = { ...target, ...updates };
+    updatedDoc = newUp;
+    updatedList.push(newUp);
   }
+
+  saveLocalDoctors(updatedList);
 
   if (typeof window !== 'undefined') {
     try {
@@ -397,24 +489,37 @@ export async function banDoctor(
   const clean = doctorId.trim();
   const lower = clean.toLowerCase();
   const localDocs = getLocalDoctors();
-  const target = localDocs.find(d => d.id === clean || d.email?.toLowerCase() === lower);
+  let target = localDocs.find(d => d.id === clean || d.email?.toLowerCase() === lower || d.slug === clean);
+  if (!target) {
+    const all = await getAllDoctors();
+    target = all.find(d => d.id === clean || d.email?.toLowerCase() === lower || d.slug === clean);
+  }
+
   const targetId = target?.id || clean;
   const targetEmail = target?.email?.toLowerCase().trim() || (lower.includes('@') ? lower : '');
   const targetSlug = target?.slug;
 
   // 1. Mise à jour LocalStorage et Session
   let updatedDoc: DoctorProfile | null = null;
-  const updatedList = localDocs.map(d => {
-    if (d.id === targetId || d.id === clean || (targetEmail && d.email.toLowerCase() === targetEmail)) {
+  const freshDocs = getLocalDoctors();
+  let foundInFresh = false;
+  const updatedList = freshDocs.map(d => {
+    if (d.id === targetId || d.id === clean || (targetEmail && d.email?.toLowerCase() === targetEmail)) {
       const up = { ...d, ...updates };
       updatedDoc = up;
+      foundInFresh = true;
       return up;
     }
     return d;
   });
-  if (updatedDoc) {
-    saveLocalDoctors(updatedList);
+
+  if (!foundInFresh && target) {
+    const newUp = { ...target, ...updates };
+    updatedDoc = newUp;
+    updatedList.push(newUp);
   }
+
+  saveLocalDoctors(updatedList);
 
   if (typeof window !== 'undefined') {
     try {
@@ -459,33 +564,46 @@ export async function unbanDoctor(
 ): Promise<DoctorProfile | null> {
   const updates: Partial<DoctorProfile> = {
     status: 'active',
-    banReason: undefined,
+    banReason: '',
   };
   const firestoreUpdates = {
     status: 'active',
-    banReason: deleteField(),
+    banReason: '',
   };
 
   const clean = doctorId.trim();
   const lower = clean.toLowerCase();
   const localDocs = getLocalDoctors();
-  const target = localDocs.find(d => d.id === clean || d.email?.toLowerCase() === lower);
+  let target = localDocs.find(d => d.id === clean || d.email?.toLowerCase() === lower || d.slug === clean);
+  if (!target) {
+    const all = await getAllDoctors();
+    target = all.find(d => d.id === clean || d.email?.toLowerCase() === lower || d.slug === clean);
+  }
+
   const targetId = target?.id || clean;
   const targetEmail = target?.email?.toLowerCase().trim() || (lower.includes('@') ? lower : '');
   const targetSlug = target?.slug;
 
   let updatedDoc: DoctorProfile | null = null;
-  const updatedList = localDocs.map(d => {
-    if (d.id === targetId || d.id === clean || (targetEmail && d.email.toLowerCase() === targetEmail)) {
+  const freshDocs = getLocalDoctors();
+  let foundInFresh = false;
+  const updatedList = freshDocs.map(d => {
+    if (d.id === targetId || d.id === clean || (targetEmail && d.email?.toLowerCase() === targetEmail)) {
       const up = { ...d, ...updates };
       updatedDoc = up;
+      foundInFresh = true;
       return up;
     }
     return d;
   });
-  if (updatedDoc) {
-    saveLocalDoctors(updatedList);
+
+  if (!foundInFresh && target) {
+    const newUp = { ...target, ...updates };
+    updatedDoc = newUp;
+    updatedList.push(newUp);
   }
+
+  saveLocalDoctors(updatedList);
 
   if (typeof window !== 'undefined') {
     try {
@@ -522,19 +640,6 @@ export async function unbanDoctor(
   return updatedDoc || (target ? { ...target, ...updates } : null);
 }
 
-  // 3. Traçabilité Médico-Légale (Journal d'audit)
-  await logAdminAction({
-    action: 'unban_doctor',
-    adminEmail,
-    targetId,
-    targetName: target?.fullName || targetEmail || doctorId,
-    targetType: 'doctor',
-    details: 'Levée de la suspension ordinale et réactivation complète de la licence d’exercice.',
-  });
-
-  return updatedDoc || (target ? { ...target, ...updates } : null);
-}
-
 export async function deleteDoctorPermanently(
   doctorId: string,
   adminEmail: string = 'dr.thiam@telemed.sn'
@@ -542,7 +647,12 @@ export async function deleteDoctorPermanently(
   const clean = doctorId.trim();
   const lower = clean.toLowerCase();
   const localDocs = getLocalDoctors();
-  const target = localDocs.find(d => d.id === clean || d.email?.toLowerCase() === lower);
+  let target = localDocs.find(d => d.id === clean || d.email?.toLowerCase() === lower || d.slug === clean);
+  if (!target) {
+    const all = await getAllDoctors();
+    target = all.find(d => d.id === clean || d.email?.toLowerCase() === lower || d.slug === clean);
+  }
+
   const targetId = target?.id || clean;
   const targetEmail = target?.email?.toLowerCase().trim() || (lower.includes('@') ? lower : '');
 
@@ -591,7 +701,12 @@ export async function renewDoctorLicense(
   const clean = doctorId.trim();
   const lower = clean.toLowerCase();
   const localDocs = getLocalDoctors();
-  const docProfile = localDocs.find(d => d.id === clean || d.email?.toLowerCase() === lower);
+  let docProfile = localDocs.find(d => d.id === clean || d.email?.toLowerCase() === lower || d.slug === clean);
+  if (!docProfile) {
+    const all = await getAllDoctors();
+    docProfile = all.find(d => d.id === clean || d.email?.toLowerCase() === lower || d.slug === clean);
+  }
+
   const targetId = docProfile?.id || clean;
   const targetEmail = docProfile?.email?.toLowerCase().trim() || (lower.includes('@') ? lower : '');
 
@@ -601,28 +716,36 @@ export async function renewDoctorLicense(
 
   const updates: Partial<DoctorProfile> = {
     status: 'active',
-    banReason: undefined,
+    banReason: '',
     licenseExpiresAt: newExpiry,
   };
   const firestoreUpdates = {
     status: 'active',
-    banReason: deleteField(),
+    banReason: '',
     licenseExpiresAt: newExpiry,
   };
 
   // 1. Mise à jour LocalStorage et Session
   let updatedDoc: DoctorProfile | null = null;
-  const updatedList = localDocs.map(d => {
-    if (d.id === targetId || d.id === clean || (targetEmail && d.email.toLowerCase() === targetEmail)) {
+  const freshDocs = getLocalDoctors();
+  let foundInFresh = false;
+  const updatedList = freshDocs.map(d => {
+    if (d.id === targetId || d.id === clean || (targetEmail && d.email?.toLowerCase() === targetEmail)) {
       const up = { ...d, ...updates };
       updatedDoc = up;
+      foundInFresh = true;
       return up;
     }
     return d;
   });
-  if (updatedDoc) {
-    saveLocalDoctors(updatedList);
+
+  if (!foundInFresh && docProfile) {
+    const newUp = { ...docProfile, ...updates };
+    updatedDoc = newUp;
+    updatedList.push(newUp);
   }
+
+  saveLocalDoctors(updatedList);
 
   if (typeof window !== 'undefined') {
     try {
