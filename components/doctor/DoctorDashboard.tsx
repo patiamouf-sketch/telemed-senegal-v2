@@ -93,8 +93,9 @@ export function DoctorDashboard() {
   };
 
   // Pricing & service settings state
-  const [avisFee, setAvisFee] = useState<number>(doctorProfile?.avisMedicalFee || 3000);
-  const [visioFee, setVisioFee] = useState<number>(doctorProfile?.visioConsultationFee || 7000);
+  const [consultationFee, setConsultationFee] = useState<number>(
+    doctorProfile?.consultationFee || doctorProfile?.visioConsultationFee || doctorProfile?.avisMedicalFee || 5000
+  );
   const [waveNum, setWaveNum] = useState<string>(doctorProfile?.waveNumber || doctorProfile?.phone || '+221 77 654 32 10');
   const [omNum, setOmNum] = useState<string>(doctorProfile?.omNumber || doctorProfile?.phone || '+221 78 654 32 10');
   const [savingPrices, setSavingPrices] = useState(false);
@@ -110,8 +111,9 @@ export function DoctorDashboard() {
 
   useEffect(() => {
     if (doctorProfile) {
-      setAvisFee(doctorProfile.avisMedicalFee || 3000);
-      setVisioFee(doctorProfile.visioConsultationFee || 7000);
+      setConsultationFee(
+        doctorProfile.consultationFee || doctorProfile.visioConsultationFee || doctorProfile.avisMedicalFee || 5000
+      );
       setWaveNum(doctorProfile.waveNumber || doctorProfile.phone || '+221 77 654 32 10');
       setOmNum(doctorProfile.omNumber || doctorProfile.phone || '+221 78 654 32 10');
     }
@@ -163,8 +165,9 @@ export function DoctorDashboard() {
     if (!doctorProfile) return;
     setSavingPrices(true);
     await updateDoctorProfile(doctorProfile.id, {
-      avisMedicalFee: Number(avisFee) || 3000,
-      visioConsultationFee: Number(visioFee) || 7000,
+      consultationFee: Number(consultationFee) || 5000,
+      avisMedicalFee: Number(consultationFee) || 5000,
+      visioConsultationFee: Number(consultationFee) || 5000,
       waveNumber: waveNum,
       omNumber: omNum,
     });
@@ -450,63 +453,32 @@ export function DoctorDashboard() {
           </div>
 
           <form onSubmit={handleSaveServices} className="space-y-4 text-xs">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* Prestation 1: Avis Médical */}
-              <div className="p-4 rounded-[24px] bg-white border border-slate-100 shadow-sm space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-[#0F172A] flex items-center gap-1.5 text-sm">
-                    <MessageSquare className="w-4 h-4 text-[#3B82F6]" />
-                    Avis Médical
-                  </span>
-                  <Badge variant="sky" size="sm">
-                    Messagerie/Audio
-                  </Badge>
-                </div>
-                <p className="text-[11px] text-slate-500">
-                  Conseil médical succinct, orientation ou renouvellement.
-                </p>
-                <div className="pt-1">
-                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                    Tarif fixé (FCFA) :
-                  </label>
-                  <input
-                    type="number"
-                    min="1000"
-                    step="500"
-                    value={avisFee}
-                    onChange={e => setAvisFee(Number(e.target.value))}
-                    className="w-full px-3.5 py-2.5 rounded-[18px] bg-slate-50 border border-slate-200/70 text-[#0F172A] font-bold focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                  />
-                </div>
+            {/* Prestation Unique: Téléconsultation */}
+            <div className="p-4 rounded-[24px] bg-white border border-slate-100 shadow-sm space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-[#0F172A] flex items-center gap-1.5 text-sm">
+                  <MessageSquare className="w-4 h-4 text-sky-600" />
+                  Téléconsultation Médicale Complète
+                </span>
+                <Badge variant="emerald" size="sm">
+                  Audio & Photos
+                </Badge>
               </div>
-
-              {/* Prestation 2: Visio Consultation */}
-              <div className="p-4 rounded-[24px] bg-white border border-slate-100 shadow-sm space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-[#0F172A] flex items-center gap-1.5 text-sm">
-                    <Video className="w-4 h-4 text-teal-600" />
-                    Visio Consultation
-                  </span>
-                  <Badge variant="emerald" size="sm">
-                    Vidéo HD
-                  </Badge>
-                </div>
-                <p className="text-[11px] text-slate-500">
-                  Examen clinique visuel, interrogatoire complet et ordonnance.
-                </p>
-                <div className="pt-1">
-                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                    Tarif fixé (FCFA) :
-                  </label>
-                  <input
-                    type="number"
-                    min="2000"
-                    step="500"
-                    value={visioFee}
-                    onChange={e => setVisioFee(Number(e.target.value))}
-                    className="w-full px-3.5 py-2.5 rounded-[18px] bg-slate-50 border border-slate-200/70 text-[#0F172A] font-bold focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                  />
-                </div>
+              <p className="text-[11px] text-slate-500">
+                Échanges interactifs par notes vocales, transmission d'images et ordonnance officielle certifiée.
+              </p>
+              <div className="pt-1">
+                <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                  Tarif unique fixé (FCFA) :
+                </label>
+                <input
+                  type="number"
+                  min="1000"
+                  step="500"
+                  value={consultationFee}
+                  onChange={e => setConsultationFee(Number(e.target.value))}
+                  className="w-full px-3.5 py-2.5 rounded-[18px] bg-slate-50 border border-slate-200/70 text-[#0F172A] font-bold focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                />
               </div>
             </div>
 
@@ -656,18 +628,12 @@ export function DoctorDashboard() {
                     </div>
 
                     <Badge
-                      variant={patient.serviceType === 'visio_consultation' ? 'sky' : 'emerald'}
+                      variant="sky"
                       size="sm"
                     >
-                      {patient.serviceType === 'visio_consultation' ? (
-                        <span className="flex items-center gap-1">
-                          <Video className="w-3 h-3" /> Visio
-                        </span>
-                      ) : (
-                        <span className="flex items-center gap-1">
-                          <MessageSquare className="w-3 h-3" /> Avis
-                        </span>
-                      )}
+                      <span className="flex items-center gap-1">
+                        <MessageSquare className="w-3 h-3" /> Téléconsultation
+                      </span>
                     </Badge>
                   </div>
 
@@ -1095,8 +1061,6 @@ export function DoctorDashboard() {
             clinicName: '',
             city: 'Dakar',
             consultationFee: 15000,
-            avisMedicalFee: 5000,
-            visioConsultationFee: 15000,
             availableForTeleconsult: true,
             slug: doctorSlug,
             status: 'active',

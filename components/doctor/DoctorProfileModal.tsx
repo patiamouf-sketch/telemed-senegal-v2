@@ -45,8 +45,9 @@ export function DoctorProfileModal({ isOpen, onClose }: DoctorProfileModalProps)
   const [clinicName, setClinicName] = useState(doctorProfile?.clinicName || '');
   const [city, setCity] = useState(doctorProfile?.city || '');
   const [bio, setBio] = useState(doctorProfile?.bio || '');
-  const [avisMedicalFee, setAvisMedicalFee] = useState(doctorProfile?.avisMedicalFee || 3000);
-  const [visioConsultationFee, setVisioConsultationFee] = useState(doctorProfile?.visioConsultationFee || 7000);
+  const [consultationFee, setConsultationFee] = useState(
+    doctorProfile?.consultationFee || doctorProfile?.visioConsultationFee || doctorProfile?.avisMedicalFee || 5000
+  );
   const [waveNumber, setWaveNumber] = useState(doctorProfile?.waveNumber || doctorProfile?.phone || '');
   const [omNumber, setOmNumber] = useState(doctorProfile?.omNumber || doctorProfile?.phone || '');
   const [avatarUrl, setAvatarUrl] = useState<string | undefined>(doctorProfile?.avatarUrl);
@@ -66,8 +67,9 @@ export function DoctorProfileModal({ isOpen, onClose }: DoctorProfileModalProps)
       setClinicName(doctorProfile.clinicName || '');
       setCity(doctorProfile.city || '');
       setBio(doctorProfile.bio || '');
-      setAvisMedicalFee(doctorProfile.avisMedicalFee || 3000);
-      setVisioConsultationFee(doctorProfile.visioConsultationFee || 7000);
+      setConsultationFee(
+        doctorProfile.consultationFee || doctorProfile.visioConsultationFee || doctorProfile.avisMedicalFee || 5000
+      );
       setWaveNumber(doctorProfile.waveNumber || doctorProfile.phone || '');
       setOmNumber(doctorProfile.omNumber || doctorProfile.phone || '');
       setAvatarUrl(doctorProfile.avatarUrl);
@@ -209,8 +211,9 @@ export function DoctorProfileModal({ isOpen, onClose }: DoctorProfileModalProps)
         clinicName: clinicName.trim(),
         city: city.trim(),
         bio: bio.trim(),
-        avisMedicalFee: Number(avisMedicalFee) || 3000,
-        visioConsultationFee: Number(visioConsultationFee) || 7000,
+        consultationFee: Number(consultationFee) || 5000,
+        avisMedicalFee: Number(consultationFee) || 5000,
+        visioConsultationFee: Number(consultationFee) || 5000,
         waveNumber: waveNumber.trim(),
         omNumber: omNumber.trim(),
         avatarUrl,
@@ -398,47 +401,31 @@ export function DoctorProfileModal({ isOpen, onClose }: DoctorProfileModalProps)
                 </div>
               </div>
 
-              {/* Tarifs de consultation */}
+              {/* Tarif unique de Téléconsultation */}
               <div className="p-4 rounded-[22px] bg-blue-50/50 border border-blue-100 space-y-3">
                 <h4 className="font-bold text-[#0F172A] text-xs flex items-center gap-1.5">
                   <CreditCard className="w-4 h-4 text-[#3B82F6]" />
-                  Honoraires & Tarifs de Consultation (FCFA)
+                  Honoraires & Tarif de Téléconsultation (FCFA)
                 </h4>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                      Tarif Avis Médical (Chat / Audio)
-                    </label>
-                    <div className="relative">
-                      <input
-                        type="number"
-                        min="1000"
-                        step="500"
-                        value={avisMedicalFee}
-                        onChange={e => setAvisMedicalFee(Number(e.target.value))}
-                        className="w-full pl-3.5 pr-14 py-2 rounded-[16px] bg-white border border-slate-200 text-xs font-bold text-[#0F172A]"
-                      />
-                      <span className="absolute right-3 top-2 text-[11px] font-bold text-slate-400">FCFA</span>
-                    </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                    Tarif unique de Téléconsultation (Notes vocales, Photos, Messagerie & Ordonnance)
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min="1000"
+                      step="500"
+                      value={consultationFee}
+                      onChange={e => setConsultationFee(Number(e.target.value))}
+                      className="w-full pl-3.5 pr-14 py-2.5 rounded-[16px] bg-white border border-slate-200 text-sm font-extrabold text-[#0F172A]"
+                    />
+                    <span className="absolute right-3 top-2.5 text-[11px] font-bold text-slate-400">FCFA</span>
                   </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                      Tarif Visio-Consultation (Vidéo HD)
-                    </label>
-                    <div className="relative">
-                      <input
-                        type="number"
-                        min="2000"
-                        step="500"
-                        value={visioConsultationFee}
-                        onChange={e => setVisioConsultationFee(Number(e.target.value))}
-                        className="w-full pl-3.5 pr-14 py-2 rounded-[16px] bg-white border border-slate-200 text-xs font-bold text-[#0F172A]"
-                      />
-                      <span className="absolute right-3 top-2 text-[11px] font-bold text-slate-400">FCFA</span>
-                    </div>
-                  </div>
+                  <p className="text-[10px] text-slate-500 mt-1">
+                    Ce montant unique est facturé au patient pour l'ensemble des échanges audio/photo et la prescription.
+                  </p>
                 </div>
               </div>
 
