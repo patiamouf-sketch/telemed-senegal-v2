@@ -15,23 +15,29 @@ export function PendingApprovalView() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const isFetchingRef = useRef(false);
 
-  // Vérification périodique légère et protégée contre l'empilement de requêtes
+  const refreshProfileRef = useRef(refreshProfile);
   useEffect(() => {
+    refreshProfileRef.current = refreshProfile;
+  }, [refreshProfile]);
+
+  // Vérification périodique légère (seulement tant que le médecin est en 'pending')
+  useEffect(() => {
+    if (doctorProfile?.status !== 'pending') return;
+
     const checkStatus = async () => {
       if (isFetchingRef.current) return;
       isFetchingRef.current = true;
       try {
-        await refreshProfile();
+        await refreshProfileRef.current();
       } catch (e) {
       } finally {
         isFetchingRef.current = false;
       }
     };
 
-    checkStatus();
-    const interval = setInterval(checkStatus, 5000);
+    const interval = setInterval(checkStatus, 4000);
     return () => clearInterval(interval);
-  }, [refreshProfile]);
+  }, [doctorProfile?.status]);
 
   // Célébration visuelle dès que le statut passe à 'active'
   useEffect(() => {

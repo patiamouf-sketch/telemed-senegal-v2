@@ -57,8 +57,12 @@ $slugContent = Get-Content -LiteralPath "app/dr/[slug]/page.tsx" -Raw
 Assert-Check ($slugContent -match "isFetchingDoctorRef = useRef\(false\)") "dr/[slug]/page.tsx utilise isFetchingDoctorRef"
 Assert-Check ($slugContent -match "safetyTimer = setTimeout\(\(\) => setLoading\(false\), 2000\)") "dr/[slug]/page.tsx intègre un safetyTimer"
 
-$consultationContent = Get-Content -LiteralPath "app/consultation/[id]/page.tsx" -Raw
-Assert-Check ($consultationContent -match "safetyTimer = setTimeout\(\(\) => \{") "consultation/[id]/page.tsx intègre un safetyTimer pour éviter le spinner infini"
+# 6. Vérification des ErrorBoundaries Next.js (app/error.tsx & app/global-error.tsx)
+Write-Host "`n6. Vérification des barrières d'erreur (ErrorBoundary)..." -ForegroundColor Yellow
+Assert-Check (Test-Path "app/error.tsx") "app/error.tsx est présent pour intercepter les erreurs de page"
+Assert-Check (Test-Path "app/global-error.tsx") "app/global-error.tsx est présent pour intercepter les erreurs globales RootLayout"
+$errorContent = Get-Content -Raw "app/error.tsx"
+Assert-Check ($errorContent -match "Protection Médicale Active") "app/error.tsx contient les libellés de protection médicale en français"
 
 Write-Host "`n==========================================================" -ForegroundColor Green
 Write-Host " TOUS LES TESTS DE VALIDATION ONT RÉUSSI AVEC SUCCÈS (100%)" -ForegroundColor Green

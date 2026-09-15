@@ -211,6 +211,7 @@ export function listenToDoctorProfile(
   const lower = clean.toLowerCase();
   const firestoreDb = db;
   const isEmail = lower.includes('@');
+  let isCleanedUp = false;
 
   const unsubs: (() => void)[] = [];
 
@@ -218,23 +219,27 @@ export function listenToDoctorProfile(
   if (isFirebaseConfigured && firestoreDb) {
     try {
       // 1. Écouteur sur le document direct
-      const docRef = doc(firestoreDb, 'doctors', clean);
-      const unsubDoc = onSnapshot(docRef, (docSnap) => {
-        if (docSnap.exists()) {
-          const data = docSnap.data() as DoctorProfile;
-          const profile = { ...data, id: data.id || docSnap.id };
-          syncDoctorToLocal(profile);
-          callback(profile);
-        }
-      }, (err) => {
-        console.warn('listenToDoctorProfile doc error:', err);
-      });
-      unsubs.push(unsubDoc);
+      if (clean && !clean.includes('/')) {
+        const docRef = doc(firestoreDb, 'doctors', clean);
+        const unsubDoc = onSnapshot(docRef, (docSnap) => {
+          if (isCleanedUp) return;
+          if (docSnap.exists()) {
+            const data = docSnap.data() as DoctorProfile;
+            const profile = { ...data, id: data.id || docSnap.id };
+            syncDoctorToLocal(profile);
+            callback(profile);
+          }
+        }, (err) => {
+          console.warn('listenToDoctorProfile doc error:', err);
+        });
+        unsubs.push(unsubDoc);
+      }
 
       // 2. Écouteur temps réel sur la requête par email
       if (isEmail) {
         const qEmail = query(collection(firestoreDb, 'doctors'), where('email', '==', lower));
         const unsubEmail = onSnapshot(qEmail, (snap) => {
+          if (isCleanedUp) return;
           if (!snap.empty) {
             const activeDoc = snap.docs.find(d => (d.data() as DoctorProfile).status === 'active') || snap.docs[0];
             const data = activeDoc.data() as DoctorProfile;
@@ -250,6 +255,7 @@ export function listenToDoctorProfile(
         // Si clean est un UID / ID, écouter aussi la requête where('id', '==', clean)
         const qId = query(collection(firestoreDb, 'doctors'), where('id', '==', clean));
         const unsubId = onSnapshot(qId, (snap) => {
+          if (isCleanedUp) return;
           if (!snap.empty) {
             const activeDoc = snap.docs.find(d => (d.data() as DoctorProfile).status === 'active') || snap.docs[0];
             const data = activeDoc.data() as DoctorProfile;
@@ -267,23 +273,28 @@ export function listenToDoctorProfile(
     }
   }
 
-  // Émission immédiate depuis le cache local pour réactivité instantanée
-  const local = getLocalDoctors();
-  const matched = local.find(d => d.id === clean || d.email.toLowerCase() === lower);
-  if (matched) {
-    callback(matched);
-  }
+  // Émission initiale asynchrone différée (non-bloquante pour React)
+  setTimeout(() => {
+    if (isCleanedUp) return;
+    const local = getLocalDoctors();
+    const matched = local.find(d => d.id === clean || d.email.toLowerCase() === lower);
+    if (matched) {
+      callback(matched);
+    }
+  }, 0);
 
-  // Polling de repli léger (toutes les 5s)
+  // Polling de repli léger (toutes les 6s)
   const interval = setInterval(() => {
+    if (isCleanedUp) return;
     const freshLocal = getLocalDoctors();
     const freshMatched = freshLocal.find(d => d.id === clean || d.email.toLowerCase() === lower);
     if (freshMatched) {
       callback(freshMatched);
     }
-  }, 5000);
+  }, 6000);
 
   return () => {
+    isCleanedUp = true;
     unsubs.forEach(u => {
       try { u(); } catch (e) {}
     });

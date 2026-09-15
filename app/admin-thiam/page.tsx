@@ -118,7 +118,7 @@ export default function AdminThiamPage() {
     return () => clearInterval(interval);
   }, [isAdmin]);
 
-  if (authLoading && !authSafetyPassed) {
+  if (authLoading && !authSafetyPassed && !user) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#F4F9FD]">
         <GlassCard className="p-8 text-center bg-white/80 max-w-xs shadow-xl">
@@ -378,28 +378,6 @@ export default function AdminThiamPage() {
   const activeDocs = doctors.filter(d => d.status === 'active' && d.id !== 'admin-thiam-1');
   const bannedDocs = doctors.filter(d => d.status === 'banned' || d.status === 'blocked');
   const activePendingMeds = pendingMeds.filter(m => m.status === 'pending');
-
-  // CONTRÔLE D'ACCÈS INVISIBLE (STEALTH MODE) : Seul pati.amouf@gmail.com peut voir cette interface
-  if (!loading && (!user || user.email?.toLowerCase() !== 'pati.amouf@gmail.com')) {
-    return (
-      <div className="min-h-screen flex items-center justify-center p-4 bg-[#F8FAFC] font-sans">
-        <GlassCard className="p-8 text-center bg-white shadow-xl max-w-sm space-y-4 border border-slate-200">
-          <div className="w-12 h-12 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center mx-auto">
-            <ShieldAlert className="w-6 h-6" />
-          </div>
-          <h1 className="text-xl font-bold text-slate-900">404 - Page Introuvable</h1>
-          <p className="text-xs text-slate-500">
-            La ressource demandée n'existe pas ou vous n'avez pas l'autorisation d'y accéder.
-          </p>
-          <Link href="/">
-            <GlassButton variant="primary" size="sm">
-              Retour à l'accueil
-            </GlassButton>
-          </Link>
-        </GlassCard>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen pb-16 font-sans">

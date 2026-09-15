@@ -44,59 +44,65 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setDoctorProfile(null);
       return;
     }
-    // Requête duale UID et Email pour garantir de récupérer le document actif
-    const byId = await getDoctorById(doctorProfile?.id || user.uid);
-    const byEmail = user.email ? await getDoctorById(user.email) : null;
-    const rawProfile = (byId?.status === 'active' ? byId : byEmail?.status === 'active' ? byEmail : byId || byEmail);
-    const profile = normalizeDoctorStatus(rawProfile);
-    if (profile) {
-      setDoctorProfile(profile);
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('telemed_session_v2', JSON.stringify({ user, profile }));
+    try {
+      // Requête multi-clés UID et Email pour garantir de récupérer le document actif
+      const [byId, byEmail] = await Promise.all([
+        getDoctorById(doctorProfile?.id || user.uid),
+        user.email ? getDoctorById(user.email) : Promise.resolve(null)
+      ]);
+      const rawProfile = (byId?.status === 'active' ? byId : byEmail?.status === 'active' ? byEmail : byId || byEmail);
+      const profile = normalizeDoctorStatus(rawProfile);
+      if (profile) {
+        setDoctorProfile(prev => {
+          if (
+            prev &&
+            prev.id === profile.id &&
+            prev.status === profile.status &&
+            prev.licenseExpiresAt === profile.licenseExpiresAt
+          ) {
+            return prev;
+          }
+          return profile;
+        });
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('telemed_session_v2', JSON.stringify({ user, profile }));
+        }
       }
+    } catch (err) {
+      console.warn('refreshProfile notice:', err);
     }
-  }, [user, doctorProfile?.id]);
+  }, [user?.uid, user?.email, doctorProfile?.id]);
 
-  // Écouteur Firestore direct en temps réel sur le document du médecin (UID et Email)
+  // Écouteur Firestore direct en temps réel stabilisé
   useEffect(() => {
     if (!user) return;
-    const targetKey = doctorProfile?.id || user.uid;
-    const unsubs: (() => void)[] = [];
+    const targetKey = user.email || user.uid;
+    if (!targetKey) return;
 
-    if (targetKey) {
-      unsubs.push(
-        listenToDoctorProfile(targetKey, (updatedProfile) => {
-          if (updatedProfile) {
-            const normalized = normalizeDoctorStatus(updatedProfile);
-            setDoctorProfile(normalized);
-            if (typeof window !== 'undefined') {
-              localStorage.setItem('telemed_session_v2', JSON.stringify({ user, profile: normalized }));
-            }
+    const unsub = listenToDoctorProfile(targetKey, (updatedProfile) => {
+      if (updatedProfile) {
+        const normalized = normalizeDoctorStatus(updatedProfile);
+        setDoctorProfile(prev => {
+          if (
+            prev &&
+            prev.id === normalized.id &&
+            prev.status === normalized.status &&
+            prev.licenseExpiresAt === normalized.licenseExpiresAt
+          ) {
+            return prev;
           }
-        })
-      );
-    }
-
-    if (user.email && user.email !== targetKey) {
-      unsubs.push(
-        listenToDoctorProfile(user.email, (updatedProfile) => {
-          if (updatedProfile) {
-            const normalized = normalizeDoctorStatus(updatedProfile);
-            setDoctorProfile(normalized);
-            if (typeof window !== 'undefined') {
-              localStorage.setItem('telemed_session_v2', JSON.stringify({ user, profile: normalized }));
-            }
-          }
-        })
-      );
-    }
+          return normalized;
+        });
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('telemed_session_v2', JSON.stringify({ user, profile: normalized }));
+        }
+      }
+    });
 
     return () => {
-      unsubs.forEach(u => {
-        try { u(); } catch (e) {}
-      });
+      try { unsub(); } catch (e) {}
     };
-  }, [user?.uid, user?.email, doctorProfile?.id]);
+  }, [user?.uid, user?.email]);
 
   useEffect(() => {
     let unsubscribe = () => {};
@@ -115,10 +121,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               }
               // Déverrouillage immédiat si une session locale existe
               setLoading(false);
-              // Rafraîchissement asynchrone non-bloquant en arrière-plan
-              getDoctorById(parsed.user.uid).then(freshProfile => {
-                if (freshProfile) {
-                  setDoctorProfile(normalizeDoctorStatus(freshProfile));
+              // Rafraîchissement asynchrone non-bloquant en arrière-plan (UID + Email)
+              Promise.all([
+                getDoctorById(parsed.user.uid),
+                parsed.user.email ? getDoctorById(parsed.user.email) : Promise.resolve(null)
+              ]).then(([freshById, freshByEmail]) => {
+                const fresh = (freshById?.status === 'active' ? freshById : freshByEmail?.status === 'active' ? freshByEmail : freshById || freshByEmail);
+                if (fresh) {
+                  const normalized = normalizeDoctorStatus(fresh);
+                  setDoctorProfile(normalized);
+                  localStorage.setItem('telemed_session_v2', JSON.stringify({ user: parsed.user, profile: normalized }));
                 }
               }).catch(() => {});
             }
@@ -126,10 +138,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         } catch (e) {}
       }
 
-      // Timer de sécurité : garantit la levée du spinner après 800ms quoi qu'il arrive
+      // Timer de sécurité : garantit la levée du spinner après 600ms quoi qu'il arrive
       const safetyTimer = setTimeout(() => {
         setLoading(false);
-      }, 800);
+      }, 600);
 
       if (isFirebaseConfigured && auth) {
         unsubscribe = onAuthStateChanged(auth, async (firebaseUser: User | null) => {
@@ -141,8 +153,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 displayName: firebaseUser.displayName || undefined,
               };
               setUser(currentUser);
-              const profile = await getDoctorById(firebaseUser.uid) || await getDoctorById(firebaseUser.email || '');
-              const normalized = normalizeDoctorStatus(profile);
+              const [profileById, profileByEmail] = await Promise.all([
+                getDoctorById(firebaseUser.uid),
+                firebaseUser.email ? getDoctorById(firebaseUser.email) : Promise.resolve(null)
+              ]);
+              const raw = (profileById?.status === 'active' ? profileById : profileByEmail?.status === 'active' ? profileByEmail : profileById || profileByEmail);
+              const normalized = normalizeDoctorStatus(raw);
               setDoctorProfile(normalized);
               if (typeof window !== 'undefined') {
                 localStorage.setItem('telemed_session_v2', JSON.stringify({ user: currentUser, profile: normalized }));
