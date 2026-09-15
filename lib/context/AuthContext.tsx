@@ -102,6 +102,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let unsubscribe = () => {};
 
     const initAuth = async () => {
+      // 1. Restauration synchrone et immédiate depuis la session locale
       if (typeof window !== 'undefined') {
         try {
           const savedSession = localStorage.getItem('telemed_session_v2');
@@ -109,15 +110,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             const parsed = JSON.parse(savedSession);
             if (parsed.user) {
               setUser(parsed.user);
-              const freshProfile = await getDoctorById(parsed.user.uid) || await getDoctorById(parsed.user.email) || parsed.profile;
-              setDoctorProfile(normalizeDoctorStatus(freshProfile));
+              if (parsed.profile) {
+                setDoctorProfile(normalizeDoctorStatus(parsed.profile));
+              }
+              // Rafraîchissement asynchrone non-bloquant
+              getDoctorById(parsed.user.uid).then(freshProfile => {
+                if (freshProfile) {
+                  setDoctorProfile(normalizeDoctorStatus(freshProfile));
+                }
+              }).catch(() => {});
             }
           }
         } catch (e) {}
       }
 
+      // Timer de sécurité : garantit la levée du spinner après 1200ms quoi qu'il arrive
+      const safetyTimer = setTimeout(() => {
+        setLoading(false);
+      }, 1200);
+
       if (isFirebaseConfigured && auth) {
         unsubscribe = onAuthStateChanged(auth, async (firebaseUser: User | null) => {
+          clearTimeout(safetyTimer);
           if (firebaseUser) {
             const currentUser = {
               uid: firebaseUser.uid,
@@ -135,6 +149,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setLoading(false);
         });
       } else {
+        clearTimeout(safetyTimer);
         setLoading(false);
       }
     };
