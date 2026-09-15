@@ -8,11 +8,7 @@ import { GlassCard } from '../ui/GlassCard';
 import { GlassButton } from '../ui/GlassButton';
 import { Badge } from '../ui/Badge';
 import {
-  Video,
   Mic,
-  MicOff,
-  VideoOff,
-  PhoneOff,
   MessageSquare,
   FileText,
   Send,
@@ -29,10 +25,9 @@ import {
   AlertTriangle,
   Lock,
   Clock,
+  CheckCircle,
 } from 'lucide-react';
 import {
-  startOutgoingCallRing,
-  playCallConnectedSound,
   playCallEndedSound,
   playMessagePopSound,
   isSoundMuted,
@@ -48,7 +43,6 @@ import {
   getFollowUpStatus
 } from '@/lib/services/doctorService';
 import { isDoctorLicenseValid } from '@/lib/utils/license';
-import { WebRTCManager } from '@/lib/services/webrtcService';
 import { uploadMedia } from '@/lib/services/storageService';
 import confetti from 'canvas-confetti';
 
@@ -62,10 +56,6 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
   const [messages, setMessages] = useState<ChatMessage[]>(patient.messages || []);
   const [inputText, setInputText] = useState('');
   const [isSendingText, setIsSendingText] = useState(false);
-  const [isVideoMuted, setIsVideoMuted] = useState(false);
-  const [isVideoOff, setIsVideoOff] = useState(false);
-  const [callSeconds, setCallSeconds] = useState(0);
-  const [hasRemoteVideo, setHasRemoteVideo] = useState(false);
 
   // Synchronisation temps réel double canal (sous-collection Firestore & document parent)
   useEffect(() => {
@@ -137,11 +127,9 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
     };
   }, [patient.id]);
 
-  // État audio et gestion de la tonalité sortante
+  // État audio et gestion du son
   const [isAudioMuted, setIsAudioMuted] = useState(isSoundMuted());
-  const stopOutgoingRingRef = useRef<(() => void) | null>(null);
   const prevMessagesCountRef = useRef<number>(patient.messages?.length || 0);
-  const prevHasRemoteVideoRef = useRef(false);
 
   // Synchronisation avec l'état silencieux global
   useEffect(() => {
@@ -166,36 +154,6 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
     return () => window.visualViewport?.removeEventListener('resize', updateViewport);
   }, []);
 
-  // Tonalité d'attente d'appel sortant tant que le patient n'a pas décroché
-  useEffect(() => {
-    const followUpStatus = getFollowUpStatus(patient);
-    if (patient.serviceType === 'visio_consultation' && !followUpStatus.isExpired && !hasRemoteVideo) {
-      if (!isAudioMuted) {
-        stopOutgoingRingRef.current = startOutgoingCallRing();
-      }
-    } else {
-      if (stopOutgoingRingRef.current) {
-        stopOutgoingRingRef.current();
-        stopOutgoingRingRef.current = null;
-      }
-    }
-
-    return () => {
-      if (stopOutgoingRingRef.current) {
-        stopOutgoingRingRef.current();
-        stopOutgoingRingRef.current = null;
-      }
-    };
-  }, [patient.serviceType, patient.status, hasRemoteVideo, isAudioMuted]);
-
-  // Son de connexion quand le patient décroche et active sa caméra
-  useEffect(() => {
-    if (!prevHasRemoteVideoRef.current && hasRemoteVideo) {
-      playCallConnectedSound();
-    }
-    prevHasRemoteVideoRef.current = hasRemoteVideo;
-  }, [hasRemoteVideo]);
-
   // Drawer states
   const [showPrescriptionDrawer, setShowPrescriptionDrawer] = useState(false);
   const [latestPrescription, setLatestPrescription] = useState<OfficialPrescription | undefined>(patient.prescription);
@@ -208,12 +166,6 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
   const audioChunksRef = useRef<Blob[]>([]);
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
 
-  // Video stream refs & WebRTC
-  const localVideoRef = useRef<HTMLVideoElement>(null);
-  const remoteVideoRef = useRef<HTMLVideoElement>(null);
-  const mediaStreamRef = useRef<MediaStream | null>(null);
-  const webrtcRef = useRef<WebRTCManager | null>(null);
-
   // Image preview state
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -222,60 +174,6 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
   // License check & Follow-up status
   const licenseCheck = isDoctorLicenseValid(doctor);
   const followUp = getFollowUpStatus(patient);
-
-  // Real Camera Stream & WebRTC P2P setup for Visio
-  useEffect(() => {
-    if (patient.serviceType === 'visio_consultation' && typeof navigator !== 'undefined' && navigator.mediaDevices) {
-      navigator.mediaDevices
-        .getUserMedia({ video: true, audio: true })
-        .then(stream => {
-          mediaStreamRef.current = stream;
-          if (localVideoRef.current) {
-            localVideoRef.current.srcObject = stream;
-          }
-
-          // Initialiser WebRTC (Caller = Doctor)
-          const manager = new WebRTCManager(patient.id, true, {
-            onRemoteStream: (remoteStream) => {
-              if (remoteVideoRef.current) {
-                remoteVideoRef.current.srcObject = remoteStream;
-                setHasRemoteVideo(true);
-              }
-            },
-            onConnectionStateChange: (state) => {
-              if (state === 'connected') {
-                setHasRemoteVideo(true);
-              } else if (state === 'disconnected' || state === 'failed') {
-                setHasRemoteVideo(false);
-              }
-            },
-          });
-          webrtcRef.current = manager;
-          manager.start(stream).catch(e => console.warn('WebRTC start notice:', e));
-        })
-        .catch(err => {
-          console.warn('Camera access not granted or not available (using simulation):', err);
-        });
-
-      return () => {
-        if (webrtcRef.current) {
-          webrtcRef.current.destroy();
-          webrtcRef.current = null;
-        }
-        if (mediaStreamRef.current) {
-          mediaStreamRef.current.getTracks().forEach(track => track.stop());
-        }
-      };
-    }
-  }, [patient.id, patient.serviceType]);
-
-  // Timer for Visio
-  useEffect(() => {
-    if (patient.serviceType === 'visio_consultation') {
-      const timer = setInterval(() => setCallSeconds(s => s + 1), 1000);
-      return () => clearInterval(timer);
-    }
-  }, [patient.serviceType]);
 
   // Voice recording timer
   useEffect(() => {
@@ -297,32 +195,6 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
       return () => clearTimeout(timer);
     }
   }, [messages.length]);
-
-  // Toggle Video Track
-  const toggleVideoTrack = () => {
-    if (mediaStreamRef.current) {
-      const videoTrack = mediaStreamRef.current.getVideoTracks()[0];
-      if (videoTrack) {
-        videoTrack.enabled = !videoTrack.enabled;
-        setIsVideoOff(!videoTrack.enabled);
-        return;
-      }
-    }
-    setIsVideoOff(!isVideoOff);
-  };
-
-  // Toggle Audio Track
-  const toggleAudioTrack = () => {
-    if (mediaStreamRef.current) {
-      const audioTrack = mediaStreamRef.current.getAudioTracks()[0];
-      if (audioTrack) {
-        audioTrack.enabled = !audioTrack.enabled;
-        setIsVideoMuted(!audioTrack.enabled);
-        return;
-      }
-    }
-    setIsVideoMuted(!isVideoMuted);
-  };
 
   // Send Text Message
   const handleSendMessage = async (e?: React.FormEvent) => {
@@ -499,10 +371,6 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
   // Close and Archive Session (active la période de grâce de suivi 48h)
   const handleCloseSession = async () => {
     if (confirm('Souhaitez-vous clôturer cette consultation ? Une période de suivi sécurisée de 48h restera automatiquement active pour vous et le patient.')) {
-      if (stopOutgoingRingRef.current) {
-        stopOutgoingRingRef.current();
-        stopOutgoingRingRef.current = null;
-      }
       playCallEndedSound();
       await archiveConsultationSession(patient.id, latestPrescription);
       confetti({
@@ -526,18 +394,8 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
         {/* Top Header Bar with Clean Patient Badge & License Status */}
         <div className="px-4 sm:px-6 py-3.5 border-b border-slate-100/90 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-gradient-to-r from-sky-50/70 via-white to-blue-50/50 flex-shrink-0">
           <div className="flex items-center gap-3">
-            <div
-              className={`w-11 h-11 rounded-full flex items-center justify-center text-white shadow-md flex-shrink-0 ${
-                patient.serviceType === 'visio_consultation'
-                  ? 'bg-gradient-to-tr from-blue-600 to-sky-400 shadow-blue-500/25'
-                  : 'bg-gradient-to-tr from-teal-600 to-emerald-400 shadow-emerald-500/25'
-              }`}
-            >
-              {patient.serviceType === 'visio_consultation' ? (
-                <Video className="w-5 h-5" />
-              ) : (
-                <MessageSquare className="w-5 h-5" />
-              )}
+            <div className="w-11 h-11 rounded-full flex items-center justify-center text-white shadow-md flex-shrink-0 bg-gradient-to-tr from-sky-600 to-teal-500 shadow-sky-500/25">
+              <MessageSquare className="w-5 h-5" />
             </div>
 
             <div>
@@ -551,8 +409,8 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
                     NIN: {patient.patientNin}
                   </span>
                 )}
-                <Badge variant={followUp.inFollowUp ? 'amber' : followUp.isExpired ? 'slate' : patient.serviceType === 'visio_consultation' ? 'sky' : 'emerald'} size="sm">
-                  {followUp.inFollowUp ? `Suivi Actif (Reste ${followUp.remainingHours}h)` : followUp.isExpired ? 'Archivé (Lecture seule)' : patient.serviceType === 'visio_consultation' ? 'Visio HD' : 'Avis Médical'}
+                <Badge variant={followUp.inFollowUp ? 'amber' : followUp.isExpired ? 'slate' : 'sky'} size="sm">
+                  {followUp.inFollowUp ? `Suivi Actif (Reste ${followUp.remainingHours}h)` : followUp.isExpired ? 'Archivé (Lecture seule)' : 'Téléconsultation (Audio & Message)'}
                 </Badge>
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
@@ -563,13 +421,6 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
           </div>
 
           <div className="flex items-center gap-2">
-            {patient.serviceType === 'visio_consultation' && !followUp.isExpired && (
-              <div className="px-3.5 py-1.5 rounded-full bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold font-mono flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
-                {formatTimer(callSeconds)}
-              </div>
-            )}
-
             {/* Bouton Muet / Audio Actif pour le Praticien */}
             <button
               type="button"
@@ -610,7 +461,7 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
                 onClick={handleCloseSession}
                 className="text-xs bg-rose-50 text-rose-700 hover:bg-rose-100"
               >
-                <PhoneOff className="w-3.5 h-3.5" />
+                <Lock className="w-3.5 h-3.5" />
                 <span>Clôturer séance (Ouvre suivi 48h)</span>
               </GlassButton>
             ) : (
@@ -639,77 +490,6 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
 
         {/* Main Content Area */}
         <div className="flex-1 overflow-hidden flex flex-col">
-          {/* Mode Visio: Fluid WebRTC Video Window with Camera & Controls */}
-          {patient.serviceType === 'visio_consultation' && (
-            <div className="h-64 sm:h-72 bg-slate-950 p-4 border-b border-slate-800 flex flex-col justify-between relative overflow-hidden flex-shrink-0">
-              <div className="flex-1 rounded-[24px] bg-slate-900 border border-slate-800 relative flex items-center justify-center overflow-hidden">
-                {/* Remote Patient Video Stream */}
-                <video
-                  ref={remoteVideoRef}
-                  autoPlay
-                  playsInline
-                  className={`w-full h-full object-cover ${hasRemoteVideo ? 'block' : 'hidden'}`}
-                />
-
-                {!hasRemoteVideo && (
-                  <div className="text-center space-y-2 p-4">
-                    <div className="w-16 h-16 rounded-full bg-gradient-to-tr from-blue-500 to-sky-400 text-white flex items-center justify-center text-2xl font-extrabold mx-auto shadow-2xl ring-4 ring-sky-400/30 animate-pulse">
-                      {patient.patientName.charAt(0)}
-                    </div>
-                    <div>
-                      <h3 className="text-base font-bold text-white">{patient.patientName}</h3>
-                      <div className="inline-flex items-center gap-2 mt-1 px-3.5 py-1 rounded-full bg-sky-500/20 border border-sky-400/30 text-sky-300 text-xs font-semibold">
-                        <span className="w-2 h-2 rounded-full bg-sky-400 animate-ping" />
-                        <span>Appel en cours... En attente du patient</span>
-                      </div>
-                      <p className="text-[11px] text-slate-400 mt-1 font-mono">Tonalité d'attente active • Liaison WebRTC P2P</p>
-                    </div>
-                  </div>
-                )}
-
-                {/* Picture in Picture (Doctor Local Camera Video) */}
-                <div className="absolute bottom-3 right-3 w-32 h-24 rounded-[18px] bg-slate-800 border-2 border-white/20 shadow-2xl flex flex-col items-center justify-center overflow-hidden">
-                  <video
-                    ref={localVideoRef}
-                    autoPlay
-                    playsInline
-                    muted
-                    className={`w-full h-full object-cover ${isVideoOff ? 'hidden' : 'block'}`}
-                  />
-                  {isVideoOff && (
-                    <div className="w-full h-full bg-gradient-to-b from-sky-900/40 to-slate-900 flex flex-col items-center justify-center text-white p-2 text-center">
-                      <Stethoscope className="w-4 h-4 text-sky-400 mb-0.5" />
-                      <span className="text-[9px] font-bold">Caméra Off</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Video Controls Bar */}
-              <div className="pt-3 flex items-center justify-center gap-3">
-                <button
-                  onClick={toggleAudioTrack}
-                  className={`p-2.5 rounded-full transition-all ${
-                    isVideoMuted ? 'bg-rose-500 text-white' : 'bg-white/20 hover:bg-white/30 text-white'
-                  }`}
-                  title={isVideoMuted ? 'Activer micro' : 'Couper micro'}
-                >
-                  {isVideoMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-                </button>
-
-                <button
-                  onClick={toggleVideoTrack}
-                  className={`p-2.5 rounded-full transition-all ${
-                    isVideoOff ? 'bg-rose-500 text-white' : 'bg-white/20 hover:bg-white/30 text-white'
-                  }`}
-                  title={isVideoOff ? 'Activer caméra' : 'Couper caméra'}
-                >
-                  {isVideoOff ? <VideoOff className="w-4 h-4" /> : <Video className="w-4 h-4" />}
-                </button>
-              </div>
-            </div>
-          )}
-
           {/* Chat Feed */}
           <div className="flex-1 flex flex-col bg-white overflow-hidden">
             {/* Clinical Summary Pill */}
