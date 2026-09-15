@@ -25,6 +25,10 @@ export default function DedicatedConsultationPage() {
     if (!id) return;
     setLoading(true);
 
+    const safetyTimer = setTimeout(() => {
+      setLoading(false);
+    }, 2000);
+
     const unsub = listenToPatient(id, (updated) => {
       if (updated) {
         setPatient(updated);
@@ -35,7 +39,10 @@ export default function DedicatedConsultationPage() {
       setLoading(false);
     });
 
-    return () => unsub();
+    return () => {
+      clearTimeout(safetyTimer);
+      unsub();
+    };
   }, [id, doctorProfile, doctor]);
 
   const activeDoc: DoctorProfile = doctor || doctorProfile || {

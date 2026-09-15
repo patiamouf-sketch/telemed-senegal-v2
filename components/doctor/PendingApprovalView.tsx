@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/lib/context/AuthContext';
 import { GlassCard } from '../ui/GlassCard';
 import { GlassButton } from '../ui/GlassButton';
@@ -13,13 +13,23 @@ import confetti from 'canvas-confetti';
 export function PendingApprovalView() {
   const { user, doctorProfile, refreshProfile, logout } = useAuth();
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const isFetchingRef = useRef(false);
 
-  // Écouteur en temps réel automatique : vérifie régulièrement si la direction a validé le compte
+  // Vérification périodique légère et protégée contre l'empilement de requêtes
   useEffect(() => {
-    refreshProfile();
-    const interval = setInterval(async () => {
-      await refreshProfile();
-    }, 1500);
+    const checkStatus = async () => {
+      if (isFetchingRef.current) return;
+      isFetchingRef.current = true;
+      try {
+        await refreshProfile();
+      } catch (e) {
+      } finally {
+        isFetchingRef.current = false;
+      }
+    };
+
+    checkStatus();
+    const interval = setInterval(checkStatus, 5000);
     return () => clearInterval(interval);
   }, [refreshProfile]);
 
@@ -38,6 +48,8 @@ export function PendingApprovalView() {
   }, [doctorProfile?.status]);
 
   const handleRefresh = async () => {
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
     setIsRefreshing(true);
     try {
       await refreshProfile();
@@ -60,6 +72,7 @@ export function PendingApprovalView() {
     } catch (err) {
       console.warn('handleRefresh notice:', err);
     } finally {
+      isFetchingRef.current = false;
       setTimeout(() => setIsRefreshing(false), 300);
     }
   };

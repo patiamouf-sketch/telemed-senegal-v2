@@ -352,20 +352,35 @@ export default function PatientRoomPage() {
     }
   };
 
+  const isFetchingDoctorRef = useRef(false);
+
   const loadDoctorData = useCallback(async (silent: boolean = false) => {
     if (!slug) return;
+    if (isFetchingDoctorRef.current) return;
+    isFetchingDoctorRef.current = true;
+
     if (!silent) setLoading(true);
-    const docProfile = await getDoctorBySlug(slug);
-    setDoctor(docProfile);
-    if (!silent) setLoading(false);
+    try {
+      const docProfile = await getDoctorBySlug(slug);
+      setDoctor(docProfile);
+    } catch (e) {
+      console.warn('Erreur loadDoctorData:', e);
+    } finally {
+      if (!silent) setLoading(false);
+      isFetchingDoctorRef.current = false;
+    }
   }, [slug]);
 
   useEffect(() => {
     loadDoctorData();
+    const safetyTimer = setTimeout(() => setLoading(false), 2000);
     const interval = setInterval(() => {
       loadDoctorData(true);
-    }, 2000);
-    return () => clearInterval(interval);
+    }, 6000);
+    return () => {
+      clearTimeout(safetyTimer);
+      clearInterval(interval);
+    };
   }, [loadDoctorData]);
 
   // Écouteur temps réel dès que la session patient est créée (statut de paiement + double canal messages)
