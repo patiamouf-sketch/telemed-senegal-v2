@@ -49,8 +49,6 @@ export default function DedicatedConsultationPage() {
     slug: 'dr-sow',
     status: 'active',
     consultationFee: 7000,
-    avisMedicalFee: 3000,
-    visioConsultationFee: 7000,
     createdAt: new Date().toISOString(),
     availableForTeleconsult: true,
     email: 'dr.sow@telemed.sn',

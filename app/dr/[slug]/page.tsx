@@ -39,8 +39,6 @@ import {
   Smartphone,
   Send,
   Mic,
-  MicOff,
-  VideoOff,
   Play,
   Pause,
   Volume2,
@@ -51,9 +49,7 @@ import {
   Printer,
   Link as LinkIcon
 } from 'lucide-react';
-import { WebRTCManager } from '@/lib/services/webrtcService';
 import { uploadMedia } from '@/lib/services/storageService';
-import { IncomingCallModal } from '@/components/consultation/IncomingCallModal';
 import {
   playMessagePopSound,
   isSoundMuted,
@@ -90,7 +86,7 @@ export default function PatientRoomPage() {
   const [beneficiaryWeight, setBeneficiaryWeight] = useState('');
 
   const [reason, setReason] = useState('');
-  const [serviceType, setServiceType] = useState<ServiceType>('visio_consultation');
+  const [serviceType, setServiceType] = useState<ServiceType>('teleconsultation');
   const [paymentMethod, setPaymentMethod] = useState<'wave' | 'orange_money'>('wave');
   const [error, setError] = useState<string | null>(null);
 
@@ -188,15 +184,6 @@ export default function PatientRoomPage() {
   const audioChunksRef = useRef<Blob[]>([]);
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
 
-  // Visio WebRTC streams
-  const localVideoRef = useRef<HTMLVideoElement>(null);
-  const remoteDoctorVideoRef = useRef<HTMLVideoElement>(null);
-  const mediaStreamRef = useRef<MediaStream | null>(null);
-  const webrtcRef = useRef<WebRTCManager | null>(null);
-  const [hasDoctorVideo, setHasDoctorVideo] = useState(false);
-  const [isVideoMuted, setIsVideoMuted] = useState(false);
-  const [isVideoOff, setIsVideoOff] = useState(false);
-
   // Voice timer effect
   useEffect(() => {
     let interval: any;
@@ -207,78 +194,6 @@ export default function PatientRoomPage() {
     }
     return () => clearInterval(interval);
   }, [isRecordingVoice]);
-
-  // Video camera stream effect & WebRTC connection when patient enters visio (après décrochage)
-  useEffect(() => {
-    if (step === 'consultation' && serviceType === 'visio_consultation' && !isIncomingCall && createdPatient?.id && typeof navigator !== 'undefined' && navigator.mediaDevices) {
-      navigator.mediaDevices
-        .getUserMedia({ video: true, audio: true })
-        .then(stream => {
-          mediaStreamRef.current = stream;
-          if (localVideoRef.current) {
-            localVideoRef.current.srcObject = stream;
-          }
-
-          // Initialiser WebRTC (Callee = Patient)
-          const manager = new WebRTCManager(createdPatient.id, false, {
-            onRemoteStream: (remoteStream) => {
-              if (remoteDoctorVideoRef.current) {
-                remoteDoctorVideoRef.current.srcObject = remoteStream;
-                setHasDoctorVideo(true);
-              }
-            },
-            onConnectionStateChange: (state) => {
-              if (state === 'connected') {
-                setHasDoctorVideo(true);
-              } else if (state === 'disconnected' || state === 'failed') {
-                setHasDoctorVideo(false);
-              }
-            },
-          });
-          webrtcRef.current = manager;
-          manager.start(stream).catch(err => console.warn('WebRTC patient start notice:', err));
-        })
-        .catch(err => {
-          console.warn('Patient camera access notice:', err);
-        });
-
-      return () => {
-        if (webrtcRef.current) {
-          webrtcRef.current.destroy();
-          webrtcRef.current = null;
-        }
-        if (mediaStreamRef.current) {
-          mediaStreamRef.current.getTracks().forEach(t => t.stop());
-        }
-      };
-    }
-  }, [step, serviceType, createdPatient?.id, isIncomingCall]);
-
-  // Toggle Video Track
-  const toggleVideoTrack = () => {
-    if (mediaStreamRef.current) {
-      const videoTrack = mediaStreamRef.current.getVideoTracks()[0];
-      if (videoTrack) {
-        videoTrack.enabled = !videoTrack.enabled;
-        setIsVideoOff(!videoTrack.enabled);
-        return;
-      }
-    }
-    setIsVideoOff(!isVideoOff);
-  };
-
-  // Toggle Audio Track
-  const toggleAudioTrack = () => {
-    if (mediaStreamRef.current) {
-      const audioTrack = mediaStreamRef.current.getAudioTracks()[0];
-      if (audioTrack) {
-        audioTrack.enabled = !audioTrack.enabled;
-        setIsVideoMuted(!audioTrack.enabled);
-        return;
-      }
-    }
-    setIsVideoMuted(!isVideoMuted);
-  };
 
   // Start Patient Voice Recording
   const startVoiceRecording = async () => {
@@ -520,9 +435,6 @@ export default function PatientRoomPage() {
         }
 
         if (updated.paymentConfirmedByDoctor && step === 'waiting') {
-          if (updated.serviceType === 'visio_consultation') {
-            setIsIncomingCall(true);
-          }
           setStep('consultation');
           confetti({
             particleCount: 80,
@@ -590,9 +502,7 @@ export default function PatientRoomPage() {
   // Handle "J'ai effectué le paiement"
   const handleDeclarePayment = async () => {
     setError(null);
-    const amount = serviceType === 'avis_medical'
-      ? (doctor?.avisMedicalFee || 3000)
-      : (doctor?.visioConsultationFee || 7000);
+    const amount = doctor?.consultationFee || doctor?.visioConsultationFee || doctor?.avisMedicalFee || 5000;
 
     const effectiveName = forWho === 'other' ? beneficiaryName.trim() : patientName.trim();
     const effectiveAge = forWho === 'other' ? (Number(beneficiaryAge) || 1) : (Number(age) || 30);
@@ -611,7 +521,7 @@ export default function PatientRoomPage() {
         beneficiaryGender: forWho === 'other' ? beneficiaryGender : undefined,
         beneficiaryAddress: forWho === 'other' ? beneficiaryAddress.trim() : patientAddress.trim(),
         beneficiaryWeight: forWho === 'other' ? (beneficiaryWeight.trim() || undefined) : (patientWeight.trim() || undefined),
-        serviceType,
+        serviceType: 'teleconsultation',
         amountPaid: amount,
         paymentMethod,
         paymentDeclared: true,
@@ -683,9 +593,7 @@ export default function PatientRoomPage() {
     );
   }
 
-  const avisPrice = doctor.avisMedicalFee || 3000;
-  const visioPrice = doctor.visioConsultationFee || 7000;
-  const selectedPrice = serviceType === 'avis_medical' ? avisPrice : visioPrice;
+  const selectedPrice = doctor.consultationFee || doctor.visioConsultationFee || doctor.avisMedicalFee || 5000;
   const activeTransferNum = paymentMethod === 'wave'
     ? (doctor.waveNumber || doctor.phone)
     : (doctor.omNumber || doctor.phone);
@@ -701,7 +609,7 @@ export default function PatientRoomPage() {
           <div className="max-w-3xl mx-auto flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-emerald-500 to-teal-400 text-white flex items-center justify-center shadow-md">
-                {serviceType === 'visio_consultation' ? <Video className="w-5 h-5" /> : <MessageSquare className="w-5 h-5" />}
+                <MessageSquare className="w-5 h-5" />
               </div>
               <div className="flex flex-col">
                 <h3 className="font-extrabold text-[#0F172A] text-sm sm:text-base leading-tight">
@@ -709,7 +617,7 @@ export default function PatientRoomPage() {
                 </h3>
                 <span className="text-[10px] sm:text-xs text-emerald-600 font-semibold flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                  {followUp.inFollowUp ? followUp.label : (serviceType === 'visio_consultation' ? 'Vidéoconsultation HD' : 'Avis Médical Direct')}
+                  {followUp.inFollowUp ? followUp.label : 'Téléconsultation (Audio & Message)'}
                 </span>
               </div>
             </div>
@@ -793,42 +701,6 @@ export default function PatientRoomPage() {
               <div className="flex-none p-3 bg-slate-100 border border-slate-200 rounded-[16px] flex items-center gap-2 text-[11px] text-slate-600">
                 <Lock className="w-4 h-4 text-slate-400 flex-shrink-0" />
                 <span>Le délai de grâce de 48h est écoulé. Dossier en lecture seule.</span>
-              </div>
-            )}
-
-            {/* Video Window */}
-            {serviceType === 'visio_consultation' && (
-              <div className="flex-none h-64 sm:h-72 bg-slate-950 p-3 rounded-[24px] border border-slate-800 flex flex-col justify-between relative overflow-hidden shadow-lg">
-                <div className="flex-1 rounded-[16px] bg-slate-900 border border-slate-800 relative flex items-center justify-center overflow-hidden">
-                  <video ref={remoteDoctorVideoRef} autoPlay playsInline className={`w-full h-full object-cover ${hasDoctorVideo ? 'block' : 'hidden'}`} />
-                  {!hasDoctorVideo && (
-                    <div className="text-center space-y-2 p-4">
-                      <div className="w-14 h-14 rounded-full bg-gradient-to-tr from-blue-600 to-sky-400 text-white flex items-center justify-center text-xl font-extrabold mx-auto shadow-xl ring-4 ring-sky-400/30 animate-pulse">
-                        Dr
-                      </div>
-                      <div>
-                        <h4 className="text-sm font-bold text-white">{doctor.fullName}</h4>
-                        <p className="text-[10px] text-sky-400 font-mono mt-1">Médecin en direct...</p>
-                      </div>
-                    </div>
-                  )}
-                  <div className="absolute bottom-2 right-2 w-24 h-32 sm:w-32 sm:h-40 rounded-[12px] bg-slate-800 border-2 border-white/20 shadow-2xl flex flex-col items-center justify-center overflow-hidden z-10">
-                    <video ref={localVideoRef} autoPlay playsInline muted className={`w-full h-full object-cover ${isVideoOff ? 'hidden' : 'block'}`} />
-                    {isVideoOff && (
-                      <div className="w-full h-full bg-slate-900 flex flex-col items-center justify-center text-white p-1 text-center">
-                        <span className="text-[9px] font-bold">Caméra Off</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-                <div className="pt-2 flex items-center justify-center gap-3">
-                  <button type="button" onClick={toggleAudioTrack} className={`p-2.5 rounded-full transition-all ${isVideoMuted ? 'bg-rose-500 text-white' : 'bg-white/20 hover:bg-white/30 text-white'}`}>
-                    {isVideoMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-                  </button>
-                  <button type="button" onClick={toggleVideoTrack} className={`p-2.5 rounded-full transition-all ${isVideoOff ? 'bg-rose-500 text-white' : 'bg-white/20 hover:bg-white/30 text-white'}`}>
-                    {isVideoOff ? <VideoOff className="w-4 h-4" /> : <Video className="w-4 h-4" />}
-                  </button>
-                </div>
               </div>
             )}
 
@@ -977,9 +849,6 @@ export default function PatientRoomPage() {
           <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md" onClick={() => setPatientImagePreview(null)}>
             <img src={patientImagePreview} alt="Aperçu" className="max-h-[80vh] max-w-full rounded-[20px]" />
           </div>
-        )}
-        {isIncomingCall && doctor && (
-          <IncomingCallModal doctorName={doctor.fullName} doctorSpecialty={doctor.speciality} doctorAvatarUrl={doctor.avatarUrl} doctorOnms={doctor.onmsNumber} onAccept={() => setIsIncomingCall(false)} onDecline={() => setIsIncomingCall(false)} />
         )}
       </div>
     );
@@ -1254,58 +1123,20 @@ export default function PatientRoomPage() {
                 </div>
               )}
 
-              {/* Service Selection Cards */}
-              <div>
-                <label className="block font-bold text-[#0F172A] mb-2 text-xs">
-                  Choisissez votre prestation médicale :
-                </label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {/* Option 1: Avis Médical */}
-                  <div
-                    onClick={() => setServiceType('avis_medical')}
-                    className={`p-5 rounded-[28px] border-2 cursor-pointer transition-all ${
-                      serviceType === 'avis_medical'
-                        ? 'bg-blue-50/70 border-[#3B82F6] shadow-md ring-4 ring-blue-500/10'
-                        : 'bg-white border-slate-100 hover:bg-slate-50 shadow-sm'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="font-extrabold text-[#0F172A] flex items-center gap-1.5 text-sm">
-                        <MessageSquare className="w-4 h-4 text-[#3B82F6]" />
-                        Avis Médical
-                      </span>
-                      <strong className="text-[#3B82F6] font-extrabold text-base">
-                        {avisPrice.toLocaleString('fr-FR')} FCFA
-                      </strong>
-                    </div>
-                    <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                      Échange par messagerie sécurisée & notes vocales avec le Dr. {doctor.fullName.split(' ').pop()}.
-                    </p>
-                  </div>
-
-                  {/* Option 2: Visio Consultation */}
-                  <div
-                    onClick={() => setServiceType('visio_consultation')}
-                    className={`p-5 rounded-[28px] border-2 cursor-pointer transition-all ${
-                      serviceType === 'visio_consultation'
-                        ? 'bg-teal-50/70 border-teal-500 shadow-md ring-4 ring-teal-500/10'
-                        : 'bg-white border-slate-100 hover:bg-slate-50 shadow-sm'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="font-extrabold text-[#0F172A] flex items-center gap-1.5 text-sm">
-                        <Video className="w-4 h-4 text-teal-600" />
-                        Visio Consultation
-                      </span>
-                      <strong className="text-teal-900 font-extrabold text-base">
-                        {visioPrice.toLocaleString('fr-FR')} FCFA
-                      </strong>
-                    </div>
-                    <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                      Consultation vidéo face-à-face et ordonnance numérique scellée.
-                    </p>
-                  </div>
+              {/* Service Information Card */}
+              <div className="p-5 rounded-[28px] border-2 border-[#3B82F6] bg-blue-50/60 shadow-md ring-4 ring-blue-500/10">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="font-extrabold text-[#0F172A] flex items-center gap-1.5 text-sm sm:text-base">
+                    <MessageSquare className="w-4 h-4 text-[#3B82F6]" />
+                    Téléconsultation Médicale Complète
+                  </span>
+                  <strong className="text-[#3B82F6] font-black text-lg">
+                    {selectedPrice.toLocaleString('fr-FR')} FCFA
+                  </strong>
                 </div>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Échanges interactifs sécurisés par notes vocales (audio), photos de lésions ou bilans d'analyses, et délivrance immédiate d'une ordonnance officielle certifiée avec QR code.
+                </p>
               </div>
 
               {/* Consultation Reason */}
@@ -1490,22 +1321,6 @@ export default function PatientRoomPage() {
             />
           </div>
         </div>
-      )}
-
-      {/* Modal d'Appel Visio Entrant Immersif */}
-      {isIncomingCall && doctor && (
-        <IncomingCallModal
-          doctorName={doctor.fullName}
-          doctorSpecialty={doctor.speciality}
-          doctorAvatarUrl={doctor.avatarUrl}
-          doctorOnms={doctor.onmsNumber}
-          onAccept={() => {
-            setIsIncomingCall(false);
-          }}
-          onDecline={() => {
-            setIsIncomingCall(false);
-          }}
-        />
       )}
     </div>
   );
