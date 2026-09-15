@@ -80,9 +80,10 @@ export function DoctorDashboard() {
   const [newPaymentAlert, setNewPaymentAlert] = useState<PatientQueueItem | null>(null);
 
   // Gestion du mode silencieux / alertes sonores
-  const [isAudioMuted, setIsAudioMuted] = useState(isSoundMuted());
+  const [isAudioMuted, setIsAudioMuted] = useState(false);
 
   useEffect(() => {
+    setIsAudioMuted(isSoundMuted());
     const unsub = listenToSoundMuted(m => setIsAudioMuted(m));
     return () => unsub();
   }, []);

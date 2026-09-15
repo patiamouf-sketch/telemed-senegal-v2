@@ -128,11 +128,12 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
   }, [patient.id]);
 
   // État audio et gestion du son
-  const [isAudioMuted, setIsAudioMuted] = useState(isSoundMuted());
+  const [isAudioMuted, setIsAudioMuted] = useState(false);
   const prevMessagesCountRef = useRef<number>(patient.messages?.length || 0);
 
   // Synchronisation avec l'état silencieux global
   useEffect(() => {
+    setIsAudioMuted(isSoundMuted());
     const unsub = listenToSoundMuted(m => setIsAudioMuted(m));
     return () => unsub();
   }, []);

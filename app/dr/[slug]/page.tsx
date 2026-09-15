@@ -162,11 +162,12 @@ export default function PatientRoomPage() {
 
   // État de l'appel visio entrant et notifications audio
   const [isIncomingCall, setIsIncomingCall] = useState(false);
-  const [isAudioMuted, setIsAudioMuted] = useState(isSoundMuted());
+  const [isAudioMuted, setIsAudioMuted] = useState(false);
   const prevMessagesCountRef = useRef<number>(0);
 
   // Synchronisation de l'état silencieux global
   useEffect(() => {
+    setIsAudioMuted(isSoundMuted());
     const unsub = listenToSoundMuted(m => setIsAudioMuted(m));
     return () => unsub();
   }, []);

@@ -18,13 +18,50 @@ export default function HomePage() {
   const { user, doctorProfile, loading, logout, refreshProfile } = useAuth();
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [showSignupModal, setShowSignupModal] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  React.useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Rendu statique initial identique au serveur pour garantir 0 exception d'hydratation
+  if (!mounted) {
+    return (
+      <div className="min-h-screen flex flex-col justify-between pt-2">
+        <Navbar
+          onOpenLogin={() => setShowLoginModal(true)}
+          onOpenSignup={() => setShowSignupModal(true)}
+        />
+        <main className="flex-1">
+          <LandingHero
+            onOpenLogin={() => setShowLoginModal(true)}
+            onOpenSignup={() => setShowSignupModal(true)}
+          />
+          <FeaturesSection />
+        </main>
+        <Footer />
+      </div>
+    );
+  }
 
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#F4F9FD]">
         <GlassCard className="p-8 text-center bg-white/80 max-w-xs shadow-xl">
-          <Activity className="w-10 h-10 text-medical-600 animate-spin mx-auto mb-3" />
+          <Activity className="w-10 h-10 text-[#3B82F6] animate-spin mx-auto mb-3" />
           <p className="text-sm font-semibold text-slate-700">Accès à TELEMED SENEGAL...</p>
+        </GlassCard>
+      </div>
+    );
+  }
+
+  // Si utilisateur connecté mais profil en cours de chargement
+  if (user && !doctorProfile) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#F4F9FD]">
+        <GlassCard className="p-8 text-center bg-white/80 max-w-xs shadow-xl">
+          <Activity className="w-10 h-10 text-[#3B82F6] animate-spin mx-auto mb-3" />
+          <p className="text-sm font-semibold text-slate-700">Initialisation de votre cabinet...</p>
         </GlassCard>
       </div>
     );

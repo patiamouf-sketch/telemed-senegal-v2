@@ -29,11 +29,12 @@ export function IncomingCallModal({
   onAccept,
   onDecline,
 }: IncomingCallModalProps) {
-  const [muted, setMuted] = useState(isSoundMuted());
+  const [muted, setMuted] = useState(false);
   const stopRingRef = useRef<(() => void) | null>(null);
 
   // Synchronisation de l'état silencieux
   useEffect(() => {
+    setMuted(isSoundMuted());
     const unsub = listenToSoundMuted(m => setMuted(m));
     return () => unsub();
   }, []);
