@@ -18,22 +18,22 @@ export function LandingHero({ onOpenLogin, onOpenSignup }: LandingHeroProps) {
         {/* Top Announcement Pill */}
         <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/80 backdrop-blur-xl border border-sky-200/60 shadow-sm text-xs font-bold text-[#0F172A] animate-fade-in">
           <Sparkles className="w-3.5 h-3.5 text-[#3B82F6] animate-pulse" />
-          <span>TELEMED SENEGAL • Direction Médicale</span>
+          <span>TELEMED SENEGAL • La plateforme des praticiens diplômés</span>
           <span className="w-1.5 h-1.5 rounded-full bg-[#3B82F6]" />
           <span className="text-[#3B82F6] font-bold">Licence 30 jours offerte</span>
         </div>
 
         {/* Hero Title */}
         <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-[#0F172A] leading-[1.12]">
-          La Télémédecine Nouvelle Génération pour les{' '}
+          Votre temps médical a de la valeur.{' '}
           <span className="bg-gradient-to-r from-blue-600 via-sky-500 to-teal-500 bg-clip-text text-transparent">
-            Jeunes Médecins Libéraux
+            Monétisez vos téléconsultations en toute simplicité.
           </span>
         </h1>
 
         {/* Subtitle */}
         <p className="text-base sm:text-lg text-slate-600 max-w-2xl mx-auto leading-relaxed">
-          Déployez votre cabinet médical digital en 2 minutes. Liens patients éphémères sans téléchargement, validation ONMS certifiée et encaissement direct via Wave & Orange Money.
+          Fini les avis informels gratuits sur WhatsApp. Déployez votre cabinet médical digital en 2 minutes, partagez votre lien personnalisé et encaissez vos honoraires garantis sur <strong>Wave & Orange Money</strong> avant chaque échange.
         </p>
 
         {/* Main 2 CTA Buttons */}
@@ -42,7 +42,7 @@ export function LandingHero({ onOpenLogin, onOpenSignup }: LandingHeroProps) {
             size="lg"
             variant="primary"
             onClick={onOpenLogin}
-            className="w-full sm:w-auto text-base"
+            className="w-full sm:w-auto text-base shadow-lg shadow-blue-500/20"
           >
             <Stethoscope className="w-5 h-5" />
             <span>Espace Médecin</span>
@@ -64,15 +64,15 @@ export function LandingHero({ onOpenLogin, onOpenSignup }: LandingHeroProps) {
         <div className="pt-4 flex flex-wrap items-center justify-center gap-6 text-xs font-semibold text-slate-500">
           <div className="flex items-center gap-1.5">
             <CheckCircle className="w-4 h-4 text-emerald-500" />
-            <span>Conformité ONMS Sénégal</span>
+            <span>Paiement Garanti Avant Échange</span>
           </div>
           <div className="flex items-center gap-1.5">
             <Smartphone className="w-4 h-4 text-[#3B82F6]" />
-            <span>Paiements Wave & Orange Money</span>
+            <span>Encaissements Wave & Orange Money Directs</span>
           </div>
           <div className="flex items-center gap-1.5">
             <Lock className="w-4 h-4 text-indigo-500" />
-            <span>Données Médicales Chiffrées</span>
+            <span>Ordonnances Scellées Conformes ONMS</span>
           </div>
         </div>
       </div>
@@ -88,7 +88,7 @@ export function LandingHero({ onOpenLogin, onOpenSignup }: LandingHeroProps) {
               </div>
               <h3 className="font-extrabold text-[#0F172A] text-sm">Adhésion & NIN</h3>
               <p className="text-xs text-slate-500 leading-relaxed">
-                Formulaire d'inscription avec vérification ordinale par la Direction Médicale.
+                Inscription simplifiée avec vérification confraternelle rapide par la Direction Médicale.
               </p>
             </div>
 
@@ -99,7 +99,7 @@ export function LandingHero({ onOpenLogin, onOpenSignup }: LandingHeroProps) {
               </div>
               <h3 className="font-extrabold text-[#0F172A] text-sm">Lien /dr/[slug]</h3>
               <p className="text-xs text-slate-500 leading-relaxed">
-                Votre lien personnalisé à partager sur WhatsApp. Le patient entre sans installer d'application.
+                Partagez votre lien sur WhatsApp. Le patient règle sa consultation et entre sans rien télécharger.
               </p>
             </div>
 
@@ -108,9 +108,9 @@ export function LandingHero({ onOpenLogin, onOpenSignup }: LandingHeroProps) {
               <div className="w-9 h-9 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center font-extrabold text-sm">
                 03
               </div>
-              <h3 className="font-extrabold text-[#0F172A] text-sm">Licence 30 Jours</h3>
+              <h3 className="font-extrabold text-[#0F172A] text-sm">Licence 30 Jours Offerte</h3>
               <p className="text-xs text-slate-500 leading-relaxed">
-                Accès complet accordé dès validation par la Direction Médicale pour lancer votre activité libérale.
+                Accès complet accordé immédiatement pour développer vos revenus libéraux en toute indépendance.
               </p>
             </div>
           </div>

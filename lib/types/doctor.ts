@@ -84,7 +84,7 @@ export interface PatientQueueItem {
   lastMessageAt?: string;
   lastMessageText?: string;
   lastMessageSender?: string;
-  followUpUntil?: string; // Date ISO de fin du délai de grâce de suivi (ex: 48h)
+  followUpUntil?: string; // Date ISO de fin du délai de grâce de suivi (ex: 24h)
   hasUnreadFollowUp?: boolean; // Signalétique pour le médecin si le patient a écrit pendant le suivi
 }
 

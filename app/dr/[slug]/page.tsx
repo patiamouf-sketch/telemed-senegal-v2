@@ -54,9 +54,12 @@ import {
   RefreshCw,
   ExternalLink,
   Printer,
-  Link as LinkIcon
+  Link as LinkIcon,
+  ShieldAlert,
+  Scale
 } from 'lucide-react';
 import { uploadMedia } from '@/lib/services/storageService';
+import { CGUModal } from '@/components/legal/CGUModal';
 import {
   playMessagePopSound,
   isSoundMuted,
@@ -72,6 +75,8 @@ export default function PatientRoomPage() {
 
   const [doctor, setDoctor] = useState<DoctorProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [hasAgreedCGU, setHasAgreedCGU] = useState(false);
+  const [showCGUModal, setShowCGUModal] = useState(false);
 
   // Stepper state: 'form' -> 'payment' -> 'waiting' -> 'consultation'
   const [step, setStep] = useState<'form' | 'payment' | 'waiting' | 'consultation'>('form');
@@ -523,6 +528,10 @@ export default function PatientRoomPage() {
       setError('Veuillez décrire le motif de votre consultation.');
       return;
     }
+    if (!hasAgreedCGU) {
+      setError('Veuillez certifier qu\'il ne s\'agit pas d\'une urgence vitale et accepter les Conditions Générales d\'Utilisation.');
+      return;
+    }
 
     setStep('payment');
   };
@@ -715,7 +724,7 @@ export default function PatientRoomPage() {
                   <div>
                     <h4 className="font-extrabold text-xs text-[#0F172A]">Suivi Médical Actif</h4>
                     <p className="text-[10px] text-amber-800 leading-relaxed mt-0.5">
-                      Consultation clôturée, délai de 48h pour vos questions.
+                      Consultation clôturée, délai de 24h pour vos questions.
                     </p>
                   </div>
                 </div>
@@ -728,7 +737,7 @@ export default function PatientRoomPage() {
             {followUp.isExpired && (
               <div className="flex-none p-3 bg-slate-100 border border-slate-200 rounded-[16px] flex items-center gap-2 text-[11px] text-slate-600">
                 <Lock className="w-4 h-4 text-slate-400 flex-shrink-0" />
-                <span>Le délai de grâce de 48h est écoulé. Dossier en lecture seule.</span>
+                <span>Le délai de grâce de 24h est écoulé. Dossier en lecture seule.</span>
               </div>
             )}
 
@@ -937,6 +946,21 @@ export default function PatientRoomPage() {
               <p className="text-xs text-slate-500">
                 Admission médicale directe sans création de mot de passe.
               </p>
+            </div>
+
+            {/* 🚨 BANNIÈRE D'AVERTISSEMENT VITAL SAMU 15 */}
+            <div className="p-4 rounded-[22px] bg-gradient-to-r from-red-50 via-rose-50 to-orange-50 border-2 border-red-200 shadow-sm flex items-start gap-3 text-red-900">
+              <div className="w-9 h-9 rounded-xl bg-red-600 text-white flex items-center justify-center shrink-0 shadow-sm mt-0.5">
+                <ShieldAlert className="w-5 h-5 animate-pulse" />
+              </div>
+              <div className="text-xs leading-relaxed">
+                <p className="font-extrabold uppercase tracking-wide text-red-950 text-[11px] sm:text-xs">
+                  Pas de prise en charge d&apos;urgence vitale
+                </p>
+                <p className="text-red-800 text-[11px] sm:text-xs mt-0.5">
+                  En cas de détresse respiratoire, douleur thoracique, perte de connaissance ou traumatisme aigu, appelez immédiatement le <strong>15 (SAMU)</strong> ou le <strong>18 (Pompiers)</strong>.
+                </p>
+              </div>
             </div>
 
             {error && (
@@ -1185,8 +1209,40 @@ export default function PatientRoomPage() {
                 />
               </div>
 
+              {/* 🛡️ Case à cocher obligatoire de Consentement Éclairé & Décharge Légale */}
+              <div className="p-4 rounded-[22px] bg-slate-50/90 border border-slate-200 shadow-sm space-y-2">
+                <label className="flex items-start gap-3 cursor-pointer text-xs text-slate-700 select-none">
+                  <input
+                    type="checkbox"
+                    checked={hasAgreedCGU}
+                    onChange={e => setHasAgreedCGU(e.target.checked)}
+                    className="mt-0.5 w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 shrink-0 cursor-pointer"
+                    required
+                  />
+                  <span className="leading-snug">
+                    <strong className="text-red-600">Je certifie qu&apos;il ne s&apos;agit pas d&apos;une urgence vitale (SAMU 15).</strong> J&apos;accepte les{' '}
+                    <button
+                      type="button"
+                      onClick={() => setShowCGUModal(true)}
+                      className="text-blue-600 hover:text-blue-800 font-bold underline inline-flex items-center gap-0.5"
+                    >
+                      Conditions Générales d&apos;Utilisation
+                    </button>{' '}
+                    et consens à l&apos;acte de téléconsultation médicale.
+                  </span>
+                </label>
+              </div>
+
               <div className="pt-2">
-                <GlassButton type="submit" variant="primary" size="lg" className="w-full shadow-pill">
+                <GlassButton
+                  type="submit"
+                  variant="primary"
+                  size="lg"
+                  disabled={!hasAgreedCGU}
+                  className={`w-full shadow-pill transition-all ${
+                    !hasAgreedCGU ? 'opacity-50 cursor-not-allowed' : ''
+                  }`}
+                >
                   <span>Continuer vers le Paiement ({selectedPrice.toLocaleString('fr-FR')} FCFA)</span>
                   <ArrowRight className="w-4 h-4 ml-1" />
                 </GlassButton>
@@ -1378,6 +1434,13 @@ export default function PatientRoomPage() {
           </div>
         </div>
       )}
+
+      {/* 🛡️ Modal des CGU & Consentement Éclairé */}
+      <CGUModal
+        isOpen={showCGUModal}
+        onClose={() => setShowCGUModal(false)}
+        onAccept={() => setHasAgreedCGU(true)}
+      />
     </div>
   );
 }

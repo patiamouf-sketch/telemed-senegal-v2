@@ -1135,7 +1135,7 @@ export async function dispensePrescription(
 }
 
 /**
- * Calcule le statut de suivi post-consultation (délai de grâce de 48h)
+ * Calcule le statut de suivi post-consultation (délai de grâce de 24h)
  */
 export function getFollowUpStatus(item?: PatientQueueItem | null): {
   inFollowUp: boolean;
@@ -1147,12 +1147,12 @@ export function getFollowUpStatus(item?: PatientQueueItem | null): {
     return { inFollowUp: false, remainingHours: 0, isExpired: false, label: 'En consultation active' };
   }
 
-  // Calcul basé sur followUpUntil ou completedAt + 48h
+  // Calcul basé sur followUpUntil ou completedAt + 24h
   const completedDate = item.completedAt ? new Date(item.completedAt).getTime() : 0;
   const followUpUntilTime = item.followUpUntil
     ? new Date(item.followUpUntil).getTime()
     : completedDate
-    ? completedDate + 48 * 3600 * 1000
+    ? completedDate + 24 * 3600 * 1000
     : 0;
 
   if (!followUpUntilTime) {
@@ -1181,19 +1181,19 @@ export function getFollowUpStatus(item?: PatientQueueItem | null): {
 }
 
 /**
- * Clôture et passage en suivi post-consultation (48h de délai de grâce)
+ * Clôture et passage en suivi post-consultation (24h de délai de grâce)
  */
 export async function archiveConsultationSession(
   patientId: string,
   prescription?: OfficialPrescription,
-  followUpHours = 48
+  followUpHours = 24
 ): Promise<PatientQueueItem | null> {
   const completedAt = new Date().toISOString();
   const followUpUntil = new Date(Date.now() + followUpHours * 3600 * 1000).toISOString();
 
   const completedItem: Partial<PatientQueueItem> = {
     status: 'completed',
-    isReadOnly: false, // La messagerie reste active pour les questions de suivi pendant 48h
+    isReadOnly: false, // La messagerie reste active pour les questions de suivi pendant 24h
     completedAt,
     followUpUntil,
     hasUnreadFollowUp: false,

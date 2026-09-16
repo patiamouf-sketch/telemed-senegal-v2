@@ -374,9 +374,9 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
     setMessages(prev => [...prev, msg]);
   };
 
-  // Close and Archive Session (active la période de grâce de suivi 48h)
+  // Close and Archive Session (active la période de grâce de suivi 24h)
   const handleCloseSession = async () => {
-    if (confirm('Souhaitez-vous clôturer cette consultation ? Une période de suivi sécurisée de 48h restera automatiquement active pour vous et le patient.')) {
+    if (confirm('Souhaitez-vous clôturer cette consultation ? Une période de suivi sécurisée de 24h restera automatiquement active pour vous et le patient.')) {
       playCallEndedSound();
       await archiveConsultationSession(patient.id, latestPrescription);
       confetti({
@@ -421,7 +421,7 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
                 Tél : <strong className="font-mono text-slate-700">{patient.patientPhone}</strong> • Réf : {patient.id}
-                {followUp.inFollowUp && <span className="text-amber-700 font-semibold ml-2">• Suivi post-consultation 48h actif</span>}
+                {followUp.inFollowUp && <span className="text-amber-700 font-semibold ml-2">• Suivi post-consultation 24h actif</span>}
               </p>
             </div>
           </div>
@@ -468,7 +468,7 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
                 className="text-xs bg-rose-50 text-rose-700 hover:bg-rose-100"
               >
                 <Lock className="w-3.5 h-3.5" />
-                <span>Clôturer séance (Ouvre suivi 48h)</span>
+                <span>Clôturer séance (Ouvre suivi 24h)</span>
               </GlassButton>
             ) : (
               <GlassButton
@@ -499,13 +499,20 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
           {/* Chat Feed */}
           <div className="flex-1 flex flex-col bg-white overflow-hidden">
             {/* Clinical Summary Pill */}
-            <div className="px-6 py-2.5 bg-blue-50/40 border-b border-blue-100/60 text-xs text-slate-600 flex items-center justify-between">
-              <div>
-                <span className="font-bold text-[#0F172A]">Motif de consultation :</span> {patient.reason}
+            <div className="px-4 sm:px-6 py-2.5 bg-blue-50/40 border-b border-blue-100/60 text-xs text-slate-600 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-[#0F172A]">Motif :</span>
+                <span className="text-slate-700 font-medium truncate max-w-xs">{patient.reason}</span>
               </div>
-              <Badge variant={patient.urgency === 'urgente' ? 'rose' : 'blue'} size="sm">
-                Urgence : {patient.urgency}
-              </Badge>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1">
+                  <ShieldCheck className="w-3 h-3 text-emerald-600" />
+                  Consentement CGU recueilli
+                </span>
+                <Badge variant={patient.urgency === 'urgente' ? 'rose' : 'blue'} size="sm">
+                  Urgence : {patient.urgency}
+                </Badge>
+              </div>
             </div>
 
             {/* Messages Feed */}
@@ -649,7 +656,7 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
               <div className="p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-center gap-2.5 text-slate-500 text-xs text-center">
                 <Lock className="w-4 h-4 text-slate-400 flex-shrink-0" />
                 <span>
-                  Cette consultation est archivée en <strong>lecture seule</strong>. Le délai de suivi de 48h est expiré. L'historique et les ordonnances scellées restent accessibles.
+                  Cette consultation est archivée en <strong>lecture seule</strong>. Le délai de suivi de 24h est expiré. L'historique et les ordonnances scellées restent accessibles.
                 </span>
               </div>
             ) : (
@@ -658,7 +665,7 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
                   <div className="px-4 py-2 bg-gradient-to-r from-amber-50 to-orange-50/50 border-b border-amber-200/60 flex items-center justify-between text-[11px] text-amber-900">
                     <span className="flex items-center gap-1.5 font-medium">
                       <Clock className="w-3.5 h-3.5 text-amber-600 flex-shrink-0" />
-                      Mode Suivi Post-Consultation (48h) — Il reste <strong>{followUp.remainingHours}h</strong> d'échanges avec le patient.
+                      Mode Suivi Post-Consultation (24h) — Il reste <strong>{followUp.remainingHours}h</strong> d'échanges avec le patient.
                     </span>
                     <span className="text-[10px] text-amber-800 bg-amber-200/60 px-2 py-0.5 rounded-full font-bold">
                       Sans frais additionnels
