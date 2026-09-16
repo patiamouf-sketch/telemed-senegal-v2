@@ -2,6 +2,8 @@ import type { Metadata, Viewport } from 'next';
 import { Inter, Poppins } from 'next/font/google';
 import './globals.css';
 import { AuthProvider } from '@/lib/context/AuthContext';
+import { ServiceWorkerRegister } from '@/components/ui/ServiceWorkerRegister';
+import { PWAInstallBanner } from '@/components/ui/PWAInstallBanner';
 
 // Chargement sécurisé local Next.js (Zéro CDN, Zéro appel externe, Zéro redirection)
 const inter = Inter({
@@ -20,6 +22,16 @@ const poppins = Poppins({
 export const metadata: Metadata = {
   title: 'TELEMED SENEGAL • Plateforme Médicale',
   description: 'Plateforme de télémédecine pour praticiens et patients au Sénégal.',
+  manifest: '/manifest.json',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title: 'TéléMed SN',
+  },
+  icons: {
+    icon: '/icons/icon-192.svg',
+    apple: '/icons/icon-192.svg',
+  },
 };
 
 export const viewport: Viewport = {
@@ -28,6 +40,7 @@ export const viewport: Viewport = {
   maximumScale: 1,
   userScalable: false,
   interactiveWidget: 'resizes-content',
+  themeColor: '#3B82F6',
 };
 
 export default function RootLayout({
@@ -40,6 +53,8 @@ export default function RootLayout({
       <body className={`${inter.className} min-h-screen text-[#1E293B]`}>
         <AuthProvider>
           {children}
+          <PWAInstallBanner />
+          <ServiceWorkerRegister />
         </AuthProvider>
       </body>
     </html>

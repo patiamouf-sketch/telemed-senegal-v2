@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad512" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0F172A" />
+      <stop offset="45%" stop-color="#1E3A8A" />
+      <stop offset="100%" stop-color="#2563EB" />
+    </linearGradient>
+    <linearGradient id="crossGrad512" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10B981" />
+      <stop offset="100%" stop-color="#059669" />
+    </linearGradient>
+    <filter id="glow512" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="16" flood-color="#3B82F6" flood-opacity="0.45" />
+    </filter>
+  </defs>
+
+  <!-- Fond arrondi avec dégradé premium -->
+  <rect width="512" height="512" rx="112" fill="url(#bgGrad512)" />
+  
+  <!-- Anneau subtil d'accentuation -->
+  <rect x="8" y="8" width="496" height="496" rx="104" fill="none" stroke="#60A5FA" stroke-width="4" stroke-opacity="0.35" />
+
+  <!-- Croix Médicale avec lueur -->
+  <g filter="url(#glow512)">
+    <!-- Barre verticale -->
+    <rect x="224" y="116" width="64" height="280" rx="20" fill="url(#crossGrad512)" />
+    <!-- Barre horizontale -->
+    <rect x="116" y="224" width="280" height="64" rx="20" fill="url(#crossGrad512)" />
+  </g>
+
+  <!-- Électrocardiogramme / Onde de vie au centre -->
+  <path d="M140 256 L196 256 L218 208 L246 304 L272 224 L294 272 L310 256 L372 256" 
+        fill="none" 
+        stroke="#FFFFFF" 
+        stroke-width="12" 
+        stroke-linecap="round" 
+        stroke-linejoin="round" />
+
+  <!-- Points lumineux / Étoiles -->
+  <circle cx="380" cy="130" r="12" fill="#60A5FA" />
+  <circle cx="130" cy="380" r="10" fill="#34D399" />
+</svg>

@@ -1,0 +1,50 @@
+{
+  "name": "TELEMED SENEGAL • Télémédecine & Santé",
+  "short_name": "TéléMed SN",
+  "description": "Plateforme médicale de téléconsultation, ordonnances scellées et suivi de santé au Sénégal.",
+  "start_url": "/",
+  "id": "/",
+  "display": "standalone",
+  "background_color": "#0B132B",
+  "theme_color": "#3B82F6",
+  "orientation": "portrait-primary",
+  "scope": "/",
+  "lang": "fr",
+  "categories": ["medical", "health", "lifestyle"],
+  "icons": [
+    {
+      "src": "/icons/icon-192.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Espace Médecin",
+      "short_name": "Praticien",
+      "description": "Accéder à l'espace de téléconsultation médecin",
+      "url": "/",
+      "icons": [{ "src": "/icons/icon-192.svg", "sizes": "192x192" }]
+    },
+    {
+      "name": "Vérifier Ordonnance",
+      "short_name": "Vérifier",
+      "description": "Scanner et authentifier une ordonnance certifiée",
+      "url": "/verify",
+      "icons": [{ "src": "/icons/icon-192.svg", "sizes": "192x192" }]
+    }
+  ]
+}
