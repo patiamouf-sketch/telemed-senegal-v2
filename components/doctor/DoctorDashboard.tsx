@@ -42,6 +42,7 @@ import {
   Download,
   Settings,
   ArrowUpRight,
+  X,
 } from 'lucide-react';
 import { DoctorProfileModal } from './DoctorProfileModal';
 import { getDoctorInviteWhatsAppUrl } from '@/lib/utils/whatsappHelper';
@@ -78,6 +79,7 @@ export function DoctorDashboard() {
   const [activeConsultation, setActiveConsultation] = useState<PatientQueueItem | null>(null);
   const [showQRModal, setShowQRModal] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
+  const [showTarifsModal, setShowTarifsModal] = useState(false);
   const [showDirectPrescription, setShowDirectPrescription] = useState(false);
   const [origin, setOrigin] = useState('');
   const [newPaymentAlert, setNewPaymentAlert] = useState<PatientQueueItem | null>(null);
@@ -497,9 +499,11 @@ export function DoctorDashboard() {
           </a>
 
           {/* Volet 4 : Tarifs & Numéros */}
-          <a
-            href="#tarifs-coordonnees"
-            className="px-3.5 py-2.5 rounded-2xl bg-slate-50/90 hover:bg-slate-100/90 text-slate-800 text-xs font-bold transition-all flex items-center justify-between border border-slate-200/90 shadow-sm active:scale-98 group"
+          <button
+            type="button"
+            onClick={() => setShowTarifsModal(true)}
+            className="px-3.5 py-2.5 rounded-2xl bg-slate-50/90 hover:bg-slate-100/90 text-slate-800 text-xs font-bold transition-all flex items-center justify-between border border-slate-200/90 shadow-sm active:scale-98 group cursor-pointer"
+            title="Modifier mes honoraires et numéros de paiement Wave / Orange Money"
           >
             <div className="flex items-center gap-2 min-w-0">
               <CreditCard className="w-4 h-4 text-slate-600 flex-shrink-0 group-hover:scale-110 transition-transform" />
@@ -508,7 +512,7 @@ export function DoctorDashboard() {
             <span className="text-[10px] font-extrabold text-slate-600 bg-white px-2 py-0.5 rounded-full border border-slate-200/80">
               {consultationFee ? `${(consultationFee / 1000).toFixed(0)}k` : '5k'}
             </span>
-          </a>
+          </button>
         </div>
       </div>
 
@@ -818,232 +822,123 @@ export function DoctorDashboard() {
         </div>
       </div>
 
-      {/* 5. NIVEAU INFÉRIEUR (JUSTE EN BAS) : ORDONNANCES ÉMISES & TARIFS / COORDONNÉES */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-        {/* SECTION 3 : ORDONNANCES DIRECTES ÉMISES */}
-        <div id="ordonnances-emises" className="scroll-mt-6">
-          <GlassCard className="p-5 sm:p-6 space-y-4 h-full flex flex-col justify-between">
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-3 border-b border-slate-100 pb-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold shadow-sm flex-shrink-0">
-                    <FileText className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h2 className="text-base sm:text-lg font-extrabold text-slate-900 flex items-center gap-2">
-                      Ordonnances Émises
-                      <span className="px-2 py-0.5 rounded-full text-xs font-black bg-emerald-100 text-emerald-800">
-                        {directPrescriptions.length}
-                      </span>
-                    </h2>
-                    <p className="text-xs text-slate-500">
-                      Ordonnances signées et scellées (QR Code & SHA-256)
-                    </p>
-                  </div>
+      {/* 5. NIVEAU INFÉRIEUR : ORDONNANCES ÉMISES */}
+      <div id="ordonnances-emises" className="scroll-mt-6">
+        <GlassCard className="p-5 sm:p-6 space-y-4">
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-3 border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold shadow-sm flex-shrink-0">
+                  <FileText className="w-5 h-5" />
                 </div>
-
-                <button
-                  type="button"
-                  onClick={() => setShowDirectPrescription(true)}
-                  className="px-3 py-1.5 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700 font-bold text-xs flex items-center gap-1 shadow-sm transition-all cursor-pointer flex-shrink-0"
-                >
-                  <FilePlus2 className="w-3.5 h-3.5" />
-                  <span>Rédiger</span>
-                </button>
-              </div>
-
-              {directPrescriptions.length === 0 ? (
-                <div className="py-12 text-center rounded-[20px] bg-slate-50/70 border border-dashed border-slate-200 space-y-2">
-                  <FileText className="w-8 h-8 text-slate-300 mx-auto" />
-                  <p className="text-xs font-bold text-slate-700">Aucune ordonnance émise</p>
-                  <p className="text-[11px] text-slate-500 max-w-xs mx-auto">
-                    Rédigez et transmettez instantanément des ordonnances certifiées par WhatsApp ou en PDF.
+                <div>
+                  <h2 className="text-base sm:text-lg font-extrabold text-slate-900 flex items-center gap-2">
+                    Ordonnances Émises
+                    <span className="px-2 py-0.5 rounded-full text-xs font-black bg-emerald-100 text-emerald-800">
+                      {directPrescriptions.length}
+                    </span>
+                  </h2>
+                  <p className="text-xs text-slate-500">
+                    Ordonnances signées et scellées (QR Code & SHA-256)
                   </p>
                 </div>
-              ) : (
-                <div className="space-y-3 max-h-[580px] overflow-y-auto pr-1">
-                  {directPrescriptions.map(rx => (
-                    <div
-                      key={rx.id}
-                      className="p-4 rounded-[20px] bg-white border border-slate-200/90 shadow-sm space-y-2.5"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <h4 className="font-bold text-slate-900 text-sm">{rx.patientName}</h4>
-                            <Badge variant="emerald" size="sm">
-                              Scellée
-                            </Badge>
-                          </div>
-                          <div className="text-[11px] text-slate-500 mt-0.5">
-                            Tél : <span className="font-mono font-semibold text-slate-700">{rx.patientPhone || 'Non renseigné'}</span>
-                          </div>
-                        </div>
+              </div>
 
-                        <span className="text-[10px] font-mono text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md">
-                          {new Date(rx.sealedAt).toLocaleDateString('fr-FR')}
-                        </span>
+              <button
+                type="button"
+                onClick={() => setShowDirectPrescription(true)}
+                className="px-3 py-1.5 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700 font-bold text-xs flex items-center gap-1 shadow-sm transition-all cursor-pointer flex-shrink-0"
+              >
+                <FilePlus2 className="w-3.5 h-3.5" />
+                <span>Rédiger</span>
+              </button>
+            </div>
+
+            {directPrescriptions.length === 0 ? (
+              <div className="py-12 text-center rounded-[20px] bg-slate-50/70 border border-dashed border-slate-200 space-y-2">
+                <FileText className="w-8 h-8 text-slate-300 mx-auto" />
+                <p className="text-xs font-bold text-slate-700">Aucune ordonnance émise</p>
+                <p className="text-[11px] text-slate-500 max-w-xs mx-auto">
+                  Rédigez et transmettez instantanément des ordonnances certifiées par WhatsApp ou en PDF.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[580px] overflow-y-auto pr-1">
+                {directPrescriptions.map(rx => (
+                  <div
+                    key={rx.id}
+                    className="p-4 rounded-[20px] bg-white border border-slate-200/90 shadow-sm space-y-2.5"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-bold text-slate-900 text-sm">{rx.patientName}</h4>
+                          <Badge variant="emerald" size="sm">
+                            Scellée
+                          </Badge>
+                        </div>
+                        <div className="text-[11px] text-slate-500 mt-0.5">
+                          Tél : <span className="font-mono font-semibold text-slate-700">{rx.patientPhone || 'Non renseigné'}</span>
+                        </div>
                       </div>
 
-                      <div className="p-2.5 rounded-[14px] bg-slate-50 border border-slate-100 text-xs space-y-1">
-                        <span className="text-slate-400 text-[10px] block font-bold uppercase tracking-wider">
-                          Prescription ({rx.items.length} médicament{rx.items.length > 1 ? 's' : ''}) :
-                        </span>
-                        <ul className="space-y-0.5 text-slate-700 text-[11px]">
-                          {rx.items.slice(0, 2).map((it, idx) => (
-                            <li key={idx} className="truncate">
-                              • <strong className="text-slate-900">{it.medication}</strong> ({it.dosage})
-                            </li>
-                          ))}
-                          {rx.items.length > 2 && (
-                            <li className="text-slate-400 italic text-[10px]">
-                              + {rx.items.length - 2} autre(s) médicament(s)...
-                            </li>
-                          )}
-                        </ul>
+                      <span className="text-[10px] font-mono text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md">
+                        {new Date(rx.sealedAt).toLocaleDateString('fr-FR')}
+                      </span>
+                    </div>
+
+                    <div className="p-2.5 rounded-[14px] bg-slate-50 border border-slate-100 text-xs space-y-1">
+                      <span className="text-slate-400 text-[10px] block font-bold uppercase tracking-wider">
+                        Prescription ({rx.items.length} médicament{rx.items.length > 1 ? 's' : ''}) :
+                      </span>
+                      <ul className="space-y-0.5 text-slate-700 text-[11px]">
+                        {rx.items.slice(0, 2).map((it, idx) => (
+                          <li key={idx} className="truncate">
+                            • <strong className="text-slate-900">{it.medication}</strong> ({it.dosage})
+                          </li>
+                        ))}
+                        {rx.items.length > 2 && (
+                          <li className="text-slate-400 italic text-[10px]">
+                            + {rx.items.length - 2} autre(s) médicament(s)...
+                          </li>
+                        )}
+                      </ul>
+                    </div>
+
+                    <div className="pt-1 flex items-center justify-between gap-2 border-t border-slate-100 text-xs">
+                      <div className="flex items-center gap-1 text-[10px] text-slate-400 font-mono truncate max-w-[120px]">
+                        <Lock className="w-3 h-3 text-emerald-600 shrink-0" />
+                        <span className="truncate">{rx.hash.substring(0, 8)}...</span>
                       </div>
 
-                      <div className="pt-1 flex items-center justify-between gap-2 border-t border-slate-100 text-xs">
-                        <div className="flex items-center gap-1 text-[10px] text-slate-400 font-mono truncate max-w-[120px]">
-                          <Lock className="w-3 h-3 text-emerald-600 shrink-0" />
-                          <span className="truncate">{rx.hash.substring(0, 8)}...</span>
-                        </div>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => downloadPrescriptionPDF(rx)}
+                          className="px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors flex items-center gap-1 cursor-pointer"
+                          title="Télécharger le PDF officiel"
+                        >
+                          <Download className="w-3 h-3 text-blue-600" />
+                          <span>PDF</span>
+                        </button>
 
-                        <div className="flex items-center gap-1.5">
+                        <Link href={`/verify/${rx.hash}`} target="_blank">
                           <button
                             type="button"
-                            onClick={() => downloadPrescriptionPDF(rx)}
-                            className="px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors flex items-center gap-1 cursor-pointer"
-                            title="Télécharger le PDF officiel"
+                            className="px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 transition-colors flex items-center gap-1 cursor-pointer"
                           >
-                            <Download className="w-3 h-3 text-blue-600" />
-                            <span>PDF</span>
+                            <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>Preuve</span>
                           </button>
-
-                          <Link href={`/verify/${rx.hash}`} target="_blank">
-                            <button
-                              type="button"
-                              className="px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 transition-colors flex items-center gap-1 cursor-pointer"
-                            >
-                              <ShieldCheck className="w-3 h-3 text-emerald-600" />
-                              <span>Preuve</span>
-                            </button>
-                          </Link>
-                        </div>
+                        </Link>
                       </div>
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </GlassCard>
-        </div>
-
-        {/* SECTION 4 : TARIFS & COORDONNÉES WAVE / ORANGE MONEY */}
-        <div id="tarifs-coordonnees" className="scroll-mt-6">
-          <GlassCard className="p-5 sm:p-6 space-y-4 h-full flex flex-col justify-between">
-            <div className="space-y-4">
-              <div className="flex items-center justify-between gap-3 border-b border-slate-100 pb-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold shadow-sm flex-shrink-0">
-                    <CreditCard className="w-5 h-5" />
                   </div>
-                  <div>
-                    <h2 className="text-base sm:text-lg font-extrabold text-slate-900">
-                      Tarifs & Coordonnées
-                    </h2>
-                    <p className="text-xs text-slate-500">
-                      Honoraires de téléconsultation et réceptions Wave / OM
-                    </p>
-                  </div>
-                </div>
-
-                {pricesSaved && (
-                  <Badge variant="emerald" size="sm" className="animate-fade-in text-[10px]">
-                    <Check className="w-3 h-3" /> Enregistré !
-                  </Badge>
-                )}
+                ))}
               </div>
-
-              <form onSubmit={handleSaveServices} className="space-y-4 text-xs">
-                {/* Formule de Téléconsultation */}
-                <div className="p-4 rounded-[18px] bg-slate-50/80 border border-slate-200/90 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-slate-900 flex items-center gap-1.5 text-xs">
-                      <MessageSquare className="w-3.5 h-3.5 text-blue-600" />
-                      Téléconsultation Médicale Complète
-                    </span>
-                    <Badge variant="emerald" size="sm">
-                      Tarif Patient
-                    </Badge>
-                  </div>
-                  <p className="text-[10px] text-slate-500">
-                    Montant fixe affiché à vos patients avant le paiement.
-                  </p>
-                  <div className="pt-1">
-                    <label className="block text-[10px] font-bold text-slate-700 mb-1">
-                      Honoraires fixés (FCFA) :
-                    </label>
-                    <input
-                      type="number"
-                      min="1000"
-                      step="500"
-                      value={consultationFee}
-                      onChange={e => setConsultationFee(Number(e.target.value))}
-                      className="w-full px-3 py-2 rounded-xl bg-white border border-slate-200 text-slate-900 font-bold text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                    />
-                  </div>
-                </div>
-
-                {/* Numéros Wave et Orange Money */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="p-3.5 rounded-[18px] bg-white border border-slate-200/90 space-y-1.5">
-                    <label className="block text-[10px] font-bold text-slate-700">
-                      Numéro Wave de Réception :
-                    </label>
-                    <input
-                      type="tel"
-                      value={waveNum}
-                      onChange={e => setWaveNum(e.target.value)}
-                      placeholder="+221 77 000 00 00"
-                      className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 font-mono text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                    />
-                    <p className="text-[9px] text-slate-400">
-                      Communiqué aux patients choisissant Wave.
-                    </p>
-                  </div>
-
-                  <div className="p-3.5 rounded-[18px] bg-white border border-slate-200/90 space-y-1.5">
-                    <label className="block text-[10px] font-bold text-slate-700">
-                      Numéro Orange Money :
-                    </label>
-                    <input
-                      type="tel"
-                      value={omNum}
-                      onChange={e => setOmNum(e.target.value)}
-                      placeholder="+221 78 000 00 00"
-                      className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 font-mono text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                    />
-                    <p className="text-[9px] text-slate-400">
-                      Communiqué aux patients choisissant Orange Money.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex justify-end pt-1">
-                  <button
-                    type="submit"
-                    disabled={savingPrices}
-                    className="w-full sm:w-auto px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer"
-                  >
-                    <Save className="w-3.5 h-3.5" />
-                    <span>{savingPrices ? 'Enregistrement...' : 'Enregistrer Tarifs & Numéros'}</span>
-                  </button>
-                </div>
-              </form>
-            </div>
-          </GlassCard>
-        </div>
+            )}
+          </div>
+        </GlassCard>
       </div>
 
       {/* MODALE 1 : Modale Salle de Soin Active */}
@@ -1096,6 +991,134 @@ export function DoctorDashboard() {
           avatarUrl={doctorData.avatarUrl}
           onClose={() => setShowQRModal(false)}
         />
+      )}
+
+      {/* MODALE 5 : Modale Dédiée Tarifs & Coordonnées de Réception */}
+      {showTarifsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md animate-fade-in">
+          <div className="w-full max-w-lg bg-white rounded-[28px] shadow-2xl overflow-hidden flex flex-col border border-slate-200 animate-scale-up">
+            <div className="p-5 sm:p-6 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-blue-50/60 via-white to-slate-50/60">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold shadow-sm flex-shrink-0">
+                  <CreditCard className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base sm:text-lg font-extrabold text-slate-900">
+                    Tarifs & Coordonnées
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Honoraires de téléconsultation et réceptions Wave / OM
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowTarifsModal(false)}
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={async (e) => {
+                await handleSaveServices(e);
+                setTimeout(() => setShowTarifsModal(false), 900);
+              }}
+              className="p-5 sm:p-6 space-y-4 text-xs"
+            >
+              {pricesSaved && (
+                <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 font-bold flex items-center gap-2">
+                  <Check className="w-4 h-4 text-emerald-600" />
+                  <span>Vos tarifs et numéros ont été enregistrés avec succès !</span>
+                </div>
+              )}
+
+              {/* Formule de Téléconsultation */}
+              <div className="p-4 rounded-[18px] bg-slate-50/80 border border-slate-200/90 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-900 flex items-center gap-1.5 text-xs">
+                    <MessageSquare className="w-3.5 h-3.5 text-blue-600" />
+                    Téléconsultation Médicale Complète
+                  </span>
+                  <Badge variant="emerald" size="sm">
+                    Tarif Patient
+                  </Badge>
+                </div>
+                <p className="text-[10px] text-slate-500">
+                  Montant fixe affiché à vos patients avant le paiement.
+                </p>
+                <div className="pt-1">
+                  <label className="block text-[10px] font-bold text-slate-700 mb-1">
+                    Honoraires fixés (FCFA) :
+                  </label>
+                  <input
+                    type="number"
+                    min="1000"
+                    step="500"
+                    value={consultationFee}
+                    onChange={e => setConsultationFee(Number(e.target.value))}
+                    className="w-full px-3 py-2 rounded-xl bg-white border border-slate-200 text-slate-900 font-bold text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  />
+                </div>
+              </div>
+
+              {/* Numéros Wave et Orange Money */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="p-3.5 rounded-[18px] bg-white border border-slate-200/90 space-y-1.5">
+                  <label className="block text-[10px] font-bold text-slate-700">
+                    Numéro Wave de Réception :
+                  </label>
+                  <input
+                    type="tel"
+                    value={waveNum}
+                    onChange={e => setWaveNum(e.target.value)}
+                    placeholder="+221 77 000 00 00"
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 font-mono text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  />
+                  <p className="text-[9px] text-slate-400">
+                    Communiqué aux patients choisissant Wave.
+                  </p>
+                </div>
+
+                <div className="p-3.5 rounded-[18px] bg-white border border-slate-200/90 space-y-1.5">
+                  <label className="block text-[10px] font-bold text-slate-700">
+                    Numéro Orange Money :
+                  </label>
+                  <input
+                    type="tel"
+                    value={omNum}
+                    onChange={e => setOmNum(e.target.value)}
+                    placeholder="+221 78 000 00 00"
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 font-mono text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  />
+                  <p className="text-[9px] text-slate-400">
+                    Communiqué aux patients choisissant Orange Money.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowTarifsModal(false)}
+                  className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition-colors cursor-pointer"
+                >
+                  Fermer
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingPrices}
+                  className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>{savingPrices ? 'Enregistrement...' : 'Enregistrer'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   );
