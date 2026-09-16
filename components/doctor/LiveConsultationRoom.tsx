@@ -60,6 +60,25 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
   const [messages, setMessages] = useState<ChatMessage[]>(patient.messages || []);
   const [inputText, setInputText] = useState('');
   const [isSendingText, setIsSendingText] = useState(false);
+  const [isAudioMuted, setIsAudioMuted] = useState(false);
+  const [showPrescriptionDrawer, setShowPrescriptionDrawer] = useState(false);
+  const [latestPrescription, setLatestPrescription] = useState<OfficialPrescription | undefined>(patient.prescription);
+  const [isRecordingVoice, setIsRecordingVoice] = useState(false);
+  const [voiceSeconds, setVoiceSeconds] = useState(0);
+  const [playingVoiceId, setPlayingVoiceId] = useState<string | null>(null);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
+
+  const prevMessagesCountRef = useRef<number>(patient.messages?.length || 0);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const voiceSecondsRef = useRef(0);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const currentAudioRef = useRef<HTMLAudioElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // License check & Follow-up status
+  const licenseCheck = isDoctorLicenseValid(doctor);
+  const followUp = getFollowUpStatus(patient);
 
   // Synchronisation temps réel double canal (sous-collection Firestore & document parent)
   useEffect(() => {
@@ -131,10 +150,6 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
     };
   }, [patient.id]);
 
-  // État audio et gestion du son
-  const [isAudioMuted, setIsAudioMuted] = useState(false);
-  const prevMessagesCountRef = useRef<number>(patient.messages?.length || 0);
-
   // Synchronisation avec l'état silencieux global
   useEffect(() => {
     setIsAudioMuted(isSoundMuted());
@@ -147,8 +162,6 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
     setIsAudioMuted(next);
   };
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-
   // Gestion ultra-robuste du viewport mobile (clavier virtuel iOS/Android)
   useEffect(() => {
     if (typeof window === 'undefined' || !window.visualViewport) return;
@@ -160,27 +173,6 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
     updateViewport();
     return () => window.visualViewport?.removeEventListener('resize', updateViewport);
   }, []);
-
-  // Drawer states
-  const [showPrescriptionDrawer, setShowPrescriptionDrawer] = useState(false);
-  const [latestPrescription, setLatestPrescription] = useState<OfficialPrescription | undefined>(patient.prescription);
-
-  // Voice note MediaRecorder state
-  const [isRecordingVoice, setIsRecordingVoice] = useState(false);
-  const [voiceSeconds, setVoiceSeconds] = useState(0);
-  const voiceSecondsRef = useRef(0);
-  const [playingVoiceId, setPlayingVoiceId] = useState<string | null>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
-  const currentAudioRef = useRef<HTMLAudioElement | null>(null);
-
-  // Image preview state
-  const [previewImage, setPreviewImage] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // License check & Follow-up status
-  const licenseCheck = isDoctorLicenseValid(doctor);
-  const followUp = getFollowUpStatus(patient);
 
   // Voice recording timer
   useEffect(() => {

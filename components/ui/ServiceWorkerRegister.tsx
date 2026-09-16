@@ -7,19 +7,31 @@ import { useEffect } from 'react';
  */
 export function ServiceWorkerRegister() {
   useEffect(() => {
-    if (typeof window !== 'undefined' && 'serviceWorker' in navigator && process.env.NODE_ENV === 'production') {
-      window.addEventListener('load', () => {
+    if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
+
+    const registerSW = () => {
+      try {
         navigator.serviceWorker
           .register('/sw.js', { scope: '/' })
           .then((registration) => {
-            console.log('✅ Service Worker TéléMed enregistré avec succès, scope:', registration.scope);
+            console.log('✅ Service Worker TéléMed enregistré, scope:', registration.scope);
           })
           .catch((error) => {
             console.warn('Notice Service Worker registration:', error);
           });
-      });
+      } catch (err) {
+        console.warn('Service Worker catch:', err);
+      }
+    };
+
+    if (document.readyState === 'complete') {
+      registerSW();
+    } else {
+      window.addEventListener('load', registerSW);
+      return () => window.removeEventListener('load', registerSW);
     }
   }, []);
 
   return null;
 }
+

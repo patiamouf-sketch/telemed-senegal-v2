@@ -273,14 +273,82 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           const cred = await signInWithEmailAndPassword(auth, cleanEmail, password);
           credUser = cred.user;
         } catch (firebaseErr: any) {
-          throw firebaseErr;
+          // Gestion du cas où le compte praticien a été approuvé dans Firestore mais pas encore créé dans Firebase Auth
+          if (
+            firebaseErr.code === 'auth/user-not-found' ||
+            firebaseErr.code === 'auth/invalid-credential' ||
+            firebaseErr.code === 'auth/invalid-login-credentials'
+          ) {
+            const existingProfile = await getDoctorById(cleanEmail);
+            if (existingProfile) {
+              try {
+                const newCred = await createUserWithEmailAndPassword(auth, cleanEmail, password);
+                credUser = newCred.user;
+                if (db) {
+                  await setDoc(doc(db, 'doctors', newCred.user.uid), existingProfile, { merge: true });
+                  await setDoc(doc(db, 'doctors', cleanEmail), existingProfile, { merge: true });
+                }
+              } catch (createErr) {
+                // Si la création échoue mais que le profil est approuvé
+                const currentUser = { uid: existingProfile.id || cleanEmail, email: cleanEmail, displayName: existingProfile.fullName };
+                setUser(currentUser);
+                setDoctorProfile(existingProfile);
+                if (typeof window !== 'undefined') {
+                  localStorage.setItem('telemed_session_v2', JSON.stringify({ user: currentUser, profile: existingProfile }));
+                }
+                setLoading(false);
+                return existingProfile;
+              }
+            } else {
+              throw new Error('Identifiants incorrects ou dossier praticien introuvable.');
+            }
+          } else if (firebaseErr.code === 'auth/wrong-password') {
+            throw new Error('Mot de passe incorrect pour ce compte médecin.');
+          } else {
+            throw firebaseErr;
+          }
         }
 
         if (credUser) {
-          const profile = await getDoctorById(credUser.uid) || await getDoctorById(cleanEmail);
+          const [profileByUid, profileByEmail] = await Promise.all([
+            getDoctorById(credUser.uid),
+            getDoctorById(cleanEmail)
+          ]);
+          const rawProfile = (profileByUid?.status === 'active' ? profileByUid : profileByEmail?.status === 'active' ? profileByEmail : profileByUid || profileByEmail);
+          const profile = normalizeDoctorStatus(rawProfile);
+
+          if (!profile) {
+            const localDoctors = getLocalDoctors();
+            const matchedLocal = localDoctors.find(d => d.email.toLowerCase() === cleanEmail);
+            if (matchedLocal) {
+              const currentUser = { uid: credUser.uid, email: cleanEmail, displayName: matchedLocal.fullName || 'Docteur' };
+              setUser(currentUser);
+              setDoctorProfile(matchedLocal);
+              if (db) {
+                try {
+                  await setDoc(doc(db, 'doctors', credUser.uid), matchedLocal, { merge: true });
+                  await setDoc(doc(db, 'doctors', cleanEmail), matchedLocal, { merge: true });
+                } catch (e) {}
+              }
+              if (typeof window !== 'undefined') {
+                localStorage.setItem('telemed_session_v2', JSON.stringify({ user: currentUser, profile: matchedLocal }));
+              }
+              setLoading(false);
+              return matchedLocal;
+            }
+          }
+
           const currentUser = { uid: credUser.uid, email: cleanEmail, displayName: profile?.fullName || 'Docteur' };
           setUser(currentUser);
           setDoctorProfile(profile);
+
+          if (db && profile) {
+            try {
+              await setDoc(doc(db, 'doctors', credUser.uid), profile, { merge: true });
+              await setDoc(doc(db, 'doctors', cleanEmail), profile, { merge: true });
+            } catch (e) {}
+          }
+
           if (typeof window !== 'undefined') {
             localStorage.setItem('telemed_session_v2', JSON.stringify({ user: currentUser, profile }));
           }
@@ -326,7 +394,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           const cred = await createUserWithEmailAndPassword(auth, data.email, password);
           uid = cred.user.uid;
         } catch (e: any) {
-          if (e.code !== 'auth/email-already-in-use') {
+          if (e.code === 'auth/email-already-in-use') {
+            try {
+              const existingCred = await signInWithEmailAndPassword(auth, data.email, password);
+              uid = existingCred.user.uid;
+            } catch (loginErr) {}
+          } else {
             console.warn('Firebase signup notice:', e);
           }
         }

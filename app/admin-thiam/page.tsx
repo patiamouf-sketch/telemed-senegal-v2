@@ -75,6 +75,7 @@ export default function AdminThiamPage() {
   const [approveDosage, setApproveDosage] = useState('');
   const [approveDuration, setApproveDuration] = useState('5 à 7 jours');
   const [approveChd, setApproveChd] = useState('Prise au cours des repas avec un grand verre d’eau.');
+  const [isPurging, setIsPurging] = useState(false);
 
   const isFetchingRef = useRef(false);
 
@@ -374,8 +375,6 @@ export default function AdminThiamPage() {
       setActionLoading(null);
     }
   };
-
-  const [isPurging, setIsPurging] = useState(false);
 
   const handlePurgeAllTestData = async () => {
     const confirmation = prompt(

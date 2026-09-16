@@ -100,6 +100,56 @@ export default function PatientRoomPage() {
   const [createdPatient, setCreatedPatient] = useState<PatientQueueItem | null>(null);
   const [copiedNum, setCopiedNum] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState('');
+  const [isSendingText, setIsSendingText] = useState(false);
+  const [patientImagePreview, setPatientImagePreview] = useState<string | null>(null);
+  const [showScrollBottom, setShowScrollBottom] = useState(false);
+  const [isIncomingCall, setIsIncomingCall] = useState(false);
+  const [isAudioMuted, setIsAudioMuted] = useState(false);
+  const [isRecordingVoice, setIsRecordingVoice] = useState(false);
+  const [voiceSeconds, setVoiceSeconds] = useState(0);
+  const [playingVoiceId, setPlayingVoiceId] = useState<string | null>(null);
+
+  const isFetchingDoctorRef = useRef(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const prevMessagesCountRef = useRef<number>(0);
+  const voiceSecondsRef = useRef(0);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const currentAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  const loadDoctorData = useCallback(async (silent: boolean = false) => {
+    if (!slug) return;
+    if (isFetchingDoctorRef.current) return;
+    isFetchingDoctorRef.current = true;
+
+    if (!silent) setLoading(true);
+    try {
+      const docProfile = await getDoctorBySlug(slug);
+      setDoctor(docProfile);
+    } catch (e) {
+      console.warn('Erreur loadDoctorData:', e);
+    } finally {
+      if (!silent) setLoading(false);
+      isFetchingDoctorRef.current = false;
+    }
+  }, [slug]);
+
+  useEffect(() => {
+    loadDoctorData();
+    const safetyTimer = setTimeout(() => setLoading(false), 2000);
+    const interval = setInterval(() => {
+      loadDoctorData(true);
+    }, 6000);
+    return () => {
+      clearTimeout(safetyTimer);
+      clearInterval(interval);
+    };
+  }, [loadDoctorData]);
 
   // Restauration de session patient (via paramètre URL ?session=... ou localStorage)
   useEffect(() => {
@@ -133,16 +183,6 @@ export default function PatientRoomPage() {
     setStep('form');
   };
 
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
-  const [chatInput, setChatInput] = useState('');
-  const [isSendingText, setIsSendingText] = useState(false);
-  const [patientImagePreview, setPatientImagePreview] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const chatEndRef = useRef<HTMLDivElement>(null);
-  const chatContainerRef = useRef<HTMLDivElement>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const [showScrollBottom, setShowScrollBottom] = useState(false);
-
   // Auto-scroll systématique lors de l'arrivée ou mise à jour de messages
   useEffect(() => {
     if (chatMessages.length > 0) {
@@ -158,18 +198,12 @@ export default function PatientRoomPage() {
     if (typeof window === 'undefined' || !window.visualViewport) return;
     const updateViewport = () => {
       document.documentElement.style.setProperty('--vh', `${window.visualViewport!.height * 0.01}px`);
-      // Scroll to bottom quand le clavier apparaît
       setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
     };
     window.visualViewport.addEventListener('resize', updateViewport);
     updateViewport(); // init
     return () => window.visualViewport?.removeEventListener('resize', updateViewport);
   }, []);
-
-  // État de l'appel visio entrant et notifications audio
-  const [isIncomingCall, setIsIncomingCall] = useState(false);
-  const [isAudioMuted, setIsAudioMuted] = useState(false);
-  const prevMessagesCountRef = useRef<number>(0);
 
   // Synchronisation de l'état silencieux global
   useEffect(() => {
@@ -182,15 +216,6 @@ export default function PatientRoomPage() {
     const next = toggleSoundMuted();
     setIsAudioMuted(next);
   };
-
-  // Voice note recording states (MediaRecorder)
-  const [isRecordingVoice, setIsRecordingVoice] = useState(false);
-  const [voiceSeconds, setVoiceSeconds] = useState(0);
-  const voiceSecondsRef = useRef(0);
-  const [playingVoiceId, setPlayingVoiceId] = useState<string | null>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
-  const currentAudioRef = useRef<HTMLAudioElement | null>(null);
 
   // Voice timer effect
   useEffect(() => {
@@ -367,36 +392,6 @@ export default function PatientRoomPage() {
     }
   };
 
-  const isFetchingDoctorRef = useRef(false);
-
-  const loadDoctorData = useCallback(async (silent: boolean = false) => {
-    if (!slug) return;
-    if (isFetchingDoctorRef.current) return;
-    isFetchingDoctorRef.current = true;
-
-    if (!silent) setLoading(true);
-    try {
-      const docProfile = await getDoctorBySlug(slug);
-      setDoctor(docProfile);
-    } catch (e) {
-      console.warn('Erreur loadDoctorData:', e);
-    } finally {
-      if (!silent) setLoading(false);
-      isFetchingDoctorRef.current = false;
-    }
-  }, [slug]);
-
-  useEffect(() => {
-    loadDoctorData();
-    const safetyTimer = setTimeout(() => setLoading(false), 2000);
-    const interval = setInterval(() => {
-      loadDoctorData(true);
-    }, 6000);
-    return () => {
-      clearTimeout(safetyTimer);
-      clearInterval(interval);
-    };
-  }, [loadDoctorData]);
 
   // Écouteur temps réel dès que la session patient est créée (statut de paiement + double canal messages)
   useEffect(() => {

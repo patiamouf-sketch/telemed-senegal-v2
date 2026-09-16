@@ -68,10 +68,25 @@ export async function createDoctorProfile(
     availableForTeleconsult: true,
   };
 
-  // 1. Enregistrement Firestore
+  // 1. Enregistrement Firestore Multi-Clés (ID, Email, Slug)
   if (isFirebaseConfigured && db) {
+    const firestoreDb = db;
+    const cleanData = cleanFirestoreData(newDoctor);
+    const writePromises: Promise<any>[] = [
+      setDoc(doc(firestoreDb, 'doctors', id), cleanData, { merge: true }),
+    ];
+
+    const cleanEmail = newDoctor.email?.toLowerCase().trim();
+    if (cleanEmail && cleanEmail !== id) {
+      writePromises.push(setDoc(doc(firestoreDb, 'doctors', cleanEmail), cleanData, { merge: true }));
+    }
+
+    if (newDoctor.slug && newDoctor.slug !== id && newDoctor.slug !== cleanEmail) {
+      writePromises.push(setDoc(doc(firestoreDb, 'doctors', newDoctor.slug), cleanData, { merge: true }));
+    }
+
     try {
-      await setDoc(doc(db, 'doctors', id), cleanFirestoreData(newDoctor));
+      await Promise.allSettled(writePromises);
     } catch (e) {
       console.warn('Firebase save failed, falling back to local storage:', e);
     }
