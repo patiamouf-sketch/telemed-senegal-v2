@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/lib/context/AuthContext';
 import { GlassButton } from './GlassButton';
@@ -15,6 +15,11 @@ interface NavbarProps {
 
 export function Navbar({ onOpenLogin, onOpenSignup }: NavbarProps) {
   const { user, doctorProfile, isAdmin, logout } = useAuth();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   return (
     <header className="relative pt-4 px-4 sm:px-8 max-w-7xl mx-auto w-full">
@@ -40,7 +45,7 @@ export function Navbar({ onOpenLogin, onOpenSignup }: NavbarProps) {
         <div className="flex items-center gap-2 sm:gap-2.5">
           <RefreshButton title="Actualiser la page" />
 
-          {user ? (
+          {mounted && user ? (
             <div className="flex items-center gap-2 sm:gap-3">
               {user.email?.toLowerCase() === 'pati.amouf@gmail.com' && (
                 <Link href="/admin-thiam" title="Espace Direction">
