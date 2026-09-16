@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useAuth } from '@/lib/context/AuthContext';
 import { GlassButton } from './GlassButton';
 import { Badge } from './Badge';
+import { RefreshButton } from './RefreshButton';
 import { Activity, ShieldCheck, LogOut, Stethoscope, Sparkles } from 'lucide-react';
 
 interface NavbarProps {
@@ -36,7 +37,9 @@ export function Navbar({ onOpenLogin, onOpenSignup }: NavbarProps) {
         </Link>
 
         {/* Navigation / CTA Buttons */}
-        <div className="flex items-center gap-2.5 sm:gap-3">
+        <div className="flex items-center gap-2 sm:gap-2.5">
+          <RefreshButton title="Actualiser la page" />
+
           {user ? (
             <div className="flex items-center gap-2 sm:gap-3">
               {user.email?.toLowerCase() === 'pati.amouf@gmail.com' && (

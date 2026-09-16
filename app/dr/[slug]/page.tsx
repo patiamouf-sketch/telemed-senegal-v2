@@ -17,6 +17,7 @@ import { isDoctorLicenseValid } from '@/lib/utils/license';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { GlassButton } from '@/components/ui/GlassButton';
 import { Badge } from '@/components/ui/Badge';
+import { RefreshButton } from '@/components/ui/RefreshButton';
 import { AudioVoiceNote } from '@/components/consultation/AudioVoiceNote';
 import { getSupportedAudioMimeType } from '@/lib/utils/audioHelper';
 import {
@@ -697,6 +698,7 @@ export default function PatientRoomPage() {
               >
                 {isAudioMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
               </button>
+              <RefreshButton title="Actualiser la consultation" />
               {followUp.isExpired && (
                 <GlassButton size="sm" variant="secondary" onClick={handleResetSession} className="text-[10px] !px-2 !py-1">
                   Quitter
