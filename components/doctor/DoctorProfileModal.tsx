@@ -49,7 +49,7 @@ export function DoctorProfileModal({ isOpen, onClose }: DoctorProfileModalProps)
   const [clinicName, setClinicName] = useState(doctorProfile?.clinicName || '');
   const [city, setCity] = useState(doctorProfile?.city || '');
   const [bio, setBio] = useState(doctorProfile?.bio || '');
-  const [consultationFee, setConsultationFee] = useState(
+  const [consultationFee, setConsultationFee] = useState<number | string>(
     doctorProfile?.consultationFee || doctorProfile?.visioConsultationFee || doctorProfile?.avisMedicalFee || 5000
   );
   const [waveNumber, setWaveNumber] = useState(doctorProfile?.waveNumber || doctorProfile?.phone || '');
@@ -435,8 +435,23 @@ export function DoctorProfileModal({ isOpen, onClose }: DoctorProfileModalProps)
                       type="number"
                       min="1000"
                       step="500"
-                      value={consultationFee}
-                      onChange={e => setConsultationFee(Number(e.target.value))}
+                      placeholder="5000"
+                      value={consultationFee === 0 || consultationFee === '0' ? '' : consultationFee}
+                      onChange={e => {
+                        const val = e.target.value;
+                        if (val === '') {
+                          setConsultationFee('');
+                        } else {
+                          const cleanVal = val.replace(/^0+(?=\d)/, '');
+                          const parsed = parseInt(cleanVal, 10);
+                          setConsultationFee(isNaN(parsed) ? '' : parsed);
+                        }
+                      }}
+                      onBlur={() => {
+                        if (!consultationFee || Number(consultationFee) <= 0) {
+                          setConsultationFee(5000);
+                        }
+                      }}
                       className="w-full pl-3.5 pr-14 py-2.5 rounded-[16px] bg-white border border-slate-200 text-sm font-extrabold text-[#0F172A]"
                     />
                     <span className="absolute right-3 top-2.5 text-[11px] font-bold text-slate-400">FCFA</span>

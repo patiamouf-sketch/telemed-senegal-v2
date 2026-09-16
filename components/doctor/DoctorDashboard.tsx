@@ -99,7 +99,7 @@ export function DoctorDashboard() {
   };
 
   // Pricing & service settings state
-  const [consultationFee, setConsultationFee] = useState<number>(
+  const [consultationFee, setConsultationFee] = useState<number | string>(
     doctorProfile?.consultationFee || doctorProfile?.visioConsultationFee || doctorProfile?.avisMedicalFee || 5000
   );
   const [waveNum, setWaveNum] = useState<string>(doctorProfile?.waveNumber || doctorProfile?.phone || '+221 77 654 32 10');
@@ -510,7 +510,7 @@ export function DoctorDashboard() {
               <span className="truncate">Tarifs & Numéros</span>
             </div>
             <span className="text-[10px] font-extrabold text-slate-600 bg-white px-2 py-0.5 rounded-full border border-slate-200/80">
-              {consultationFee ? `${(consultationFee / 1000).toFixed(0)}k` : '5k'}
+              {consultationFee && Number(consultationFee) > 0 ? `${(Number(consultationFee) / 1000).toFixed(0)}k` : '5k'}
             </span>
           </button>
         </div>
@@ -1057,8 +1057,23 @@ export function DoctorDashboard() {
                     type="number"
                     min="1000"
                     step="500"
-                    value={consultationFee}
-                    onChange={e => setConsultationFee(Number(e.target.value))}
+                    placeholder="5000"
+                    value={consultationFee === 0 || consultationFee === '0' ? '' : consultationFee}
+                    onChange={e => {
+                      const val = e.target.value;
+                      if (val === '') {
+                        setConsultationFee('');
+                      } else {
+                        const cleanVal = val.replace(/^0+(?=\d)/, '');
+                        const parsed = parseInt(cleanVal, 10);
+                        setConsultationFee(isNaN(parsed) ? '' : parsed);
+                      }
+                    }}
+                    onBlur={() => {
+                      if (!consultationFee || Number(consultationFee) <= 0) {
+                        setConsultationFee(5000);
+                      }
+                    }}
                     className="w-full px-3 py-2 rounded-xl bg-white border border-slate-200 text-slate-900 font-bold text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                   />
                 </div>
