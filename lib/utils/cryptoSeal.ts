@@ -6,11 +6,11 @@ export async function generatePrescriptionHash(payload: {
   patientNin: string;
   doctorId: string;
   timestamp: string;
-  items: Array<{ medication: string; dosage: string; duration: string }>;
+  items: Array<{ medication: string; dosage: string; duration?: string }>;
 }): Promise<string> {
   // Payload strict : [NIN_Patient + ID_Medecin + Date + Liste_Medocs]
   const normalizedString = `${payload.patientNin.trim()}|${payload.doctorId.trim()}|${payload.timestamp.trim()}|${JSON.stringify(
-    payload.items.map(i => `${i.medication.trim()}_${i.dosage.trim()}_${i.duration.trim()}`)
+    payload.items.map(i => `${i.medication.trim()}_${i.dosage.trim()}_${(i.duration || '').trim()}`)
   )}`;
 
   if (typeof window !== 'undefined' && window.crypto && window.crypto.subtle) {

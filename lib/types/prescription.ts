@@ -4,7 +4,7 @@ export interface PrescriptionItem {
   ammCode?: string;   // Code AMM / ARP Sénégal (ex: "ARP-SN-2023-412")
   form: string;       // Forme (Comprimé, Sirop, Gélule, Injectable, Pommade)
   dosage: string;     // Posologie (ex: "1 comprimé 3 fois par jour après les repas")
-  duration: string;   // Durée (ex: "5 jours")
+  duration?: string;  // Durée facultative (ex: "5 jours")
   instructions?: string;
 }
 

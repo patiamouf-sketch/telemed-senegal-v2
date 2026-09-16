@@ -186,6 +186,7 @@ export default function PatientRoomPage() {
   // Voice note recording states (MediaRecorder)
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
   const [voiceSeconds, setVoiceSeconds] = useState(0);
+  const voiceSecondsRef = useRef(0);
   const [playingVoiceId, setPlayingVoiceId] = useState<string | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -195,8 +196,17 @@ export default function PatientRoomPage() {
   useEffect(() => {
     let interval: any;
     if (isRecordingVoice) {
-      interval = setInterval(() => setVoiceSeconds(s => s + 1), 1000);
+      voiceSecondsRef.current = 0;
+      setVoiceSeconds(0);
+      interval = setInterval(() => {
+        setVoiceSeconds(s => {
+          const next = s + 1;
+          voiceSecondsRef.current = next;
+          return next;
+        });
+      }, 1000);
     } else {
+      voiceSecondsRef.current = 0;
       setVoiceSeconds(0);
     }
     return () => clearInterval(interval);
@@ -206,6 +216,7 @@ export default function PatientRoomPage() {
   const startVoiceRecording = async () => {
     if (!createdPatient) return;
     audioChunksRef.current = [];
+    voiceSecondsRef.current = 0;
     try {
       if (typeof navigator !== 'undefined' && navigator.mediaDevices) {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -224,7 +235,7 @@ export default function PatientRoomPage() {
         recorder.onstop = async () => {
           const audioBlob = new Blob(audioChunksRef.current, { type: mimeType || 'audio/webm' });
           stream.getTracks().forEach(t => t.stop());
-          const recordedSecs = Math.max(1, voiceSeconds);
+          const recordedSecs = Math.max(1, voiceSecondsRef.current);
           const ext = mimeType.includes('mp4') ? 'mp4' : mimeType.includes('ogg') ? 'ogg' : 'webm';
 
           try {
@@ -264,7 +275,7 @@ export default function PatientRoomPage() {
       mediaRecorderRef.current.stop();
       setIsRecordingVoice(false);
     } else {
-      const duration = Math.max(1, voiceSeconds);
+      const duration = Math.max(1, voiceSecondsRef.current);
       setIsRecordingVoice(false);
       if (createdPatient) {
         sendConsultationMessage(createdPatient.id, {

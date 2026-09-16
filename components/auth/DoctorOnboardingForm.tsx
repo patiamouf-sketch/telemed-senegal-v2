@@ -26,10 +26,25 @@ import {
   Loader2,
   FileText,
   Trash2,
+  Crop,
+  RotateCw,
 } from 'lucide-react';
 import { uploadMedia } from '@/lib/services/storageService';
 import { DoctorProfile } from '@/lib/types/doctor';
+import { ImageCropperModal } from '../ui/ImageCropperModal';
 import confetti from 'canvas-confetti';
+
+function dataUrlToBlob(dataUrl: string): Blob {
+  const parts = dataUrl.split(';base64,');
+  const contentType = parts[0].split(':')[1];
+  const raw = window.atob(parts[1]);
+  const rawLength = raw.length;
+  const uInt8Array = new Uint8Array(rawLength);
+  for (let i = 0; i < rawLength; ++i) {
+    uInt8Array[i] = raw.charCodeAt(i);
+  }
+  return new Blob([uInt8Array], { type: contentType });
+}
 
 const MEDICAL_SPECIALITIES = [
   'Médecine Générale',
@@ -41,10 +56,14 @@ const MEDICAL_SPECIALITIES = [
   'Pneumologie & Allergologie',
   'Endocrinologie & Diabétologie',
   'Neurologie',
+  'Neurochirurgie',
+  'Chirurgie Dentaire & Odontologie',
   'Psychiatrie & Santé Mentale',
   'ORL & Chirurgie Cervico-Faciale',
   'Rhumatologie & Traumatologie',
 ];
+
+const OTHER_SPECIALITY_OPTION = 'Autre spécialité (préciser)';
 
 const SENEGAL_CITIES = [
   'Dakar (Plateau / Almadies / Mermoz)',
@@ -91,16 +110,36 @@ export function DoctorOnboardingForm({ onClose, onSuccess, initialData }: Doctor
   const [avatarError, setAvatarError] = useState<string | null>(null);
 
   const [stampUrl, setStampUrl] = useState<string | null>(null);
-  const [stampName, setStampName] = useState<string | null>(null);
-  const stampInputRef = useRef<HTMLInputElement>(null);
+  const [rawStampImage, setRawStampImage] = useState<string | null>(null);
+  const [cropperSourceImage, setCropperSourceImage] = useState<string | null>(null);
+  const [isCropperOpen, setIsCropperOpen] = useState(false);
+  const [contrastThreshold, setContrastThreshold] = useState(190);
+  const stampCameraInputRef = useRef<HTMLInputElement>(null);
+  const stampFileInputRef = useRef<HTMLInputElement>(null);
   const [isProcessingStamp, setIsProcessingStamp] = useState(false);
   const [stampError, setStampError] = useState<string | null>(null);
+
+  // Spécialité médicale (prédéfinie ou saisie libre)
+  const [selectedSpeciality, setSelectedSpeciality] = useState<string>(() => {
+    if (initialData?.speciality) {
+      return MEDICAL_SPECIALITIES.includes(initialData.speciality)
+        ? initialData.speciality
+        : OTHER_SPECIALITY_OPTION;
+    }
+    return MEDICAL_SPECIALITIES[0];
+  });
+  const [customSpeciality, setCustomSpeciality] = useState<string>(() => {
+    if (initialData?.speciality && !MEDICAL_SPECIALITIES.includes(initialData.speciality)) {
+      return initialData.speciality;
+    }
+    return '';
+  });
 
   const [formData, setFormData] = useState({
     fullName: '',
     email: '',
     password: '',
-    speciality: MEDICAL_SPECIALITIES[0],
+    speciality: initialData?.speciality || MEDICAL_SPECIALITIES[0],
     onmsNumber: '',
     nin: '',
     phone: '+221 ',
@@ -149,7 +188,15 @@ export function DoctorOnboardingForm({ onClose, onSuccess, initialData }: Doctor
         setFormData(prev => ({ ...prev, fullName: sourceData?.fullName || '' }));
       }
       if (sourceData.speciality) {
-        setFormData(prev => ({ ...prev, speciality: sourceData?.speciality || prev.speciality }));
+        const spec = sourceData.speciality.trim();
+        if (MEDICAL_SPECIALITIES.includes(spec)) {
+          setSelectedSpeciality(spec);
+          setCustomSpeciality('');
+        } else {
+          setSelectedSpeciality(OTHER_SPECIALITY_OPTION);
+          setCustomSpeciality(spec);
+        }
+        setFormData(prev => ({ ...prev, speciality: spec }));
       }
       if (sourceData.phone || sourceData.waveNumber) {
         setFormData(prev => ({ ...prev, phone: sourceData?.phone || sourceData?.waveNumber || prev.phone }));
@@ -235,28 +282,101 @@ export function DoctorOnboardingForm({ onClose, onSuccess, initialData }: Doctor
     }
   };
 
-  // Upload Cachet & Signature (compression locale immédiate)
-  const handleStampChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Algorithme d'isolation d'encre et détourage transparent haute fidélité
+  const processStampCanvas = (imageSrc: string, threshold: number = contrastThreshold) => {
+    setIsProcessingStamp(true);
+    setStampError(null);
+
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const maxDim = 800;
+      let w = img.width;
+      let h = img.height;
+
+      if (w > maxDim || h > maxDim) {
+        if (w > h) {
+          h = Math.round((h * maxDim) / w);
+          w = maxDim;
+        } else {
+          w = Math.round((w * maxDim) / h);
+          h = maxDim;
+        }
+      }
+
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        setIsProcessingStamp(false);
+        return;
+      }
+
+      ctx.clearRect(0, 0, w, h);
+      ctx.drawImage(img, 0, 0, w, h);
+      const imgData = ctx.getImageData(0, 0, w, h);
+      const data = imgData.data;
+
+      // Algorithme de détection et élimination du fond papier blanc
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        const brightness = 0.299 * r + 0.587 * g + 0.114 * b;
+
+        if (brightness > threshold) {
+          // Fond transparent
+          data[i + 3] = 0;
+        } else {
+          // Rehaussement du contraste de l'encre médicale
+          const factor = 1.4;
+          data[i] = Math.max(0, Math.min(255, (r - 90) * factor));
+          data[i + 1] = Math.max(0, Math.min(255, (g - 90) * factor));
+          data[i + 2] = Math.max(0, Math.min(255, (b - 90) * factor));
+          data[i + 3] = 255;
+        }
+      }
+
+      ctx.putImageData(imgData, 0, 0);
+      const resultDataUrl = canvas.toDataURL('image/png');
+      setStampUrl(resultDataUrl);
+      setIsProcessingStamp(false);
+
+      // Téléversement asynchrone vers storage
+      try {
+        const stampBlob = dataUrlToBlob(resultDataUrl);
+        uploadMedia(stampBlob, `doctor_stamps/${Date.now()}_stamp.png`).catch(() => {});
+      } catch {}
+    };
+    img.onerror = () => {
+      setIsProcessingStamp(false);
+      setStampError("Erreur lors de l'analyse du cachet.");
+    };
+    img.src = imageSrc;
+  };
+
+  // Sélection d'un fichier image (via caméra ou galerie)
+  const handleStampFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
 
-    setIsProcessingStamp(true);
-    setStampError(null);
-    setStampName(file.name);
-    try {
-      const url = await uploadMedia(file, `doctor_stamps/${Date.now()}_${file.name}`);
-      if (url) {
-        setStampUrl(url);
-      } else {
-        setStampError("Impossible de traiter ce cachet.");
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const src = event.target?.result as string;
+      if (src) {
+        setCropperSourceImage(src);
+        setIsCropperOpen(true);
       }
-    } catch (err) {
-      console.warn('Erreur upload cachet médical:', err);
-      setStampError("Erreur lors de l'importation du cachet.");
-    } finally {
-      setIsProcessingStamp(false);
-    }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Callback de validation du recadrage libre
+  const handleCropComplete = (croppedDataUrl: string) => {
+    setRawStampImage(croppedDataUrl);
+    processStampCanvas(croppedDataUrl, contrastThreshold);
   };
 
   // Compresseur d'image et justificatif via storageService (JPG, PNG, WEBP, PDF)
@@ -317,6 +437,21 @@ export function DoctorOnboardingForm({ onClose, onSuccess, initialData }: Doctor
       return;
     }
 
+    const effectiveSpeciality = (
+      selectedSpeciality === OTHER_SPECIALITY_OPTION
+        ? customSpeciality.trim()
+        : (formData.speciality || selectedSpeciality)
+    ).trim();
+
+    if (!effectiveSpeciality) {
+      setError(
+        selectedSpeciality === OTHER_SPECIALITY_OPTION
+          ? 'Veuillez renseigner votre spécialité médicale dans le champ prévu.'
+          : 'Veuillez sélectionner votre spécialité médicale.'
+      );
+      return;
+    }
+
     setLoading(true);
     try {
       const slug = generateSlug(formData.fullName) || `dr-${Date.now()}`;
@@ -324,7 +459,7 @@ export function DoctorOnboardingForm({ onClose, onSuccess, initialData }: Doctor
         {
           fullName: formData.fullName.startsWith('Dr') ? formData.fullName : `Dr. ${formData.fullName}`,
           email: formData.email,
-          speciality: formData.speciality,
+          speciality: effectiveSpeciality,
           onmsStatus: isRegisteredOnms && formData.onmsNumber.trim() ? 'registered' : 'unregistered',
           onmsNumber: formData.onmsNumber.trim() ? formData.onmsNumber.trim().toUpperCase() : undefined,
           nin: formData.nin,
@@ -337,7 +472,7 @@ export function DoctorOnboardingForm({ onClose, onSuccess, initialData }: Doctor
           visioConsultationFee: Number(formData.consultationFee) || 5000,
           waveNumber: formData.phone,
           omNumber: formData.phone,
-          bio: formData.bio || `Médecin spécialiste en ${formData.speciality}`,
+          bio: formData.bio || `Médecin spécialiste en ${effectiveSpeciality}`,
           avatarUrl: avatarUrl || undefined,
           signatureStampUrl: stampUrl || undefined,
           verificationDocumentUrl: verificationDocUrl,
@@ -480,8 +615,16 @@ export function DoctorOnboardingForm({ onClose, onSuccess, initialData }: Doctor
                 <Stethoscope className="w-3.5 h-3.5 text-[#3B82F6]" /> Spécialité Médicale *
               </label>
               <select
-                value={formData.speciality}
-                onChange={e => setFormData({ ...formData, speciality: e.target.value })}
+                value={selectedSpeciality}
+                onChange={e => {
+                  const val = e.target.value;
+                  setSelectedSpeciality(val);
+                  if (val !== OTHER_SPECIALITY_OPTION) {
+                    setFormData(prev => ({ ...prev, speciality: val }));
+                  } else {
+                    setFormData(prev => ({ ...prev, speciality: customSpeciality.trim() }));
+                  }
+                }}
                 className="w-full px-4 py-2.5 rounded-[20px] bg-white border border-slate-200/80 focus:border-[#3B82F6] focus:outline-none focus:ring-4 focus:ring-blue-500/10 text-[#0F172A] shadow-sm font-medium"
               >
                 {MEDICAL_SPECIALITIES.map(spec => (
@@ -489,6 +632,9 @@ export function DoctorOnboardingForm({ onClose, onSuccess, initialData }: Doctor
                     {spec}
                   </option>
                 ))}
+                <option value={OTHER_SPECIALITY_OPTION} className="font-semibold text-blue-600">
+                  ✨ {OTHER_SPECIALITY_OPTION}
+                </option>
               </select>
             </div>
 
@@ -514,6 +660,29 @@ export function DoctorOnboardingForm({ onClose, onSuccess, initialData }: Doctor
                   <span>Jeune Praticien Diplômé d'État</span>
                   <Badge variant="emerald" size="sm">CNI Requise</Badge>
                 </div>
+              </div>
+            )}
+
+            {selectedSpeciality === OTHER_SPECIALITY_OPTION && (
+              <div className="col-span-1 sm:col-span-2 p-4 rounded-[20px] bg-gradient-to-r from-blue-50/70 to-indigo-50/50 border border-blue-200/80 shadow-sm animate-in fade-in slide-in-from-top-2 duration-200">
+                <label className="block text-xs font-bold text-[#0F172A] mb-1.5 flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-[#3B82F6]" /> Précisez votre Spécialité Médicale *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ex: Néphrologie, Oncologie médicale, Chirurgie maxillo-faciale..."
+                  value={customSpeciality}
+                  onChange={e => {
+                    const val = e.target.value;
+                    setCustomSpeciality(val);
+                    setFormData(prev => ({ ...prev, speciality: val }));
+                  }}
+                  className="w-full px-4 py-2.5 rounded-[16px] bg-white border border-blue-300/80 focus:border-[#3B82F6] focus:outline-none focus:ring-4 focus:ring-blue-500/15 text-[#0F172A] shadow-inner font-medium text-sm placeholder:text-slate-400"
+                />
+                <p className="text-[11px] text-blue-700/80 mt-1.5 flex items-center gap-1">
+                  ℹ️ Cette spécialité sera automatiquement inscrite sur votre profil, vos ordonnances et sur l'annuaire des praticiens.
+                </p>
               </div>
             )}
           </div>
@@ -819,14 +988,25 @@ export function DoctorOnboardingForm({ onClose, onSuccess, initialData }: Doctor
                 </Badge>
               </div>
               <p className="text-[10px] text-slate-500">
-                Incrusté automatiquement sur vos ordonnances certifiées.
+                Incrusté automatiquement sur vos ordonnances certifiées (fond transparent haute précision).
               </p>
+
+              {/* Inputs masqués : Caméra native vs Fichier / Galerie */}
               <input
                 type="file"
-                id="stamp-upload"
+                id="stamp-camera-upload-onboarding"
                 accept="image/*"
-                ref={stampInputRef}
-                onChange={handleStampChange}
+                capture="environment"
+                ref={stampCameraInputRef}
+                onChange={handleStampFileSelected}
+                className="hidden"
+              />
+              <input
+                type="file"
+                id="stamp-file-upload-onboarding"
+                accept="image/png,image/jpeg,image/jpg,image/webp"
+                ref={stampFileInputRef}
+                onChange={handleStampFileSelected}
                 className="hidden"
               />
 
@@ -837,47 +1017,79 @@ export function DoctorOnboardingForm({ onClose, onSuccess, initialData }: Doctor
               {isProcessingStamp ? (
                 <div className="w-full py-3 rounded-[16px] bg-emerald-50/60 border border-emerald-200 flex items-center justify-center gap-2 text-xs font-bold text-emerald-700">
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Optimisation du cachet...</span>
+                  <span>Détourage transparent en cours...</span>
                 </div>
               ) : stampUrl ? (
                 <div className="flex items-center gap-3 bg-white p-2 rounded-[16px] border border-slate-200 shadow-sm">
-                  <img
-                    src={stampUrl}
-                    alt="Cachet"
-                    className="h-12 w-16 object-contain rounded-[8px] border border-slate-100 bg-slate-50"
-                  />
+                  <div className="h-12 w-16 rounded-[8px] border border-slate-200 bg-[radial-gradient(#cbd5e1_1px,transparent_1px)] [background-size:6px_6px] p-1 flex items-center justify-center overflow-hidden flex-shrink-0">
+                    <img
+                      src={stampUrl}
+                      alt="Cachet"
+                      className="max-h-full max-w-full object-contain"
+                    />
+                  </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-[11px] font-bold text-[#0F172A] truncate">Tampon scellé</p>
                     <span className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
                       <Check className="w-3 h-3" /> Ordonnances officielles
                     </span>
                   </div>
-                  <label
-                    htmlFor="stamp-upload"
-                    className="cursor-pointer text-[10px] font-bold text-emerald-600 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-full transition-colors"
-                  >
-                    Changer
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setStampUrl(null);
-                      setStampName(null);
-                    }}
-                    className="p-1 text-slate-400 hover:text-red-500 rounded-full transition-colors"
-                    title="Supprimer le cachet"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                  <div className="flex items-center gap-1">
+                    {(rawStampImage || cropperSourceImage) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (rawStampImage || cropperSourceImage) {
+                            setCropperSourceImage(rawStampImage || cropperSourceImage);
+                            setIsCropperOpen(true);
+                          }
+                        }}
+                        className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-full transition-colors"
+                        title="Recadrer l'image"
+                      >
+                        <Crop className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => stampFileInputRef.current?.click()}
+                      className="text-[10px] font-bold text-emerald-600 bg-emerald-50 hover:bg-emerald-100 px-2 py-1 rounded-full transition-colors"
+                    >
+                      Changer
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setStampUrl(null);
+                        setRawStampImage(null);
+                        setCropperSourceImage(null);
+                      }}
+                      className="p-1 text-slate-400 hover:text-red-500 rounded-full transition-colors"
+                      title="Supprimer le cachet"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
               ) : (
-                <label
-                  htmlFor="stamp-upload"
-                  className="cursor-pointer w-full py-2.5 px-3 rounded-[16px] border border-dashed border-slate-300 hover:border-emerald-400 bg-white text-xs font-bold text-slate-700 flex items-center justify-center gap-2 transition-all shadow-sm"
-                >
-                  <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                  <span>Importer cachet ou signature</span>
-                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => stampCameraInputRef.current?.click()}
+                    className="py-2.5 px-2 rounded-[16px] border border-dashed border-emerald-300 hover:border-emerald-500 bg-white text-xs font-bold text-emerald-700 flex flex-col items-center justify-center gap-1 transition-all shadow-sm group hover:bg-emerald-50/40"
+                  >
+                    <Camera className="w-4 h-4 text-emerald-600 group-hover:scale-110 transition-transform" />
+                    <span className="text-[11px]">Prendre photo</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => stampFileInputRef.current?.click()}
+                    className="py-2.5 px-2 rounded-[16px] border border-dashed border-slate-300 hover:border-blue-400 bg-white text-xs font-bold text-slate-700 flex flex-col items-center justify-center gap-1 transition-all shadow-sm group hover:bg-blue-50/40"
+                  >
+                    <UploadCloud className="w-4 h-4 text-blue-600 group-hover:scale-110 transition-transform" />
+                    <span className="text-[11px]">Importer fichier</span>
+                  </button>
+                </div>
               )}
             </div>
           </div>
@@ -904,6 +1116,15 @@ export function DoctorOnboardingForm({ onClose, onSuccess, initialData }: Doctor
         </form>
         </GlassCard>
       </div>
+
+      {/* Modal de Recadrage Libre pour le Cachet Médical */}
+      {isCropperOpen && cropperSourceImage && (
+        <ImageCropperModal
+          imageSrc={cropperSourceImage}
+          onCropComplete={handleCropComplete}
+          onClose={() => setIsCropperOpen(false)}
+        />
+      )}
     </div>
   );
 }

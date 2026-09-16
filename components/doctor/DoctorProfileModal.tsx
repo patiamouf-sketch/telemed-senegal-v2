@@ -4,10 +4,11 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useAuth } from '@/lib/context/AuthContext';
 import { DoctorProfile } from '@/lib/types/doctor';
 import { updateDoctorProfile } from '@/lib/services/doctorService';
-import { uploadMedia } from '@/lib/services/storageService';
+import { uploadMedia, dataUrlToBlob } from '@/lib/services/storageService';
 import { GlassCard } from '../ui/GlassCard';
 import { GlassButton } from '../ui/GlassButton';
 import { Badge } from '../ui/Badge';
+import { ImageCropperModal } from '../ui/ImageCropperModal';
 import { 
   User, 
   Camera, 
@@ -23,7 +24,10 @@ import {
   Sliders, 
   Eye, 
   Image as ImageIcon, 
-  Check
+  Check,
+  FolderOpen,
+  Crop,
+  RotateCw
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -52,13 +56,18 @@ export function DoctorProfileModal({ isOpen, onClose }: DoctorProfileModalProps)
   const [omNumber, setOmNumber] = useState(doctorProfile?.omNumber || doctorProfile?.phone || '');
   const [avatarUrl, setAvatarUrl] = useState<string | undefined>(doctorProfile?.avatarUrl);
 
-  // Stamp & Signature Studio (Option A - White Paper Auto-Contrast Canvas)
+  // Stamp & Signature Studio (Option A - White Paper Auto-Contrast Canvas & Recadrage Libre)
   const [rawStampImage, setRawStampImage] = useState<string | null>(null);
   const [processedStampUrl, setProcessedStampUrl] = useState<string | undefined>(doctorProfile?.signatureStampUrl);
   const [contrastThreshold, setContrastThreshold] = useState(195); // 0 to 255 for paper cleaning
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const avatarInputRef = useRef<HTMLInputElement>(null);
-  const stampInputRef = useRef<HTMLInputElement>(null);
+  const stampCameraInputRef = useRef<HTMLInputElement>(null);
+  const stampFileInputRef = useRef<HTMLInputElement>(null);
+
+  // Modal de Recadrage Libre
+  const [cropperSourceImage, setCropperSourceImage] = useState<string | null>(null);
+  const [isCropperOpen, setIsCropperOpen] = useState(false);
 
   useEffect(() => {
     if (doctorProfile) {
@@ -131,28 +140,37 @@ export function DoctorProfileModal({ isOpen, onClose }: DoctorProfileModalProps)
       ctx.putImageData(imgData, 0, 0);
       const resultDataUrl = canvas.toDataURL('image/png');
       setProcessedStampUrl(resultDataUrl);
+
+      // Téléversement asynchrone sécurisé vers storage
+      try {
+        const stampBlob = dataUrlToBlob(resultDataUrl);
+        uploadMedia(stampBlob, `doctor_stamps/${Date.now()}_stamp.png`).catch(() => {});
+      } catch {}
     };
     img.src = imageSrc;
   };
 
-  const handleStampUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Sélection d'un fichier image (via caméra ou fichier)
+  const handleStampFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
-
-    try {
-      const storageUrl = await uploadMedia(file, `doctor_stamps/${Date.now()}_${file.name}`);
-      setProcessedStampUrl(storageUrl);
-    } catch (err) {
-      console.warn('Storage upload notice, using local canvas:', err);
-    }
 
     const reader = new FileReader();
     reader.onload = (event) => {
       const src = event.target?.result as string;
-      setRawStampImage(src);
-      processStampCanvas(src, contrastThreshold);
+      if (src) {
+        setCropperSourceImage(src);
+        setIsCropperOpen(true);
+      }
     };
     reader.readAsDataURL(file);
+  };
+
+  // Callback de validation du recadrage libre
+  const handleCropComplete = (croppedDataUrl: string) => {
+    setRawStampImage(croppedDataUrl);
+    processStampCanvas(croppedDataUrl, contrastThreshold);
   };
 
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -473,61 +491,100 @@ export function DoctorProfileModal({ isOpen, onClose }: DoctorProfileModalProps)
             </div>
           )}
 
-          {/* TAB 2: NUMERISEUR DE CACHET & SIGNATURE (OPTION A - FEUILLE BLANCHE) */}
+          {/* TAB 2: NUMERISEUR DE CACHET & SIGNATURE (OPTION A - FEUILLE BLANCHE + RECADRAGE LIBRE) */}
           {activeTab === 'stamp' && (
             <div className="space-y-4">
-              <div className="p-4 rounded-[22px] bg-slate-50 border border-slate-200 space-y-3">
-                <div className="flex items-start justify-between gap-3">
+              <div className="p-4 sm:p-5 rounded-[22px] bg-slate-50 border border-slate-200/90 space-y-3.5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
-                    <h4 className="font-bold text-[#0F172A] text-xs flex items-center gap-1.5">
+                    <h4 className="font-bold text-[#0F172A] text-xs sm:text-sm flex items-center gap-1.5">
                       <Sparkles className="w-4 h-4 text-[#3B82F6]" />
-                      Numériseur Intelligent de Cachet Médical (Option A)
+                      Numériseur & Recadreur de Cachet Médical
                     </h4>
-                    <p className="text-[11px] text-slate-500 mt-0.5">
-                      Apposez votre tampon et signez sur une <strong>feuille blanche</strong>. Prenez la photo : l'outil élimine automatiquement les ombres du papier et optimise l'encre pour vos ordonnances.
+                    <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
+                      Apposez votre tampon et signez sur une <strong>feuille blanche</strong>. Prenez la photo ou importez une image : recadrez librement la zone utile, l'outil élimine automatiquement les ombres du papier et optimise l'encre.
                     </p>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => stampInputRef.current?.click()}
-                    className="px-3 py-1.5 rounded-full bg-[#3B82F6] hover:bg-blue-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-md flex-shrink-0"
-                  >
-                    <Camera className="w-3.5 h-3.5" />
-                    Prendre la photo
-                  </button>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    ref={stampInputRef}
-                    onChange={handleStampUpload}
-                    className="hidden"
-                  />
+                  {/* Boutons d'acquisition : Photo directe + Import fichier */}
+                  <div className="flex items-center gap-2 flex-wrap flex-shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => stampCameraInputRef.current?.click()}
+                      className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm transition-all active:scale-95 cursor-pointer"
+                      title="Prendre une photo avec l'appareil photo"
+                    >
+                      <Camera className="w-3.5 h-3.5" />
+                      <span>Prendre la photo</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => stampFileInputRef.current?.click()}
+                      className="px-3.5 py-2 rounded-xl bg-white hover:bg-slate-100 text-slate-700 font-bold text-xs flex items-center gap-1.5 border border-slate-200/90 shadow-sm transition-all active:scale-95 cursor-pointer"
+                      title="Importer une photo depuis vos dossiers / galerie"
+                    >
+                      <FolderOpen className="w-3.5 h-3.5 text-blue-600" />
+                      <span>Importer une image</span>
+                    </button>
+
+                    {/* Inputs cachés */}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      ref={stampCameraInputRef}
+                      onChange={handleStampFileSelected}
+                      className="hidden"
+                    />
+                    <input
+                      type="file"
+                      accept="image/*"
+                      ref={stampFileInputRef}
+                      onChange={handleStampFileSelected}
+                      className="hidden"
+                    />
+                  </div>
                 </div>
 
-                {/* Sliders for Contrast Threshold if image uploaded */}
+                {/* Bouton de Recadrage à nouveau et Slider de Contraste */}
                 {rawStampImage && (
-                  <div className="pt-2 border-t border-slate-200/60 space-y-1.5">
-                    <div className="flex items-center justify-between text-[11px] font-bold text-slate-700">
-                      <span className="flex items-center gap-1">
-                        <Sliders className="w-3.5 h-3.5 text-[#3B82F6]" />
-                        Nettoyage du fond de la feuille :
-                      </span>
-                      <span className="font-mono text-[#3B82F6]">{contrastThreshold}</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="120"
-                      max="240"
-                      value={contrastThreshold}
-                      onChange={e => {
-                        const val = Number(e.target.value);
-                        setContrastThreshold(val);
-                        if (rawStampImage) processStampCanvas(rawStampImage, val);
+                  <div className="pt-3 border-t border-slate-200/70 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (cropperSourceImage || rawStampImage) {
+                          setCropperSourceImage(cropperSourceImage || rawStampImage);
+                          setIsCropperOpen(true);
+                        }
                       }}
-                      className="w-full accent-[#3B82F6]"
-                    />
+                      className="px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 font-bold text-xs flex items-center gap-1.5 shadow-sm cursor-pointer self-start sm:self-auto"
+                    >
+                      <Crop className="w-3.5 h-3.5 text-blue-600" />
+                      <span>Recadrer la photo</span>
+                    </button>
+
+                    <div className="flex-1 max-w-xs space-y-1">
+                      <div className="flex items-center justify-between text-[11px] font-bold text-slate-700">
+                        <span className="flex items-center gap-1">
+                          <Sliders className="w-3 h-3 text-blue-600" />
+                          Sensibilité fond blanc :
+                        </span>
+                        <span className="font-mono text-blue-600">{contrastThreshold}</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="120"
+                        max="240"
+                        value={contrastThreshold}
+                        onChange={e => {
+                          const val = Number(e.target.value);
+                          setContrastThreshold(val);
+                          if (rawStampImage) processStampCanvas(rawStampImage, val);
+                        }}
+                        className="w-full accent-blue-600 cursor-pointer"
+                      />
+                    </div>
                   </div>
                 )}
               </div>
@@ -544,6 +601,7 @@ export function DoctorProfileModal({ isOpen, onClose }: DoctorProfileModalProps)
                   </span>
                   {processedStampUrl ? (
                     <div className="p-2 border border-slate-100 rounded-lg bg-white shadow-inner max-h-28 flex items-center justify-center">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src={processedStampUrl}
                         alt="Cachet numérisé"
@@ -586,6 +644,18 @@ export function DoctorProfileModal({ isOpen, onClose }: DoctorProfileModalProps)
         </form>
         </GlassCard>
       </div>
+
+      {/* Modal de Recadrage Libre Interactif */}
+      {isCropperOpen && cropperSourceImage && (
+        <ImageCropperModal
+          isOpen={isCropperOpen}
+          imageSrc={cropperSourceImage}
+          onClose={() => setIsCropperOpen(false)}
+          onCropComplete={handleCropComplete}
+          title="Recadrer le Cachet & la Signature"
+          subtitle="Ajustez les poignées bleues autour de votre tampon pour supprimer les bords de la feuille."
+        />
+      )}
     </div>
   );
 }

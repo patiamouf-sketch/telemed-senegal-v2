@@ -172,7 +172,7 @@ export function PrescriptionDrawer({
       return;
     }
 
-    // 4. Validation des 3 champs OBLIGATOIRES pour chaque ligne de médicament
+    // 4. Validation des champs obligatoires (Médicament + Posologie)
     for (let idx = 0; idx < items.length; idx++) {
       const it = items[idx];
       if (!it.medication.trim()) {
@@ -181,10 +181,6 @@ export function PrescriptionDrawer({
       }
       if (!it.dosage.trim()) {
         setFormError(`Ligne ${idx + 1} (${it.medication}) : La POSOLOGIE est obligatoire (en minuscules).`);
-        return;
-      }
-      if (!it.duration.trim()) {
-        setFormError(`Ligne ${idx + 1} (${it.medication}) : Le NOMBRE DE JOURS DE TRAITEMENT est obligatoire (en minuscules, ex: "5 jours").`);
         return;
       }
     }
@@ -637,13 +633,12 @@ export function PrescriptionDrawer({
 
                         <div>
                           <label className="text-[10px] font-bold text-slate-600 block mb-1">
-                            Durée du traitement * <span className="text-[9px] text-slate-400 font-normal">(en minuscules)</span>
+                            Durée du traitement <span className="text-[9px] text-slate-400 font-normal">(optionnel)</span>
                           </label>
                           <input
                             type="text"
-                            required
-                            placeholder="ex: 5 jours"
-                            value={item.duration}
+                            placeholder="ex: 5 jours (facultatif)"
+                            value={item.duration || ''}
                             onChange={e => handleUpdateItem(item.id, 'duration', e.target.value)}
                             className="w-full px-3 py-2 rounded-[14px] bg-slate-50 border border-slate-200 text-xs text-[#0F172A] focus:bg-white lowercase"
                           />
@@ -750,102 +745,111 @@ export function PrescriptionDrawer({
         {/* VIEW 2: REAL-TIME PREVIEW BEFORE/AFTER SIGNING */}
         {(activeTab === 'preview' || sealedPrescription) && (
           <div className="space-y-6 text-xs sm:text-sm">
-            <div className="p-6 sm:p-8 rounded-[28px] bg-white border border-slate-200/90 shadow-lg space-y-6 relative overflow-hidden">
-              {/* Header with TELEMED SENEGAL Logo */}
-              <div className="flex flex-col sm:flex-row items-start justify-between border-b-2 border-slate-900 pb-4 gap-4">
-                <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <div className="w-8 h-8 rounded-full bg-[#3B82F6] text-white flex items-center justify-center font-bold text-sm">
-                      +
+            <div className="p-5 sm:p-6 rounded-[24px] bg-white border border-slate-200/90 shadow-lg relative overflow-hidden min-h-[580px] sm:min-h-[660px] flex flex-col justify-between">
+              {/* Top and Body Content Container */}
+              <div className="space-y-4 flex-1">
+                {/* Header with TELEMED SENEGAL Logo Compact */}
+                <div className="flex flex-col sm:flex-row items-start justify-between border-b-1.5 border-slate-900 pb-3 gap-3">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <div className="w-6 h-6 rounded-full bg-[#3B82F6] text-white flex items-center justify-center font-bold text-xs flex-shrink-0">
+                        +
+                      </div>
+                      <div className="flex items-baseline gap-2 flex-wrap">
+                        <h1 className="text-sm sm:text-base font-extrabold text-[#0F172A] tracking-tight">
+                          TELEMED SENEGAL
+                        </h1>
+                        <span className="text-[9px] text-slate-500 uppercase tracking-wider font-bold">
+                          Direction Médicale
+                        </span>
+                      </div>
                     </div>
-                    <div>
-                      <h1 className="text-base font-extrabold text-[#0F172A] tracking-tight">
-                        TELEMED SENEGAL
-                      </h1>
-                      <span className="text-[10px] text-slate-500 block uppercase tracking-wider font-bold">
-                        Direction Médicale • Service de Téléconsultation
-                      </span>
+                    <div className="text-[11px] text-slate-600 mt-1 leading-snug">
+                      <strong className="text-slate-900 font-bold text-xs">{doctor.fullName}</strong>
+                      {doctor.speciality && !doctor.speciality.toLowerCase().includes('informaticien') && (
+                        <span> • <span className="font-medium text-slate-700">{doctor.speciality}</span></span>
+                      )}
+                      {doctor.onmsNumber && doctor.onmsNumber !== 'ONMS-DIR-001' ? (
+                        <span className="font-mono text-emerald-800 font-bold text-[10px]"> • N° ONMS : {doctor.onmsNumber}</span>
+                      ) : (
+                        <span className="text-[10px] text-emerald-700 font-semibold"> • Praticien Diplômé d’État</span>
+                      )}
+                      {doctor.clinicName && !doctor.clinicName.toLowerCase().includes('thiam global business') && (
+                        <p className="text-[10px] text-slate-500 mt-0.5">{doctor.clinicName} • {doctor.city || 'Sénégal'}</p>
+                      )}
                     </div>
                   </div>
-                  <div className="text-[11px] text-slate-600 space-y-0.5 mt-2">
-                    <p className="font-bold text-slate-900 text-sm">{doctor.fullName}</p>
-                    {doctor.speciality && !doctor.speciality.toLowerCase().includes('informaticien') && (
-                      <p className="font-medium text-slate-700">{doctor.speciality}</p>
-                    )}
-                    {doctor.onmsNumber && doctor.onmsNumber !== 'ONMS-DIR-001' ? (
-                      <p className="font-mono text-emerald-800 font-bold text-[10px]">N° ONMS : {doctor.onmsNumber}</p>
-                    ) : (
-                      <p className="text-[10px] text-emerald-700 font-semibold">Praticien Diplômé d’État</p>
-                    )}
-                    {doctor.clinicName && !doctor.clinicName.toLowerCase().includes('thiam global business') && (
-                      <p>{doctor.clinicName} • {doctor.city || 'Sénégal'}</p>
-                    )}
+
+                  <div className="text-left sm:text-right text-xs space-y-1 flex-shrink-0">
+                    <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-800 font-bold text-[10px] border border-emerald-200">
+                      <ShieldCheck className="w-3 h-3 text-emerald-600" />
+                      ORDONNANCE OFFICIELLE
+                    </div>
+                    <p className="text-[10px] text-slate-500">
+                      Délivrée le : <strong>{new Date().toLocaleDateString('fr-FR')}</strong>
+                    </p>
                   </div>
                 </div>
 
-                <div className="text-right sm:text-right text-xs space-y-1">
-                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 text-emerald-800 font-bold border border-emerald-200">
-                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                    ORDONNANCE MÉDICALE OFFICIELLE
-                  </div>
-                  <p className="text-[11px] text-slate-500">
-                    Date : <strong>{new Date().toLocaleDateString('fr-FR')}</strong>
-                  </p>
-                </div>
-              </div>
-
-              {/* Patient Block with Phone Number & Address */}
-              <div className="p-3.5 rounded-[18px] bg-slate-50 text-xs grid grid-cols-2 sm:grid-cols-4 gap-3 border border-slate-200/60">
-                <div>
-                  <span className="text-slate-400 text-[10px] block font-semibold">Patient(e) :</span>
-                  <strong className="text-slate-900 font-bold text-sm">{patientName || 'Non spécifié'}</strong>
-                </div>
-                <div>
-                  <span className="text-slate-400 text-[10px] block font-semibold">Téléphone :</span>
-                  <strong className="text-slate-900 font-mono">{patientPhone || 'Non spécifié'}</strong>
-                </div>
-                <div>
-                  <span className="text-slate-400 text-[10px] block font-semibold">Sexe & Âge :</span>
-                  <span className="text-slate-800">{patientGender === 'F' ? 'Femme' : 'Homme'}, {patientAge || '30'} ans</span>
-                </div>
-                {patientAddress && (
+                {/* Patient Block with Phone Number & Address (Compact Horizontal) */}
+                <div className="p-2.5 sm:p-3 rounded-[14px] bg-slate-50 text-xs grid grid-cols-1 sm:grid-cols-3 gap-2 border border-slate-200/60 items-center">
                   <div>
-                    <span className="text-slate-400 text-[10px] block font-semibold">Adresse :</span>
-                    <span className="text-slate-800 font-medium truncate block">{patientAddress}</span>
+                    <span className="text-slate-400 text-[9px] block font-bold uppercase tracking-wider">Patient(e) :</span>
+                    <div className="flex items-baseline gap-1.5 flex-wrap">
+                      <strong className="text-slate-900 font-bold text-xs">{patientName || 'Non spécifié'}</strong>
+                      <span className="text-slate-600 text-[11px]">({patientGender === 'F' ? 'Femme' : 'Homme'}, {patientAge || '30'} ans)</span>
+                    </div>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 text-[9px] block font-bold uppercase tracking-wider">Téléphone :</span>
+                    <strong className="text-slate-900 font-mono text-xs">{patientPhone || 'Non spécifié'}</strong>
+                  </div>
+                  {patientAddress ? (
+                    <div>
+                      <span className="text-slate-400 text-[9px] block font-bold uppercase tracking-wider">Résidence :</span>
+                      <span className="text-slate-800 font-medium text-xs truncate block">{patientAddress}</span>
+                    </div>
+                  ) : (
+                    <div>
+                      <span className="text-slate-400 text-[9px] block font-bold uppercase tracking-wider">Pays :</span>
+                      <span className="text-slate-800 font-medium text-xs">Sénégal</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Prescribed Items (Médicaments en MAJUSCULES, posologies & durées en minuscules) */}
+                <div className="space-y-4 py-2">
+                  <span className="text-xs font-extrabold text-[#0F172A] uppercase tracking-wider border-b border-slate-200 pb-1 block">
+                    Prescription Médicale :
+                  </span>
+                  <ol className="space-y-3 list-decimal list-inside text-xs">
+                    {items.map((item, idx) => (
+                      <li key={idx} className="space-y-0.5">
+                        <strong className="text-[#0F172A] font-extrabold text-sm uppercase">{item.medication}</strong>
+                        <div className="pl-4 text-slate-600 space-y-0.5">
+                          <p>Posologie : <em className="lowercase">{item.dosage}</em></p>
+                          {item.duration && item.duration.trim() && item.duration.trim() !== '0' && (
+                            <p className="text-[11px] text-slate-500">Durée du traitement : <strong className="lowercase">{item.duration}</strong></p>
+                          )}
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+
+                {/* CHD */}
+                {dietaryAdvice && (
+                  <div className="p-3.5 rounded-[18px] bg-blue-50/50 text-xs border border-blue-100/70 space-y-1">
+                    <strong className="text-[#3B82F6] font-bold block text-[11px] uppercase tracking-wider">
+                      Conseils Hygiéno-Diététiques (CHD) & Suivi :
+                    </strong>
+                    <p className="text-slate-700 leading-relaxed whitespace-pre-wrap">{dietaryAdvice}</p>
                   </div>
                 )}
               </div>
 
-              {/* Prescribed Items (Médicaments en MAJUSCULES, posologies & durées en minuscules) */}
-              <div className="space-y-4 py-2">
-                <span className="text-xs font-extrabold text-[#0F172A] uppercase tracking-wider border-b border-slate-200 pb-1 block">
-                  Prescription Médicale :
-                </span>
-                <ol className="space-y-3 list-decimal list-inside text-xs">
-                  {items.map((item, idx) => (
-                    <li key={idx} className="space-y-0.5">
-                      <strong className="text-[#0F172A] font-extrabold text-sm uppercase">{item.medication}</strong>
-                      <div className="pl-4 text-slate-600 space-y-0.5">
-                        <p>Posologie : <em className="lowercase">{item.dosage}</em></p>
-                        <p className="text-[11px] text-slate-500">Durée du traitement : <strong className="lowercase">{item.duration}</strong></p>
-                      </div>
-                    </li>
-                  ))}
-                </ol>
-              </div>
-
-              {/* CHD */}
-              {dietaryAdvice && (
-                <div className="p-3.5 rounded-[18px] bg-blue-50/50 text-xs border border-blue-100/70 space-y-1">
-                  <strong className="text-[#3B82F6] font-bold block text-[11px] uppercase tracking-wider">
-                    Conseils Hygiéno-Diététiques (CHD) & Suivi :
-                  </strong>
-                  <p className="text-slate-700 leading-relaxed whitespace-pre-wrap">{dietaryAdvice}</p>
-                </div>
-              )}
-
-              {/* Stamp, Signature & Discreet QR Code */}
-              <div className="pt-4 border-t-2 border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-4">
+              {/* Stamp, Signature & Discreet QR Code (Anchored at the bottom) */}
+              <div className="pt-4 mt-auto border-t-2 border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-4">
                 {/* Official Stamp & Signature */}
                 {doctor.signatureStampUrl ? (
                   <div className="flex items-center gap-3">

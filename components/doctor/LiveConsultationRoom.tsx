@@ -168,6 +168,7 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
   // Voice note MediaRecorder state
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
   const [voiceSeconds, setVoiceSeconds] = useState(0);
+  const voiceSecondsRef = useRef(0);
   const [playingVoiceId, setPlayingVoiceId] = useState<string | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -185,8 +186,17 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
   useEffect(() => {
     let interval: any;
     if (isRecordingVoice) {
-      interval = setInterval(() => setVoiceSeconds(s => s + 1), 1000);
+      voiceSecondsRef.current = 0;
+      setVoiceSeconds(0);
+      interval = setInterval(() => {
+        setVoiceSeconds(s => {
+          const next = s + 1;
+          voiceSecondsRef.current = next;
+          return next;
+        });
+      }, 1000);
     } else {
+      voiceSecondsRef.current = 0;
       setVoiceSeconds(0);
     }
     return () => clearInterval(interval);
@@ -230,6 +240,7 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
   // Start Real Voice Recording (MediaRecorder WebM/OGG/MP4)
   const startVoiceRecording = async () => {
     audioChunksRef.current = [];
+    voiceSecondsRef.current = 0;
     try {
       if (typeof navigator !== 'undefined' && navigator.mediaDevices) {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -248,7 +259,7 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
         recorder.onstop = async () => {
           const audioBlob = new Blob(audioChunksRef.current, { type: mimeType || 'audio/webm' });
           stream.getTracks().forEach(t => t.stop());
-          const recordedSecs = Math.max(1, voiceSeconds);
+          const recordedSecs = Math.max(1, voiceSecondsRef.current);
           const ext = mimeType.includes('mp4') ? 'mp4' : mimeType.includes('ogg') ? 'ogg' : 'webm';
 
           try {
@@ -290,7 +301,7 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
       setIsRecordingVoice(false);
     } else {
       // Fallback
-      const duration = Math.max(1, voiceSeconds);
+      const duration = Math.max(1, voiceSecondsRef.current);
       setIsRecordingVoice(false);
       sendConsultationMessage(patient.id, {
         sender: 'doctor',
@@ -542,7 +553,7 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
                         <div className="bg-white/90 p-3 rounded-[16px] border border-emerald-100 space-y-1">
                           {msg.prescriptionData.items.map((it, idx) => (
                             <div key={idx} className="text-xs">
-                              <strong>• {it.medication}</strong> : {it.dosage} ({it.duration})
+                              <strong>• {it.medication}</strong> : {it.dosage}{it.duration && it.duration !== '0' ? ` (${it.duration})` : ''}
                             </div>
                           ))}
                         </div>

@@ -16,8 +16,8 @@ export function Navbar({ onOpenLogin, onOpenSignup }: NavbarProps) {
   const { user, doctorProfile, isAdmin, logout } = useAuth();
 
   return (
-    <header className="sticky top-4 z-40 px-4 sm:px-8 max-w-7xl mx-auto w-full">
-      <nav className="bg-white/75 backdrop-blur-2xl border border-white/60 shadow-soft-float rounded-full px-6 py-3 flex items-center justify-between transition-all duration-300">
+    <header className="relative pt-4 px-4 sm:px-8 max-w-7xl mx-auto w-full">
+      <nav className="bg-white/80 backdrop-blur-md border border-slate-200/80 shadow-sm rounded-full px-6 py-3 flex items-center justify-between transition-all duration-300">
         {/* Brand Logo */}
         <Link href="/" className="flex items-center gap-3 group">
           <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-blue-600 to-sky-400 flex items-center justify-center text-white shadow-md shadow-blue-500/20 group-hover:scale-105 transition-transform">
