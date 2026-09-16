@@ -643,6 +643,10 @@ export function listenToPatient(
         doc(db, 'patient_queues', patientId),
         snap => {
           if (!isUnsubscribed && snap.exists()) {
+            if (pollInterval) {
+              clearInterval(pollInterval);
+              pollInterval = null;
+            }
             const data = snap.data() as PatientQueueItem;
             // Synchronisation discrète du cache local
             try {
@@ -720,6 +724,10 @@ export function listenToDoctorQueue(
         q,
         snap => {
           if (!isUnsubscribed) {
+            if (pollInterval) {
+              clearInterval(pollInterval);
+              pollInterval = null;
+            }
             const items = snap.docs.map(d => d.data() as PatientQueueItem);
             callback(items);
           }
@@ -807,6 +815,10 @@ export function listenToConsultationMessages(
         messagesCol,
         snap => {
           if (isUnsubscribed) return;
+          if (pollInterval) {
+            clearInterval(pollInterval);
+            pollInterval = null;
+          }
           if (!snap.empty) {
             const items = snap.docs.map(d => {
               const data = d.data() as ChatMessage;

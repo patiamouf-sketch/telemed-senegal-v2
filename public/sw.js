@@ -76,7 +76,46 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Stratégie pour les pages HTML : Network First avec Fallback Cache
+  // Stratégie pour les pages HTML / navigations : Network avec Timeout strict (1200ms) et Fallback Cache instantané
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      new Promise((resolve) => {
+        let timedOut = false;
+        const timer = setTimeout(() => {
+          timedOut = true;
+          caches.match(event.request).then((cached) => {
+            if (cached) resolve(cached);
+            else caches.match('/').then((r) => resolve(r || fetch(event.request)));
+          });
+        }, 1200);
+
+        fetch(event.request)
+          .then((networkResponse) => {
+            clearTimeout(timer);
+            if (networkResponse && networkResponse.status === 200) {
+              const responseClone = networkResponse.clone();
+              caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseClone));
+            }
+            if (!timedOut) resolve(networkResponse);
+          })
+          .catch(async () => {
+            clearTimeout(timer);
+            const cachedResponse = await caches.match(event.request);
+            if (cachedResponse) return resolve(cachedResponse);
+            const rootCache = await caches.match('/');
+            if (rootCache) return resolve(rootCache);
+            resolve(
+              new Response('Mode hors-ligne : veuillez vérifier votre connexion Internet.', {
+                headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+              })
+            );
+          });
+      })
+    );
+    return;
+  }
+
+  // Fallback générique pour les autres requêtes GET
   event.respondWith(
     fetch(event.request)
       .then((networkResponse) => {
@@ -88,13 +127,7 @@ self.addEventListener('fetch', (event) => {
       })
       .catch(async () => {
         const cachedResponse = await caches.match(event.request);
-        if (cachedResponse) return cachedResponse;
-        // Si la page demandée n'est pas en cache, renvoyer la racine
-        const rootCache = await caches.match('/');
-        if (rootCache) return rootCache;
-        return new Response('Mode hors-ligne : veuillez vous reconnecter à Internet.', {
-          headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-        });
+        return cachedResponse || new Response('', { status: 408 });
       })
   );
 });

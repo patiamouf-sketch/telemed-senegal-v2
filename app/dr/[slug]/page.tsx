@@ -9,6 +9,7 @@ import {
   sendConsultationMessage,
   listenToPatient,
   listenToConsultationMessages,
+  listenToDoctorProfile,
   getFollowUpStatus
 } from '@/lib/services/doctorService';
 import { DoctorProfile, PatientQueueItem, ServiceType, ChatMessage } from '@/lib/types/doctor';
@@ -142,14 +143,19 @@ export default function PatientRoomPage() {
   useEffect(() => {
     loadDoctorData();
     const safetyTimer = setTimeout(() => setLoading(false), 2000);
-    const interval = setInterval(() => {
-      loadDoctorData(true);
-    }, 6000);
+
+    // Écouteur en direct fluide sans polling agressif
+    const unsub = listenToDoctorProfile(slug, (profile) => {
+      if (profile) {
+        setDoctor(profile);
+      }
+    });
+
     return () => {
       clearTimeout(safetyTimer);
-      clearInterval(interval);
+      unsub();
     };
-  }, [loadDoctorData]);
+  }, [slug, loadDoctorData]);
 
   // Restauration de session patient (via paramètre URL ?session=... ou localStorage)
   useEffect(() => {

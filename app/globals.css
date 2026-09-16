@@ -95,3 +95,23 @@
   padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
 }
 
+/* Accélération matérielle GPU et isolation de défilement (anti-freeze & 60 FPS) */
+.hardware-accelerated {
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  perspective: 1000px;
+  will-change: transform, opacity;
+}
+
+.scroll-smooth-gpu {
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+  contain: content;
+}
+
+/* Optimisation de rendu pour les conteneurs de messages et cartes */
+.gpu-layer {
+  transform: translate3d(0, 0, 0);
+  contain: layout style;
+}
+

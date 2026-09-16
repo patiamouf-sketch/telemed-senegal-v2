@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Play, Pause, Volume2 } from 'lucide-react';
+import { getAudioContext } from '@/lib/utils/soundAlert';
 
 interface AudioVoiceNoteProps {
   audioUrl?: string;
@@ -21,8 +22,8 @@ export function AudioVoiceNote({
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const synthTimerRef = useRef<any>(null);
-  const audioCtxRef = useRef<AudioContext | null>(null);
   const oscRef = useRef<OscillatorNode | null>(null);
+  const gainRef = useRef<GainNode | null>(null);
 
   // Synchronisation de la durée initiale
   useEffect(() => {
@@ -45,11 +46,12 @@ export function AudioVoiceNote({
       if (oscRef.current) {
         try {
           oscRef.current.stop();
+          oscRef.current.disconnect();
         } catch {}
       }
-      if (audioCtxRef.current) {
+      if (gainRef.current) {
         try {
-          audioCtxRef.current.close();
+          gainRef.current.disconnect();
         } catch {}
       }
     };
@@ -58,8 +60,8 @@ export function AudioVoiceNote({
   // Synthétiseur de tonalité vocale médicale de fallback si aucun flux audio physique
   const playSyntheticAudio = useCallback(() => {
     try {
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      if (!AudioCtx) {
+      const ctx = getAudioContext();
+      if (!ctx) {
         // Fallback sans Web Audio : simple minuteur visuel
         setIsPlaying(true);
         synthTimerRef.current = setInterval(() => {
@@ -75,12 +77,10 @@ export function AudioVoiceNote({
         return;
       }
 
-      const ctx = new AudioCtx();
-      audioCtxRef.current = ctx;
-
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       oscRef.current = osc;
+      gainRef.current = gain;
 
       // Son doux type onde vocale médicale (280Hz modulé)
       osc.type = 'sine';
@@ -101,6 +101,8 @@ export function AudioVoiceNote({
             clearInterval(synthTimerRef.current);
             try {
               osc.stop();
+              osc.disconnect();
+              gain.disconnect();
             } catch {}
             setIsPlaying(false);
             return 0;
@@ -121,8 +123,15 @@ export function AudioVoiceNote({
     if (oscRef.current) {
       try {
         oscRef.current.stop();
+        oscRef.current.disconnect();
       } catch {}
       oscRef.current = null;
+    }
+    if (gainRef.current) {
+      try {
+        gainRef.current.disconnect();
+      } catch {}
+      gainRef.current = null;
     }
     setIsPlaying(false);
   }, []);
