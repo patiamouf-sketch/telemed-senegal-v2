@@ -1,6 +1,6 @@
 import { DoctorProfile, AdminStats, AdminAuditLog, AdminActionType } from '../types/doctor';
 import { db, isFirebaseConfigured } from '../firebase';
-import { getLocalDoctors, saveLocalDoctors, getLocalQueue } from './mockData';
+import { INITIAL_DOCTORS, getLocalDoctors, saveLocalDoctors, getLocalQueue } from './mockData';
 import { doc, getDoc, getDocs, collection, query, where, setDoc, deleteDoc, orderBy, limit } from 'firebase/firestore';
 import { addDays } from 'date-fns';
 
@@ -793,5 +793,118 @@ export async function getAdminStats(preloadedDoctors?: DoctorProfile[]): Promise
     activeCount: doctors.filter(d => d.status === 'active').length,
     rejectedCount: doctors.filter(d => d.status === 'rejected').length,
     activePatientsToday: queue.length,
+  };
+}
+
+/**
+ * Purge complète et sécurisée de toutes les données de test
+ * Conserve strictement le compte administrateur officiel du Dr. Elhadji Pathé THIAM.
+ */
+export async function purgeAllTestData(adminEmail: string = 'dr.thiam@telemed.sn'): Promise<{
+  success: boolean;
+  deletedDoctors: number;
+  deletedQueues: number;
+  deletedPrescriptions: number;
+  deletedMeds: number;
+}> {
+  let deletedDoctors = 0;
+  let deletedQueues = 0;
+  let deletedPrescriptions = 0;
+  let deletedMeds = 0;
+
+  const adminEmails = ['pati.amouf@gmail.com', 'dr.thiam@telemed.sn'];
+
+  // 1. Purge Cloud Firestore
+  if (isFirebaseConfigured && db) {
+    try {
+      // A. Médecins non-admin
+      const docSnap = await getDocs(collection(db, 'doctors'));
+      for (const d of docSnap.docs) {
+        const data = d.data();
+        const email = (data.email || '').toLowerCase().trim();
+        const role = data.role;
+        const id = d.id;
+        const isOfficialAdmin = id === 'admin-thiam-1' || adminEmails.includes(email) || role === 'admin';
+        if (!isOfficialAdmin) {
+          try {
+            await deleteDoc(d.ref);
+            deletedDoctors++;
+          } catch (e) {
+            console.warn(`Erreur suppression médecin ${id}:`, e);
+          }
+        }
+      }
+
+      // B. Files d'attente patients
+      const queueSnap = await getDocs(collection(db, 'patient_queues'));
+      for (const q of queueSnap.docs) {
+        try {
+          await deleteDoc(q.ref);
+          deletedQueues++;
+        } catch (e) {
+          console.warn(`Erreur suppression queue ${q.id}:`, e);
+        }
+      }
+
+      // C. Ordonnances de test
+      const prescSnap = await getDocs(collection(db, 'prescriptions'));
+      for (const p of prescSnap.docs) {
+        try {
+          await deleteDoc(p.ref);
+          deletedPrescriptions++;
+        } catch (e) {
+          console.warn(`Erreur suppression prescription ${p.id}:`, e);
+        }
+      }
+
+      // D. Médicaments en attente & sessions WebRTC
+      const medSnap = await getDocs(collection(db, 'pending_meds'));
+      for (const m of medSnap.docs) {
+        try {
+          await deleteDoc(m.ref);
+          deletedMeds++;
+        } catch (e) {
+          console.warn(`Erreur suppression med ${m.id}:`, e);
+        }
+      }
+
+      const rtcSnap = await getDocs(collection(db, 'webrtc_sessions'));
+      for (const r of rtcSnap.docs) {
+        try {
+          await deleteDoc(r.ref);
+        } catch (e) {}
+      }
+    } catch (err) {
+      console.warn('Erreur générale lors de la purge Firestore:', err);
+    }
+  }
+
+  // 2. Purge LocalStorage
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.setItem('telemed_doctors_v2', JSON.stringify(INITIAL_DOCTORS));
+      localStorage.setItem('telemed_queue_v2', JSON.stringify([]));
+      localStorage.setItem('telemed_archive_v2', JSON.stringify([]));
+      localStorage.setItem('telemed_prescriptions_v2', JSON.stringify([]));
+      localStorage.removeItem('telemed_active_consultation');
+    } catch (e) {}
+  }
+
+  // 3. Journalisation médico-légale de l'opération
+  await logAdminAction({
+    action: 'purge_test_data',
+    adminEmail,
+    targetId: 'system_purge',
+    targetName: 'Purge globale des données de test',
+    targetType: 'system',
+    details: `Purge système effectuée avec succès : ${deletedDoctors} praticiens de test, ${deletedQueues} files d'attente, ${deletedPrescriptions} ordonnances et ${deletedMeds} molécules supprimés. Compte administrateur officiel Dr. THIAM préservé.`,
+  });
+
+  return {
+    success: true,
+    deletedDoctors,
+    deletedQueues,
+    deletedPrescriptions,
+    deletedMeds,
   };
 }

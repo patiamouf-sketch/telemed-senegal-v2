@@ -40,7 +40,8 @@ import {
   renewDoctorLicense,
   getAdminStats,
   getAdminAuditLogs,
-  logAdminAction
+  logAdminAction,
+  purgeAllTestData,
 } from '@/lib/services/adminService';
 import { getPendingMedications, approvePendingMedication, rejectPendingMedication } from '@/lib/services/doctorService';
 import { DoctorProfile, AdminStats, AdminAuditLog } from '@/lib/types/doctor';
@@ -374,6 +375,37 @@ export default function AdminThiamPage() {
     }
   };
 
+  const [isPurging, setIsPurging] = useState(false);
+
+  const handlePurgeAllTestData = async () => {
+    const confirmation = prompt(
+      '⚠️ ACTION IRRÉVERSIBLE : Pour confirmer la PURGE COMPLÈTE de toutes les données de test (médecins fictifs, files d\'attente, ordonnances d\'essai), tapez "PURGE" ci-dessous :'
+    );
+    if (confirmation !== 'PURGE') {
+      if (confirmation !== null) alert('Action annulée : mot de confirmation non concordant.');
+      return;
+    }
+
+    setIsPurging(true);
+    try {
+      const res = await purgeAllTestData(user?.email || 'dr.thiam@telemed.sn');
+      await loadData(false);
+      alert(
+        `✅ Purge réussie !\n\n` +
+        `- ${res.deletedDoctors} praticiens de test supprimés\n` +
+        `- ${res.deletedQueues} files d'attente supprimées\n` +
+        `- ${res.deletedPrescriptions} ordonnances d'essai supprimées\n` +
+        `- ${res.deletedMeds} molécules de test supprimées\n\n` +
+        `Le compte officiel du Dr. Elhadji Pathé THIAM a été rigoureusement préservé.`
+      );
+    } catch (err) {
+      console.error('Erreur lors de la purge:', err);
+      alert('Une erreur est survenue lors de la purge.');
+    } finally {
+      setIsPurging(false);
+    }
+  };
+
   const pendingDocs = doctors.filter(d => d.status === 'pending');
   const activeDocs = doctors.filter(d => d.status === 'active' && d.id !== 'admin-thiam-1');
   const bannedDocs = doctors.filter(d => d.status === 'banned' || d.status === 'blocked');
@@ -413,6 +445,16 @@ export default function AdminThiamPage() {
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handlePurgeAllTestData}
+              disabled={isPurging}
+              className="px-3 py-1.5 rounded-full bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+              title="Purger toutes les données fictives et réinitialiser à l'état propre"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+              {isPurging ? 'Purge en cours...' : 'Purger données de test'}
+            </button>
             <GlassButton
               variant="secondary"
               size="sm"

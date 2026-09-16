@@ -104,7 +104,8 @@ export type AdminActionType =
   | 'renew_license'
   | 'delete_doctor'
   | 'approve_medication'
-  | 'reject_medication';
+  | 'reject_medication'
+  | 'purge_test_data';
 
 export interface AdminAuditLog {
   id: string;
@@ -113,7 +114,7 @@ export interface AdminAuditLog {
   adminName?: string;
   targetId: string;
   targetName: string;
-  targetType: 'doctor' | 'medication';
+  targetType: 'doctor' | 'medication' | 'system';
   timestamp: string;
   details?: string;
   reason?: string;
