@@ -89,10 +89,18 @@
   width: 100%;
   left: 0;
   top: 0;
+  right: 0;
+  bottom: 0;
 }
 
 .safe-bottom-padding {
   padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+}
+
+/* Quand le clavier virtuel iOS est ouvert, on ajuste le padding inférieur pour éviter un espace vide */
+:root[style*="--keyboard-open: 1"] .safe-bottom-padding,
+:root[style*="--keyboard-open:1"] .safe-bottom-padding {
+  padding-bottom: 0.5rem;
 }
 
 /* Accélération matérielle GPU et isolation de défilement (anti-freeze & 60 FPS) */

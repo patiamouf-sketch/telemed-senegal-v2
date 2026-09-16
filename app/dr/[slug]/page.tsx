@@ -206,15 +206,41 @@ export default function PatientRoomPage() {
 
   // Gestion ultra-robuste du viewport mobile (clavier virtuel iOS/Android)
   useEffect(() => {
-    if (typeof window === 'undefined' || !window.visualViewport) return;
+    if (typeof window === 'undefined') return;
+
+    if (step === 'consultation') {
+      document.body.style.overflow = 'hidden';
+    }
+
     const updateViewport = () => {
-      document.documentElement.style.setProperty('--vh', `${window.visualViewport!.height * 0.01}px`);
-      setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+      if (window.visualViewport) {
+        document.documentElement.style.setProperty('--vh', `${window.visualViewport.height * 0.01}px`);
+        document.documentElement.style.setProperty(
+          '--keyboard-open',
+          window.visualViewport.height < window.innerHeight * 0.85 ? '1' : '0'
+        );
+      }
+      if (step === 'consultation') {
+        window.scrollTo(0, 0);
+      }
+      setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
     };
-    window.visualViewport.addEventListener('resize', updateViewport);
+
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', updateViewport);
+      window.visualViewport.addEventListener('scroll', updateViewport);
+    }
+    window.addEventListener('resize', updateViewport);
     updateViewport(); // init
-    return () => window.visualViewport?.removeEventListener('resize', updateViewport);
-  }, []);
+
+    return () => {
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener('resize', updateViewport);
+        window.visualViewport.removeEventListener('scroll', updateViewport);
+      }
+      window.removeEventListener('resize', updateViewport);
+    };
+  }, [step]);
 
   // Synchronisation de l'état silencieux global
   useEffect(() => {
@@ -861,12 +887,15 @@ export default function PatientRoomPage() {
                     </button>
                   </div>
                 ) : (
-                  <form onSubmit={handleSendPatientMessage} className="flex-1 flex items-end gap-2 bg-slate-50 border border-slate-200 rounded-[22px] focus-within:border-[#3B82F6] focus-within:bg-white transition-colors overflow-hidden p-1 pr-1.5">
+                    <form onSubmit={handleSendPatientMessage} className="flex-1 flex items-end gap-2 bg-slate-50 border border-slate-200 rounded-[22px] focus-within:border-[#3B82F6] focus-within:bg-white transition-colors overflow-hidden p-1 pr-1.5">
                     <textarea
                       rows={1}
                       placeholder="Message..."
                       value={chatInput}
-                      onFocus={e => setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 300)}
+                      onFocus={() => {
+                        window.scrollTo(0, 0);
+                        setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 150);
+                      }}
                       onChange={e => setChatInput(e.target.value)}
                       onKeyDown={e => {
                         if (e.key === 'Enter' && !e.shiftKey) {
@@ -875,7 +904,7 @@ export default function PatientRoomPage() {
                         }
                       }}
                       style={{ minHeight: '36px', maxHeight: '120px' }}
-                      className="flex-1 px-3 py-2 text-xs sm:text-sm text-[#0F172A] bg-transparent focus:outline-none resize-none self-center disabled:opacity-60"
+                      className="flex-1 px-3 py-2 text-base sm:text-sm text-[#0F172A] bg-transparent focus:outline-none resize-none self-center disabled:opacity-60"
                       disabled={isSendingText}
                     />
                     <button type="submit" disabled={!chatInput.trim() || isSendingText} className="w-8 h-8 rounded-full bg-[#3B82F6] text-white disabled:opacity-50 flex items-center justify-center flex-shrink-0 self-end mb-0.5 shadow-md">

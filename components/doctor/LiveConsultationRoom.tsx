@@ -164,14 +164,38 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
 
   // Gestion ultra-robuste du viewport mobile (clavier virtuel iOS/Android)
   useEffect(() => {
-    if (typeof window === 'undefined' || !window.visualViewport) return;
+    if (typeof window === 'undefined') return;
+
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
     const updateViewport = () => {
-      document.documentElement.style.setProperty('--vh', `${window.visualViewport!.height * 0.01}px`);
-      setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+      if (window.visualViewport) {
+        document.documentElement.style.setProperty('--vh', `${window.visualViewport.height * 0.01}px`);
+        document.documentElement.style.setProperty(
+          '--keyboard-open',
+          window.visualViewport.height < window.innerHeight * 0.85 ? '1' : '0'
+        );
+      }
+      window.scrollTo(0, 0);
+      setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
     };
-    window.visualViewport.addEventListener('resize', updateViewport);
+
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', updateViewport);
+      window.visualViewport.addEventListener('scroll', updateViewport);
+    }
+    window.addEventListener('resize', updateViewport);
     updateViewport();
-    return () => window.visualViewport?.removeEventListener('resize', updateViewport);
+
+    return () => {
+      document.body.style.overflow = originalOverflow;
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener('resize', updateViewport);
+        window.visualViewport.removeEventListener('scroll', updateViewport);
+      }
+      window.removeEventListener('resize', updateViewport);
+    };
   }, []);
 
   // Voice recording timer
@@ -732,11 +756,12 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
                         value={inputText}
                         onChange={e => setInputText(e.target.value)}
                         disabled={isSendingText}
-                        className="flex-1 px-4 py-2.5 rounded-full bg-slate-50 border border-slate-200/80 text-xs focus:outline-none focus:bg-white text-[#0F172A] disabled:opacity-60"
-                        onFocus={(e) => {
+                        className="flex-1 px-4 py-2.5 rounded-full bg-slate-50 border border-slate-200/80 text-base sm:text-xs focus:outline-none focus:bg-white text-[#0F172A] disabled:opacity-60"
+                        onFocus={() => {
+                          window.scrollTo(0, 0);
                           setTimeout(() => {
-                            e.target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                          }, 300);
+                            messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+                          }, 150);
                         }}
                       />
                       <GlassButton type="submit" variant="primary" size="sm" disabled={isSendingText || !inputText.trim()} isLoading={isSendingText}>
