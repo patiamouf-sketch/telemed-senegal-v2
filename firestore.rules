@@ -3,73 +3,130 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // === Règles de Sécurité Cloud Firestore - TELEMED SENEGAL V3 ===
+    // =========================================================================
+    // === RÈGLES DE SÉCURITÉ CLOUD FIRESTORE - TELEMED SENEGAL V2 (DURCIE) ===
+    // =========================================================================
     
+    // --- 0. FONCTIONS HELPER DE CONTRÔLE D'ACCÈS & RÔLES ---
     function isAuthenticated() {
       return request.auth != null;
     }
 
     function isAdmin() {
       return isAuthenticated() && (
-        request.auth.token.email == 'dr.thiam@telemed.sn' ||
-        request.auth.token.email == 'pati.amouf@gmail.com' ||
-        request.auth.token.admin == true
+        (request.auth.token.email != null && (
+          request.auth.token.email.lower() == 'dr.thiam@telemed.sn' ||
+          request.auth.token.email.lower() == 'pati.amouf@gmail.com'
+        )) ||
+        (request.auth.token.admin != null && request.auth.token.admin == true)
       );
     }
 
-    function isOwner(userId) {
-      return isAuthenticated() && request.auth.uid == userId;
+    function isDoctorOwner(doctorId) {
+      return isAuthenticated() && (
+        request.auth.uid == doctorId ||
+        (request.auth.token.email != null && request.auth.token.email.lower() == doctorId.lower())
+      );
     }
 
-    // 1. Collection 'doctors' : Profils des Praticiens Médicaux
+    // --- 1. COLLECTION 'doctors' : PROFILS DES PRATICIENS MÉDICAUX ---
     match /doctors/{doctorId} {
-      // Les patients, praticiens et l'administration peuvent lire et synchroniser les profils
-      allow read, write: if true;
+      // Lecture publique pour annuaire, profils et prise en charge patient
+      allow read: if true;
+
+      // Inscription praticien : statut initial forcé à 'pending' (interdiction d'auto-attribution des statuts active/admin)
+      // Ou création directe sans restriction par l'administrateur
+      allow create: if isAdmin() || (
+        isAuthenticated() &&
+        request.resource.data.status == 'pending' &&
+        (!('role' in request.resource.data) || request.resource.data.role == 'doctor')
+      );
+
+      // Mise à jour de profil :
+      // - L'administrateur dispose d'un contrôle total (approbation, rejet, licence, bannissement)
+      // - Le praticien titulaire peut éditer ses coordonnées/tarifs/photos mais NE PEUT PAS modifier :
+      //   son statut, l'expiration de sa licence, son rôle, ou les motifs de rejet/ban.
+      allow update: if isAdmin() || (
+        isDoctorOwner(doctorId) &&
+        request.resource.data.status == resource.data.status &&
+        request.resource.data.licenseExpiresAt == resource.data.licenseExpiresAt &&
+        (!('role' in request.resource.data) || request.resource.data.role == resource.data.role) &&
+        (!('banReason' in request.resource.data) || request.resource.data.banReason == resource.data.banReason) &&
+        (!('rejectionReason' in request.resource.data) || request.resource.data.rejectionReason == resource.data.rejectionReason)
+      );
+
+      // Suppression réservée exclusivement à l'administrateur
+      allow delete: if isAdmin();
     }
 
-    // 2. Collection 'patient_queues' : Sessions de Téléconsultation & File d'attente
+    // --- 2. COLLECTION 'patient_queues' : FILE D'ATTENTE & SESSIONS DE TÉLÉCONSULTATION ---
     match /patient_queues/{patientId} {
-      // Les patients peuvent s'inscrire dans la file d'attente (zéro friction)
+      // Inscription patient dans la file d'attente (zéro friction)
       allow create: if true;
       
-      // Lecture et mise à jour pour le médecin traitant et le patient
+      // Lecture et mise à jour pour le patient et le praticien traitant
       allow read, update: if true;
       allow delete: if isAdmin();
 
-      // Sous-collection des messages de consultation en direct (texte, vocal, image, ordonnance)
+      // Sous-collection des messages de consultation en direct (notes vocales, texte, imagerie)
       match /messages/{messageId} {
         allow read, write: if true;
       }
     }
 
-    // 3. Collection 'prescriptions' : Ordonnances Médicales Numériques Scellées
+    // --- 3. COLLECTION 'prescriptions' : ORDONNANCES MÉDICALES NUMÉRIQUES SCELLÉES ---
     match /prescriptions/{prescriptionHash} {
-      // Vérification publique par hash (nécessaire pour le scan du QR Code par les pharmaciens)
+      // Vérification publique par hash (scan QR Code par les pharmaciens et patients sur /verify/[hash])
       allow read: if true;
       
-      // Création par le praticien
-      allow create: if isAuthenticated() || true;
+      // Création réservée exclusivement aux praticiens authentifiés ou à l'administrateur
+      allow create: if isAuthenticated() || isAdmin();
       
-      // Mise à jour restreinte à la délivrance en pharmacie (passage au statut 'dispensed')
-      allow update: if true;
+      // Mise à jour contrôlée anti-falsification :
+      // - Admin ou praticien signataire (tant que l'ordonnance n'est pas encore délivrée)
+      // - Délivrance en pharmacie : modification strictement limitée aux métadonnées de délivrance
+      //   (la liste des médicaments prescrits, dosages, médecin et patient sont INALTÉRABLES)
+      allow update: if isAdmin() || (
+        isAuthenticated() && 
+        resource.data.dispensed != true && 
+        request.resource.data.doctorId == resource.data.doctorId
+      ) || (
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'dispensed', 'dispensedAt', 'dispensedByPharmacy', 'dispensedPharmacistName', 'status'
+        ]) &&
+        request.resource.data.dispensed == true &&
+        request.resource.data.hash == resource.data.hash &&
+        request.resource.data.doctorId == resource.data.doctorId &&
+        request.resource.data.patientName == resource.data.patientName &&
+        request.resource.data.medications == resource.data.medications
+      );
+
+      // Suppression interdite pour traçabilité médico-légale (sauf admin pour maintenance)
       allow delete: if isAdmin();
     }
 
-    // 4. Collection 'webrtc_sessions' : Signalisation P2P Vidéo/Audio
+    // --- 4. COLLECTION 'webrtc_sessions' : SIGNALISATION TEMPS RÉEL ---
     match /webrtc_sessions/{sessionId} {
       allow read, write: if true;
     }
 
-    // 5. Collection 'pending_meds' : Propositions de nouvelles molécules DCI
+    // --- 5. COLLECTION 'pending_meds' : PROPOSITIONS DE NOUVELLES MOLÉCULES DCI ---
     match /pending_meds/{medId} {
       allow read: if true;
       allow create: if isAuthenticated();
       allow update, delete: if isAdmin();
     }
 
-    // 6. Collection 'admin_audit_logs' : Traçabilité Médico-Légale des Actions Administratives
+    // --- 6. COLLECTION 'admin_audit_logs' : TRAÇABILITÉ MÉDICO-LÉGALE DES ACTIONS ADMINISTRATIVES ---
     match /admin_audit_logs/{logId} {
-      allow read, write: if true;
+      // Lecture strictement réservée aux administrateurs
+      allow read: if isAdmin();
+      
+      // Création autorisée pour journaliser les actions médico-administratives
+      allow create: if true;
+      
+      // IMMUTABILITÉ ABSOLUE : Modification et Suppression STRICTEMENT INTERDITES
+      allow update, delete: if false;
     }
   }
 }

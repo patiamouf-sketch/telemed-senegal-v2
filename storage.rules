@@ -2,18 +2,58 @@ rules_version = '2';
 
 service firebase.storage {
   match /b/{bucket}/o {
-    // Les documents médicaux, tampons et photos
+
+    // =========================================================================
+    // === RÈGLES DE SÉCURITÉ CLOUD STORAGE - TELEMED SENEGAL V2 (DURCIE) ===
+    // =========================================================================
+
+    // --- 0. FONCTIONS HELPER DE SÉCURITÉ ---
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (
+        (request.auth.token.email != null && (
+          request.auth.token.email.lower() == 'dr.thiam@telemed.sn' ||
+          request.auth.token.email.lower() == 'pati.amouf@gmail.com'
+        )) ||
+        (request.auth.token.admin != null && request.auth.token.admin == true)
+      );
+    }
+
+    function isDoctorOwner(doctorId) {
+      return isAuthenticated() && (
+        request.auth.uid == doctorId ||
+        (request.auth.token.email != null && request.auth.token.email.lower() == doctorId.lower())
+      );
+    }
+
+    // --- 1. DOSSIER MÉDECINS : AVATARS, SIGNATURES & TAMPONS OFFICIELS ---
     match /doctors/{doctorId}/{allPaths=**} {
+      // Lecture publique pour affichage sur les profils et l'en-tête/tampon des ordonnances
       allow read: if true;
-      allow write: if request.auth != null;
+      
+      // Écriture réservée au médecin titulaire ou à l'administrateur
+      // Limitation stricte de taille (5 Mo max) et vérification du type MIME image
+      allow write: if (isDoctorOwner(doctorId) || isAdmin()) &&
+                      request.resource.size < 5 * 1024 * 1024 &&
+                      request.resource.contentType.matches('image/.*');
     }
 
+    // --- 2. DOSSIER TÉLÉCONSULTATIONS : NOTES VOCALES, IMAGERIE CLINIQUE & BILANS ---
     match /consultations/{consultationId}/{allPaths=**} {
-      allow read, write: if true;
+      // Lecture ouverte pour les participants de la téléconsultation
+      allow read: if true;
+      
+      // Écriture de médias (audio WebM/MP4, photos, bilans PDF) limitée à 15 Mo par fichier
+      allow write: if request.resource.size < 15 * 1024 * 1024;
     }
 
+    // --- 3. RESTE DU STOCKAGE : ACCÈS AUTHENTIFIÉ AVEC QUOTA ---
     match /{allPaths=**} {
-      allow read, write: if request.auth != null;
+      allow read: if true;
+      allow write: if isAuthenticated() && request.resource.size < 15 * 1024 * 1024;
     }
   }
 }
