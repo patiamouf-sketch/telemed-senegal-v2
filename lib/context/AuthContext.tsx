@@ -9,7 +9,18 @@ import { getDoctorById, createDoctorProfile, listenToDoctorProfile } from '../se
 import { INITIAL_DOCTORS, getLocalDoctors } from '../services/mockData';
 import { addDays } from 'date-fns';
 
-const ADMIN_EMAIL = (process.env.NEXT_PUBLIC_ADMIN_EMAIL || 'pati.amouf@gmail.com').toLowerCase();
+// Liste canonique des emails administrateurs autorisés (conforme à firestore.rules & storage.rules)
+export const ADMIN_EMAILS = [
+  'pati.amouf@gmail.com',
+  'dr.thiam@telemed.sn',
+  (process.env.NEXT_PUBLIC_ADMIN_EMAIL || '').toLowerCase().trim(),
+].filter(Boolean);
+
+export function isUserAdmin(email?: string | null): boolean {
+  if (!email) return false;
+  const clean = email.toLowerCase().trim();
+  return ADMIN_EMAILS.includes(clean);
+}
 
 function normalizeDoctorStatus(profile: DoctorProfile): DoctorProfile;
 function normalizeDoctorStatus(profile: null | undefined): null;
@@ -38,8 +49,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   const isAdmin = Boolean(
-    user?.email?.toLowerCase() === ADMIN_EMAIL || 
-    doctorProfile?.email?.toLowerCase() === ADMIN_EMAIL
+    isUserAdmin(user?.email) || 
+    isUserAdmin(doctorProfile?.email)
   );
 
   const refreshProfile = useCallback(async () => {
@@ -211,7 +222,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       };
 
       // VÉRIFICATION MOT DE PASSE ADMIN OFFICIEL (Aminata2025)
-      if (cleanEmail === ADMIN_EMAIL) {
+      if (isUserAdmin(cleanEmail)) {
         if (password === 'Aminata2025' || password === 'admin123' || password === 'password123') {
           const currentUser = { uid: 'admin-thiam-1', email: cleanEmail, displayName: 'Dr. Elhadji Pathé THIAM' };
           setUser(currentUser);
@@ -345,12 +356,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = async () => {
     if (isFirebaseConfigured && auth) {
-      await signOut(auth);
+      try {
+        await signOut(auth);
+      } catch (err) {
+        console.warn('Erreur lors de la déconnexion Firebase:', err);
+      }
     }
     setUser(null);
     setDoctorProfile(null);
     if (typeof window !== 'undefined') {
       localStorage.removeItem('telemed_session_v2');
+      localStorage.removeItem('telemed_active_consultation');
+      sessionStorage.clear();
     }
   };
 

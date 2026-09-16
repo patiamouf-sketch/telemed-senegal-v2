@@ -1,6 +1,41 @@
 import { auth, storage, isFirebaseConfigured } from '../firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
+// Types MIME autorisés sur la plateforme médicale TELEMED SENEGAL V2
+export const ALLOWED_MIME_TYPES = [
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+  'application/pdf',
+  'audio/webm',
+  'audio/mp4',
+  'audio/ogg',
+  'audio/wav',
+  'audio/mpeg',
+];
+
+// Extensions strictement interdites (fichiers exécutables ou scripts)
+export const BLOCKED_EXTENSIONS = /\.(exe|bat|cmd|sh|php|js|jsx|ts|tsx|html|htm|py|vbs|jar|apk)$/i;
+
+/**
+ * Vérifie si un fichier est conforme aux critères de sécurité
+ */
+export function isFileSafe(fileOrBlob: File | Blob): { safe: boolean; error?: string } {
+  const fileName = 'name' in fileOrBlob ? (fileOrBlob as File).name : '';
+  if (fileName && BLOCKED_EXTENSIONS.test(fileName)) {
+    return { safe: false, error: 'Type de fichier non autorisé pour des raisons de sécurité.' };
+  }
+
+  // Vérification de la taille (15 Mo max)
+  const maxSize = 15 * 1024 * 1024;
+  if (fileOrBlob.size > maxSize) {
+    return { safe: false, error: 'Le fichier dépasse la taille maximale autorisée (15 Mo).' };
+  }
+
+  return { safe: true };
+}
+
 /**
  * Convertit un fichier quelconque en DataURL Base64
  */
@@ -15,6 +50,18 @@ export function fileToDataUrl(fileOrBlob: File | Blob): Promise<string> {
     reader.onerror = () => reject(new Error('Erreur de lecture du fichier'));
     reader.readAsDataURL(fileOrBlob);
   });
+}
+
+/**
+ * Nettoie les métadonnées EXIF (GPS, infos appareil) et compresse l'image médicale
+ * L'export Canvas HTML5 détruit 100% des métadonnées EXIF privées.
+ */
+export async function stripExifAndCompressImage(
+  fileOrBlob: File | Blob,
+  maxDimension = 1280,
+  quality = 0.78
+): Promise<string> {
+  return compressImage(fileOrBlob, maxDimension, quality);
 }
 
 /**

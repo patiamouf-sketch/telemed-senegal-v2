@@ -1,5 +1,6 @@
 import { DoctorProfile, DoctorStatus, PatientQueueItem, ChatMessage } from '../types/doctor';
 import { OfficialPrescription, PendingMedication } from '../types/prescription';
+import { sanitizeText } from '../utils/sanitizer';
 import { db, isFirebaseConfigured } from '../firebase';
 import { addDays } from 'date-fns';
 import {
@@ -1061,12 +1062,15 @@ export async function dispensePrescription(
   pharmacyData: { pharmacyName: string; pharmacistName?: string }
 ): Promise<OfficialPrescription | null> {
   const normalizedHash = decodeURIComponent(hash).toLowerCase().trim();
+  const cleanPharmacy = sanitizeText(pharmacyData.pharmacyName) || 'Pharmacie Partenaire';
+  const cleanPharmacist = sanitizeText(pharmacyData.pharmacistName) || 'Docteur en Pharmacie';
   const timestamp = new Date().toISOString();
+  
   const updates: Partial<OfficialPrescription> = {
     dispensed: true,
     dispensedAt: timestamp,
-    dispensedByPharmacy: pharmacyData.pharmacyName,
-    dispensedPharmacistName: pharmacyData.pharmacistName || 'Docteur en Pharmacie',
+    dispensedByPharmacy: cleanPharmacy,
+    dispensedPharmacistName: cleanPharmacist,
     status: 'dispensed',
   };
 
@@ -1074,6 +1078,18 @@ export async function dispensePrescription(
   if (isFirebaseConfigured && db) {
     try {
       await updateDoc(doc(db, 'prescriptions', normalizedHash), updates);
+      
+      // Journalisation d'audit médico-légale
+      const auditLog = {
+        id: `audit-dispense-${Date.now()}`,
+        action: 'dispense_prescription',
+        targetId: normalizedHash,
+        targetName: `Ordonnance délivrée par ${cleanPharmacy} (${cleanPharmacist})`,
+        adminEmail: 'pharmacie.officine@telemed.sn',
+        timestamp,
+        details: { pharmacy: cleanPharmacy, pharmacist: cleanPharmacist, hash: normalizedHash }
+      };
+      await setDoc(doc(db, 'admin_audit_logs', auditLog.id), auditLog);
     } catch (e) {
       console.warn('Firebase dispensePrescription failed:', e);
     }

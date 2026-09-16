@@ -5,6 +5,7 @@ import { DoctorProfile, PatientQueueItem } from '@/lib/types/doctor';
 import { OfficialPrescription, PrescriptionItem } from '@/lib/types/prescription';
 import { searchDrugs, DrugEntry } from '@/lib/data/dciDatabase';
 import { generatePrescriptionHash } from '@/lib/utils/cryptoSeal';
+import { sanitizeText } from '@/lib/utils/sanitizer';
 import { isDoctorLicenseValid } from '@/lib/utils/license';
 import { submitPendingMedication, createOfficialPrescription } from '@/lib/services/doctorService';
 import { downloadPrescriptionPDF } from '@/lib/utils/pdfGenerator';
@@ -202,12 +203,23 @@ export function PrescriptionDrawer({
       }
     }
 
+    // Sanitisation préventive XSS des données patient et prescription
+    const cleanPatientName = sanitizeText(patientName);
+    const cleanPatientAddress = sanitizeText(patientAddress);
+    const cleanDietaryAdvice = dietaryAdvice ? sanitizeText(dietaryAdvice) : undefined;
+    const cleanItems = items.map(it => ({
+      ...it,
+      medication: sanitizeText(it.medication),
+      dosage: sanitizeText(it.dosage),
+      duration: it.duration ? sanitizeText(it.duration) : undefined,
+    }));
+
     // Calcul du condensat
     const hash = await generatePrescriptionHash({
-      patientNin: patientPhone || patientName || 'TEL-SN',
+      patientNin: patientPhone || cleanPatientName || 'TEL-SN',
       doctorId: doctor.id,
       timestamp,
-      items,
+      items: cleanItems,
     });
 
     const origin = typeof window !== 'undefined' && window.location.origin.includes('localhost')
@@ -228,13 +240,13 @@ export function PrescriptionDrawer({
       doctorCity: doctor.city,
       doctorSignatureStampUrl: doctor.signatureStampUrl,
       patientId: effectivePatientId,
-      patientName: patientName.trim(),
+      patientName: cleanPatientName,
       patientPhone: patientPhone.trim(),
       patientAge: Number(patientAge) || 30,
       patientGender: patientGender,
-      patientAddress: patientAddress.trim(),
-      items,
-      dietaryAdvice,
+      patientAddress: cleanPatientAddress,
+      items: cleanItems,
+      dietaryAdvice: cleanDietaryAdvice || '',
       sealedAt: timestamp,
       verificationUrl,
       status: 'valid',
