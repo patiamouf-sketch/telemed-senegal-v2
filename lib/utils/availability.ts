@@ -111,6 +111,13 @@ export function formatDaySlots(daySchedule?: DaySchedule): string {
   if (!daySchedule || !daySchedule.enabled || daySchedule.slots.length === 0) {
     return 'Fermé';
   }
+  // Détection 24h/24
+  const is24h = daySchedule.slots.some(
+    s => s.start === '00:00' && (s.end === '23:59' || s.end === '24:00' || s.end === '23:59:00')
+  );
+  if (is24h) {
+    return 'Ouvert 24h/24';
+  }
   return daySchedule.slots
     .map(s => `${s.start} - ${s.end}`)
     .join(' • ');
@@ -202,13 +209,14 @@ export function getDoctorAvailabilityStatus(
 
   const customMessage = availability.customMessage?.trim() || undefined;
 
-  // 1. Mode Forcé Ouvert
+  // 1. Mode Forcé Ouvert (Permanence 24h/24 7j/7)
   if (availability.mode === 'open') {
     return {
       isOpen: true,
       status: 'open',
-      label: 'Cabinet Ouvert • En direct',
+      label: 'Cabinet Ouvert 24h/24 • 7j/7',
       badgeVariant: 'emerald',
+      currentSlotInfo: 'Permanence Médicale Continue (24h/24 & 7j/7)',
       customMessage,
     };
   }
@@ -270,12 +278,13 @@ export function getDoctorAvailabilityStatus(
     );
 
     if (activeSlot) {
+      const is24h = activeSlot.start === '00:00' && (activeSlot.end === '23:59' || activeSlot.end === '24:00');
       return {
         isOpen: true,
         status: 'open',
-        label: 'Cabinet Ouvert • En service',
+        label: is24h ? 'Cabinet Ouvert 24h/24' : 'Cabinet Ouvert • En service',
         badgeVariant: 'emerald',
-        currentSlotInfo: `Plage de consultation : ${activeSlot.start} - ${activeSlot.end}`,
+        currentSlotInfo: is24h ? 'Permanence Médicale 24h/24' : `Plage de consultation : ${activeSlot.start} - ${activeSlot.end}`,
         customMessage,
       };
     }

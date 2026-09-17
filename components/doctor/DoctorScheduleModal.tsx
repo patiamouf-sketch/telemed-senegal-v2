@@ -163,6 +163,17 @@ export function DoctorScheduleModal({ isOpen, onClose }: DoctorScheduleModalProp
     );
   };
 
+  // Raccourci : Tout régler sur 24h/24 (7j/7)
+  const handleSet24_7AllDays = () => {
+    setWeeklySchedule(prev =>
+      prev.map(item => ({
+        ...item,
+        enabled: true,
+        slots: [{ start: '00:00', end: '23:59' }],
+      }))
+    );
+  };
+
   // Sauvegarde
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -301,8 +312,8 @@ export function DoctorScheduleModal({ isOpen, onClose }: DoctorScheduleModalProp
                 <div className="flex items-center gap-2.5">
                   <span className="w-3 h-3 rounded-full bg-emerald-500 flex-shrink-0" />
                   <div className="min-w-0">
-                    <p className="text-xs font-bold text-slate-900">🟢 Forcer Ouvert en direct</p>
-                    <p className="text-[10px] text-slate-500">Accessible en permanence aux patients</p>
+                    <p className="text-xs font-bold text-slate-900">🟢 Ouvert 24h/24 & 7j/7 (Permanence Continue)</p>
+                    <p className="text-[10px] text-slate-500">Accessible en permanence jour et nuit, sans interruption</p>
                   </div>
                 </div>
               </div>
@@ -396,15 +407,27 @@ export function DoctorScheduleModal({ isOpen, onClose }: DoctorScheduleModalProp
                 </p>
               </div>
 
-              <button
-                type="button"
-                onClick={handleDuplicateMondayToWeekdays}
-                className="px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs flex items-center gap-1.5 border border-blue-200/80 transition-colors cursor-pointer"
-                title="Copie les horaires du Lundi sur Mardi, Mercredi, Jeudi et Vendredi"
-              >
-                <Copy className="w-3.5 h-3.5" />
-                <span>Dupliquer Lun ➜ Ven</span>
-              </button>
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={handleSet24_7AllDays}
+                  className="px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold text-xs flex items-center gap-1.5 border border-emerald-200/80 transition-colors cursor-pointer shadow-xs"
+                  title="Configure automatiquement tous les jours de 00:00 à 23:59 (Permanence continue)"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Tout en 24h/24 (7j/7)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleDuplicateMondayToWeekdays}
+                  className="px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs flex items-center gap-1.5 border border-blue-200/80 transition-colors cursor-pointer"
+                  title="Copie les horaires du Lundi sur Mardi, Mercredi, Jeudi et Vendredi"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>Dupliquer Lun ➜ Ven</span>
+                </button>
+              </div>
             </div>
 
             <div className="space-y-2.5">
