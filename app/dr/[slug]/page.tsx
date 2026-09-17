@@ -14,6 +14,12 @@ import {
 } from '@/lib/services/doctorService';
 import { DoctorProfile, PatientQueueItem, ServiceType, ChatMessage } from '@/lib/types/doctor';
 import { isDoctorLicenseValid } from '@/lib/utils/license';
+import {
+  getDoctorAvailabilityStatus,
+  formatDaySlots,
+  DAYS_CONFIG,
+  getDefaultWeeklySchedule,
+} from '@/lib/utils/availability';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { GlassButton } from '@/components/ui/GlassButton';
 import { Badge } from '@/components/ui/Badge';
@@ -78,6 +84,7 @@ export default function PatientRoomPage() {
   const [loading, setLoading] = useState(true);
   const [hasAgreedCGU, setHasAgreedCGU] = useState(false);
   const [showCGUModal, setShowCGUModal] = useState(false);
+  const [showScheduleDetails, setShowScheduleDetails] = useState(false);
 
   // Stepper state: 'form' -> 'payment' -> 'waiting' -> 'consultation'
   const [step, setStep] = useState<'form' | 'payment' | 'waiting' | 'consultation'>('form');
@@ -662,6 +669,8 @@ export default function PatientRoomPage() {
     ? (doctor.waveNumber || doctor.phone)
     : (doctor.omNumber || doctor.phone);
 
+  const availStatus = getDoctorAvailabilityStatus(doctor);
+
   if (step === 'consultation' && createdPatient) {
     const followUp = getFollowUpStatus(createdPatient);
     const consultationUrl = typeof window !== 'undefined' ? `${window.location.origin}/consultation/${createdPatient.id}` : '';
@@ -933,7 +942,7 @@ export default function PatientRoomPage() {
     <div className="min-h-screen py-8 px-4 sm:px-6 lg:px-8 font-sans">
       <div className="max-w-3xl mx-auto space-y-6">
         {/* Doctor Header Banner */}
-        <GlassCard className="p-6 sm:p-7 space-y-3">
+        <GlassCard className="p-6 sm:p-7 space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="flex items-center gap-4">
               <div className="w-14 h-14 rounded-full bg-gradient-to-tr from-blue-600 to-sky-400 text-white flex items-center justify-center text-xl font-extrabold shadow-lg shadow-blue-500/25 flex-shrink-0">
@@ -955,17 +964,178 @@ export default function PatientRoomPage() {
               </div>
             </div>
 
-            <div className="flex items-center gap-2 text-xs">
+            <div className="flex items-center gap-2 text-xs flex-wrap sm:flex-nowrap">
+              {/* Badge de Disponibilité & Horaires */}
+              <button
+                type="button"
+                onClick={() => setShowScheduleDetails(prev => !prev)}
+                className={`p-2.5 rounded-[18px] border transition-all text-xs font-bold flex items-center gap-2 cursor-pointer shadow-sm ${
+                  availStatus.badgeVariant === 'emerald'
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
+                    : availStatus.badgeVariant === 'amber'
+                    ? 'bg-amber-50 text-amber-900 border-amber-200 hover:bg-amber-100'
+                    : 'bg-rose-50 text-rose-800 border-rose-200 hover:bg-rose-100'
+                }`}
+                title="Consulter les horaires hebdomadaires"
+              >
+                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                  availStatus.badgeVariant === 'emerald'
+                    ? 'bg-emerald-500 animate-pulse'
+                    : availStatus.badgeVariant === 'amber'
+                    ? 'bg-amber-500'
+                    : 'bg-rose-500'
+                }`} />
+                <div className="text-left">
+                  <span className="text-[10px] text-slate-500 block font-normal leading-none mb-0.5">Statut Cabinet</span>
+                  <span className="text-xs leading-none">{availStatus.label}</span>
+                </div>
+                <Clock className="w-3.5 h-3.5 text-slate-400 ml-1" />
+              </button>
+
               <div className="p-3 rounded-[20px] bg-white border border-slate-100 shadow-sm text-center">
                 <span className="text-[10px] text-slate-400 font-semibold block">Téléconsultation</span>
                 <strong className="text-[#3B82F6] font-extrabold">{(doctor.consultationFee || 5000).toLocaleString('fr-FR')} FCFA</strong>
               </div>
             </div>
           </div>
+
+          {/* Tiroir déroulant des horaires hebdomadaires */}
+          {showScheduleDetails && (
+            <div className="pt-3 border-t border-slate-100 animate-fade-in space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                  <Clock className="w-4 h-4 text-blue-600" />
+                  Horaires de consultation hebdomadaires
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowScheduleDetails(false)}
+                  className="text-[11px] text-slate-400 hover:text-slate-600 font-semibold cursor-pointer"
+                >
+                  Masquer
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs pt-1">
+                {DAYS_CONFIG.map(dayCfg => {
+                  const schedule = doctor.availability?.weeklySchedule || getDefaultWeeklySchedule();
+                  const dayItem = schedule.find(s => s.day === dayCfg.day);
+                  const currentJsDay = new Date().getDay();
+                  const isToday = dayCfg.jsIndex === currentJsDay;
+                  return (
+                    <div
+                      key={dayCfg.day}
+                      className={`flex items-center justify-between py-1.5 px-3 rounded-xl border ${
+                        isToday
+                          ? 'bg-blue-50/80 border-blue-200 font-bold text-blue-950 shadow-xs'
+                          : 'bg-slate-50/60 border-slate-100 text-slate-600'
+                      }`}
+                    >
+                      <span className="text-xs">{dayCfg.label} {isToday && '(Aujourd\'hui)'}</span>
+                      <span className="font-mono text-[11px]">
+                        {formatDaySlots(dayItem)}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {availStatus.nextOpeningInfo && !availStatus.isOpen && (
+                <p className="text-[11px] font-bold text-blue-600 pt-1">
+                  ⏰ {availStatus.nextOpeningInfo}
+                </p>
+              )}
+            </div>
+          )}
         </GlassCard>
 
-        {/* STEP 1: Identification (Nom, Sexe, Âge, Tél) & Prestation */}
-        {step === 'form' && (
+        {/* STEP 1: Si Cabinet FERMÉ ou EN PAUSE */}
+        {step === 'form' && !availStatus.isOpen && (
+          <GlassCard className="p-6 sm:p-8 space-y-6 text-center animate-fade-in">
+            <div className={`w-16 h-16 rounded-3xl mx-auto flex items-center justify-center shadow-lg text-white ${
+              availStatus.status === 'break'
+                ? 'bg-gradient-to-tr from-amber-500 to-yellow-400'
+                : 'bg-gradient-to-tr from-rose-500 to-pink-400'
+            }`}>
+              <Clock className="w-8 h-8" />
+            </div>
+
+            <div className="space-y-2 max-w-md mx-auto">
+              <Badge variant={availStatus.badgeVariant === 'amber' ? 'amber' : 'rose'} size="sm">
+                {availStatus.label}
+              </Badge>
+              <h2 className="text-xl sm:text-2xl font-black text-slate-900">
+                {availStatus.status === 'break'
+                  ? 'Le praticien est momentanément en pause'
+                  : 'Cabinet Médical Actuellement Fermé'}
+              </h2>
+              {availStatus.nextOpeningInfo && (
+                <div className="p-3 rounded-2xl bg-blue-50/80 border border-blue-200 text-blue-900 text-xs font-bold">
+                  ⏰ {availStatus.nextOpeningInfo}
+                </div>
+              )}
+              {availStatus.customMessage && (
+                <p className="text-xs text-slate-600 italic bg-slate-50 p-3 rounded-2xl border border-slate-200/80">
+                  « {availStatus.customMessage} »
+                </p>
+              )}
+              <p className="text-xs text-slate-500 leading-relaxed pt-1">
+                Afin de vous garantir une prise en charge médicale directe et attentive, les admissions sont suspendues en dehors des heures de consultation.
+              </p>
+            </div>
+
+            {/* Tableau synthétique des horaires de la semaine */}
+            <div className="max-w-md mx-auto p-4 rounded-2xl bg-white border border-slate-200/90 shadow-sm text-left space-y-2">
+              <span className="text-[11px] font-extrabold text-slate-800 uppercase tracking-wider block border-b border-slate-100 pb-1.5">
+                📅 Horaires d'ouverture de ce cabinet :
+              </span>
+              <div className="space-y-1 text-xs">
+                {DAYS_CONFIG.map(dayCfg => {
+                  const schedule = doctor.availability?.weeklySchedule || getDefaultWeeklySchedule();
+                  const dayItem = schedule.find(s => s.day === dayCfg.day);
+                  const currentJsDay = new Date().getDay();
+                  const isToday = dayCfg.jsIndex === currentJsDay;
+                  return (
+                    <div
+                      key={dayCfg.day}
+                      className={`flex items-center justify-between py-1 px-2 rounded-lg ${
+                        isToday ? 'bg-blue-50 font-bold text-blue-900 border border-blue-100' : 'text-slate-600'
+                      }`}
+                    >
+                      <span>{dayCfg.label} {isToday && '(Aujourd\'hui)'}</span>
+                      <span className="font-mono text-[11px]">
+                        {formatDaySlots(dayItem)}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Actions de contact WhatsApp et Actualisation */}
+            <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3">
+              <a
+                href={`https://wa.me/${(doctor.phone || '').replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Bonjour Dr ${doctor.fullName}, je souhaite me renseigner sur vos prochaines disponibilités de téléconsultation sur TéléMed Sénégal.`)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full sm:w-auto"
+              >
+                <GlassButton variant="success" size="md" className="w-full sm:w-auto font-bold text-xs gap-2">
+                  <MessageCircle className="w-4 h-4" />
+                  Poser une question sur WhatsApp
+                </GlassButton>
+              </a>
+
+              <GlassButton variant="secondary" size="md" onClick={() => loadDoctorData(false)} className="w-full sm:w-auto text-xs gap-2">
+                <RefreshCw className="w-3.5 h-3.5" />
+                Actualiser le statut
+              </GlassButton>
+            </div>
+          </GlassCard>
+        )}
+
+        {/* STEP 1: Identification (Nom, Sexe, Âge, Tél) & Prestation (Si Cabinet OUVERT) */}
+        {step === 'form' && availStatus.isOpen && (
           <GlassCard className="p-6 sm:p-8 space-y-6">
             <div className="text-center max-w-md mx-auto space-y-1">
               <Badge variant="blue" size="sm">
