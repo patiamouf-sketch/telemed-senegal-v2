@@ -47,6 +47,7 @@ import {
   X,
 } from 'lucide-react';
 import { DoctorProfileModal } from './DoctorProfileModal';
+import { DoctorScheduleModal } from './DoctorScheduleModal';
 import { getDoctorInviteWhatsAppUrl } from '@/lib/utils/whatsappHelper';
 import {
   getDoctorQueue,
@@ -58,7 +59,8 @@ import {
   getFollowUpStatus,
   getDoctorDirectPrescriptions,
 } from '@/lib/services/doctorService';
-import { PatientQueueItem, DoctorProfile } from '@/lib/types/doctor';
+import { PatientQueueItem, DoctorProfile, AvailabilityMode } from '@/lib/types/doctor';
+import { getDoctorAvailabilityStatus, getDefaultWeeklySchedule } from '@/lib/utils/availability';
 import { OfficialPrescription } from '@/lib/types/prescription';
 import { downloadPrescriptionPDF } from '@/lib/utils/pdfGenerator';
 import { differenceInDays } from 'date-fns';
@@ -88,6 +90,7 @@ export function DoctorDashboard() {
   const [showQRModal, setShowQRModal] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showTarifsModal, setShowTarifsModal] = useState(false);
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [showDirectPrescription, setShowDirectPrescription] = useState(false);
   const [origin, setOrigin] = useState('');
   const [newPaymentAlert, setNewPaymentAlert] = useState<PatientQueueItem | null>(null);
@@ -232,6 +235,31 @@ export function DoctorDashboard() {
     availableForTeleconsult: true,
   };
 
+  // Statut de disponibilité en temps réel
+  const availStatus = getDoctorAvailabilityStatus(doctorData);
+
+  // Bascule rapide du mode de disponibilité
+  const handleQuickAvailabilityMode = async (newMode: AvailabilityMode) => {
+    if (!doctorProfile) return;
+    const currentAvail = doctorProfile.availability || {
+      mode: 'auto',
+      weeklySchedule: getDefaultWeeklySchedule(),
+    };
+    let breakUntil: string | undefined = undefined;
+    if (newMode === 'break') {
+      breakUntil = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+    }
+    await updateDoctorProfile(doctorProfile.id, {
+      availability: {
+        ...currentAvail,
+        mode: newMode,
+        breakUntil,
+      },
+      availableForTeleconsult: newMode !== 'closed',
+    });
+    await refreshProfile();
+  };
+
   // Save updated services & pricing
   const handleSaveServices = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -335,6 +363,25 @@ export function DoctorDashboard() {
           >
             <FilePlus2 className="w-4 h-4" />
             <span>Rédiger une Ordonnance</span>
+          </button>
+
+          {/* Action Secondaire : Horaires & Disponibilité */}
+          <button
+            type="button"
+            onClick={() => setShowScheduleModal(true)}
+            className={`px-3.5 py-2.5 rounded-2xl border transition-all text-xs flex items-center gap-1.5 font-semibold cursor-pointer ${
+              availStatus.isOpen
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100'
+                : availStatus.status === 'break'
+                ? 'bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100'
+                : 'bg-rose-50 border-rose-200 text-rose-800 hover:bg-rose-100'
+            }`}
+            title="Gérer mes horaires et mon statut d'ouverture"
+          >
+            <Clock className={`w-4 h-4 ${
+              availStatus.isOpen ? 'text-emerald-600' : availStatus.status === 'break' ? 'text-amber-600' : 'text-rose-600'
+            }`} />
+            <span className="hidden sm:inline">Horaires</span>
           </button>
 
           {/* Action Secondaire : Profil & Cachet */}
@@ -485,12 +532,29 @@ export function DoctorDashboard() {
             <LinkIcon className="w-4 h-4" />
           </div>
           <div className="min-w-0">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="text-xs font-bold text-slate-800">Lien direct d'accès pour vos patients</span>
-              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                Salle Ouverte
-              </span>
+              <button
+                type="button"
+                onClick={() => setShowScheduleModal(true)}
+                className={`inline-flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-0.5 rounded-full border transition-all cursor-pointer ${
+                  availStatus.badgeVariant === 'emerald'
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
+                    : availStatus.badgeVariant === 'amber'
+                    ? 'bg-amber-50 text-amber-900 border-amber-200 hover:bg-amber-100'
+                    : 'bg-rose-50 text-rose-800 border-rose-200 hover:bg-rose-100'
+                }`}
+                title="Cliquez pour modifier vos horaires et statut d'ouverture"
+              >
+                <span className={`w-1.5 h-1.5 rounded-full ${
+                  availStatus.badgeVariant === 'emerald'
+                    ? 'bg-emerald-500 animate-pulse'
+                    : availStatus.badgeVariant === 'amber'
+                    ? 'bg-amber-500'
+                    : 'bg-rose-500'
+                }`} />
+                <span>{availStatus.label}</span>
+              </button>
             </div>
             <p className="text-xs text-slate-500 truncate font-mono mt-0.5 select-all">
               {patientLink}
@@ -540,9 +604,9 @@ export function DoctorDashboard() {
         </div>
       </div>
 
-      {/* 3. BARRE D'INDICATEURS RAPIDES : 4 VOLETS SYMÉTRIQUES */}
+      {/* 3. BARRE D'INDICATEURS RAPIDES : 5 VOLETS SYMÉTRIQUES */}
       <div className="w-full">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-3 w-full">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 sm:gap-3 w-full">
           {/* Volet 1 : Salle d'Attente */}
           <a
             href="#salle-attente"
@@ -588,7 +652,29 @@ export function DoctorDashboard() {
             </span>
           </a>
 
-          {/* Volet 4 : Tarifs & Numéros */}
+          {/* Volet 4 : Horaires & Statut */}
+          <button
+            type="button"
+            onClick={() => setShowScheduleModal(true)}
+            className="px-3.5 py-2.5 rounded-2xl bg-indigo-50/80 hover:bg-indigo-100/80 text-indigo-900 text-xs font-bold transition-all flex items-center justify-between border border-indigo-200/70 shadow-sm active:scale-98 group cursor-pointer"
+            title="Gérer mes horaires de consultation et le statut d'ouverture"
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <Clock className="w-4 h-4 text-indigo-600 flex-shrink-0 group-hover:scale-110 transition-transform" />
+              <span className="truncate">Horaires</span>
+            </div>
+            <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full border ${
+              availStatus.isOpen
+                ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                : availStatus.status === 'break'
+                ? 'bg-amber-100 text-amber-800 border-amber-200'
+                : 'bg-rose-100 text-rose-800 border-rose-200'
+            }`}>
+              {availStatus.isOpen ? 'Ouvert' : availStatus.status === 'break' ? 'Pause' : 'Fermé'}
+            </span>
+          </button>
+
+          {/* Volet 5 : Tarifs & Numéros */}
           <button
             type="button"
             onClick={() => setShowTarifsModal(true)}
@@ -597,7 +683,7 @@ export function DoctorDashboard() {
           >
             <div className="flex items-center gap-2 min-w-0">
               <CreditCard className="w-4 h-4 text-slate-600 flex-shrink-0 group-hover:scale-110 transition-transform" />
-              <span className="truncate">Tarifs & Numéros</span>
+              <span className="truncate">Tarifs</span>
             </div>
             <span className="text-[10px] font-extrabold text-slate-600 bg-white px-2 py-0.5 rounded-full border border-slate-200/80">
               {consultationFee && Number(consultationFee) > 0 ? `${(Number(consultationFee) / 1000).toFixed(0)}k` : '5k'}
@@ -1224,6 +1310,16 @@ export function DoctorDashboard() {
             </form>
           </div>
         </div>
+      )}
+      {/* MODALE 6 : Modale Dédiée Horaires & Disponibilités */}
+      {showScheduleModal && (
+        <DoctorScheduleModal
+          isOpen={showScheduleModal}
+          onClose={() => {
+            setShowScheduleModal(false);
+            refreshProfile();
+          }}
+        />
       )}
     </div>
   );
