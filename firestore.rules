@@ -128,5 +128,28 @@ service cloud.firestore {
       // IMMUTABILITÉ ABSOLUE : Modification et Suppression STRICTEMENT INTERDITES
       allow update, delete: if false;
     }
+
+    // --- 7. COLLECTION 'access_audit_logs' : TRAÇABILITÉ DES ACCÈS AUX ORDONNANCES ET CONSULTATIONS (CDP SÉNÉGAL) ---
+    match /access_audit_logs/{logId} {
+      // Lecture réservée aux administrateurs
+      allow read: if isAdmin();
+      
+      // Création autorisée pour journaliser tout scan, consultation ou émission
+      allow create: if true;
+      
+      // IMMUTABILITÉ ABSOLUE (Exigence Loi 2008-12) : Modification et Suppression STRICTEMENT INTERDITES
+      allow update, delete: if false;
+    }
+
+    // --- 8. COLLECTION 'push_subscriptions' : GESTION DES ABONNEMENTS WEB PUSH PRATICIENS ---
+    match /push_subscriptions/{subId} {
+      allow read, write: if true;
+    }
+
+    // --- 9. COLLECTION 'system_health' : PING DE CONNECTIVITÉ ET MONITORING CLOUD FIRESTORE ---
+    match /system_health/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
   }
 }

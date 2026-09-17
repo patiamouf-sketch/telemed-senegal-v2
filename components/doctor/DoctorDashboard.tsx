@@ -95,6 +95,13 @@ export function DoctorDashboard() {
   const [origin, setOrigin] = useState('');
   const [newPaymentAlert, setNewPaymentAlert] = useState<PatientQueueItem | null>(null);
 
+  // État de montage client (prévention des erreurs d'hydratation SSR)
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   // Gestion du mode silencieux / alertes sonores
   const [isAudioMuted, setIsAudioMuted] = useState(false);
 
@@ -411,7 +418,7 @@ export function DoctorDashboard() {
           </button>
 
           {/* Action : Notifications Web Push PWA */}
-          {pushStatus !== 'unsupported' && (
+          {mounted && pushStatus !== 'unsupported' && (
             <button
               type="button"
               onClick={handleTogglePush}
