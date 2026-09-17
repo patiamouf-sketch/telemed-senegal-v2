@@ -98,8 +98,16 @@ export function timeStringToMinutes(time: string): number {
  * Vérifie si une heure donnée (en minutes) est dans une plage horaire
  */
 export function isMinutesInSlot(minutes: number, slot: TimeSlot): boolean {
+  // Détection d'un créneau 24h complet
+  if (slot.start === '00:00' && (slot.end === '23:59' || slot.end === '24:00' || slot.end === '23:59:00')) {
+    return true;
+  }
   const start = timeStringToMinutes(slot.start);
   const end = timeStringToMinutes(slot.end);
+  // Si l'heure de fin est 23:59, couvrir jusqu'à la dernière minute de la journée
+  if (end >= 1439) {
+    return minutes >= start && minutes <= 1440;
+  }
   return minutes >= start && minutes < end;
 }
 
@@ -187,19 +195,8 @@ export function getDoctorAvailabilityStatus(
     };
   }
 
-  // Compatibilité rétroactive : si le médecin a explicitement désactivé availableForTeleconsult
-  if (doctor.availableForTeleconsult === false) {
-    return {
-      isOpen: false,
-      status: 'closed',
-      label: 'Cabinet Fermé',
-      badgeVariant: 'rose',
-      reason: 'Téléconsultation momentanément désactivée',
-    };
-  }
-
   const availability: DoctorAvailability = doctor.availability || {
-    mode: 'auto',
+    mode: doctor.availableForTeleconsult === false ? 'closed' : 'auto',
     weeklySchedule: getDefaultWeeklySchedule(),
   };
 

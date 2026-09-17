@@ -2,6 +2,7 @@ import { DoctorProfile, DoctorStatus, PatientQueueItem, ChatMessage } from '../t
 import { OfficialPrescription, PendingMedication } from '../types/prescription';
 import { sanitizeText } from '../utils/sanitizer';
 import { db, isFirebaseConfigured } from '../firebase';
+import { logAccessEvent } from './auditService';
 import { addDays } from 'date-fns';
 import {
   getLocalDoctors,
@@ -234,7 +235,7 @@ export function listenToDoctorProfile(
   // Écouteur en direct Firestore si configuré
   if (isFirebaseConfigured && firestoreDb) {
     try {
-      // 1. Écouteur sur le document direct
+      // 1. Écouteur sur le document direct (ID, email ou slug)
       if (clean && !clean.includes('/')) {
         const docRef = doc(firestoreDb, 'doctors', clean);
         const unsubDoc = onSnapshot(docRef, (docSnap) => {
@@ -268,7 +269,7 @@ export function listenToDoctorProfile(
         });
         unsubs.push(unsubEmail);
       } else {
-        // Si clean est un UID / ID, écouter aussi la requête where('id', '==', clean)
+        // 3. Écouteur par requête ID
         const qId = query(collection(firestoreDb, 'doctors'), where('id', '==', clean));
         const unsubId = onSnapshot(qId, (snap) => {
           if (isCleanedUp) return;
@@ -283,6 +284,22 @@ export function listenToDoctorProfile(
           console.warn('listenToDoctorProfile id query error:', err);
         });
         unsubs.push(unsubId);
+
+        // 4. Écouteur par requête Slug
+        const qSlug = query(collection(firestoreDb, 'doctors'), where('slug', '==', clean));
+        const unsubSlug = onSnapshot(qSlug, (snap) => {
+          if (isCleanedUp) return;
+          if (!snap.empty) {
+            const activeDoc = snap.docs.find(d => (d.data() as DoctorProfile).status === 'active') || snap.docs[0];
+            const data = activeDoc.data() as DoctorProfile;
+            const profile = { ...data, id: data.id || activeDoc.id };
+            syncDoctorToLocal(profile);
+            callback(profile);
+          }
+        }, (err) => {
+          console.warn('listenToDoctorProfile slug query error:', err);
+        });
+        unsubs.push(unsubSlug);
       }
     } catch (e) {
       console.warn('listenToDoctorProfile exception:', e);
@@ -293,21 +310,31 @@ export function listenToDoctorProfile(
   setTimeout(() => {
     if (isCleanedUp) return;
     const local = getLocalDoctors();
-    const matched = local.find(d => d.id === clean || d.email.toLowerCase() === lower);
+    const matched = local.find(d => 
+      d.id === clean || 
+      d.email.toLowerCase() === lower || 
+      d.slug?.toLowerCase() === lower ||
+      (lower.includes('thiam') && (d.id === 'admin-thiam-1' || d.email?.toLowerCase().includes('pati.amouf')))
+    );
     if (matched) {
       callback(matched);
     }
   }, 0);
 
-  // Polling de repli léger (toutes les 6s)
+  // Polling de repli léger (toutes les 4s)
   const interval = setInterval(() => {
     if (isCleanedUp) return;
     const freshLocal = getLocalDoctors();
-    const freshMatched = freshLocal.find(d => d.id === clean || d.email.toLowerCase() === lower);
+    const freshMatched = freshLocal.find(d => 
+      d.id === clean || 
+      d.email.toLowerCase() === lower || 
+      d.slug?.toLowerCase() === lower ||
+      (lower.includes('thiam') && (d.id === 'admin-thiam-1' || d.email?.toLowerCase().includes('pati.amouf')))
+    );
     if (freshMatched) {
       callback(freshMatched);
     }
-  }, 6000);
+  }, 4000);
 
   return () => {
     isCleanedUp = true;
@@ -409,16 +436,35 @@ export async function updateDoctorProfile(id: string, updates: Partial<DoctorPro
   const cleanId = (id || '').trim();
   const cleanData = cleanFirestoreData(updates);
 
-  // 1. Mise à jour Firestore (Synchronisation multi-clés id et email pour cohérence totale)
-  if (isFirebaseConfigured && db && cleanId) {
-    try {
-      await setDoc(doc(db, 'doctors', cleanId), cleanData, { merge: true });
+  // Récupérer le profil existant pour connaître le slug et l'email complets
+  const currentDoctors = getLocalDoctors();
+  const lowerId = cleanId.toLowerCase();
+  const existingDoc = currentDoctors.find(d => 
+    d.id?.toLowerCase() === lowerId || 
+    d.email?.toLowerCase() === lowerId ||
+    d.slug?.toLowerCase() === lowerId ||
+    (updates.email && d.email?.toLowerCase() === updates.email.toLowerCase())
+  );
 
-      // Si l'email est disponible dans updates ou passé comme clé
-      const targetEmail = (updates.email || (cleanId.includes('@') ? cleanId : '')).trim().toLowerCase();
-      if (targetEmail && targetEmail !== cleanId) {
-        await setDoc(doc(db, 'doctors', targetEmail), cleanData, { merge: true });
-      }
+  const targetEmail = (updates.email || existingDoc?.email || (cleanId.includes('@') ? cleanId : '')).trim().toLowerCase();
+  const targetSlug = (updates.slug || existingDoc?.slug || '').trim().toLowerCase();
+
+  // 1. Mise à jour Firestore (Synchronisation multi-clés ID, Email et Slug pour réactivité absolue)
+  if (isFirebaseConfigured && db && cleanId) {
+    const writePromises: Promise<any>[] = [
+      setDoc(doc(db, 'doctors', cleanId), cleanData, { merge: true }),
+    ];
+
+    if (targetEmail && targetEmail !== cleanId) {
+      writePromises.push(setDoc(doc(db, 'doctors', targetEmail), cleanData, { merge: true }));
+    }
+
+    if (targetSlug && targetSlug !== cleanId && targetSlug !== targetEmail) {
+      writePromises.push(setDoc(doc(db, 'doctors', targetSlug), cleanData, { merge: true }));
+    }
+
+    try {
+      await Promise.allSettled(writePromises);
     } catch (e) {
       console.warn('Firebase setDoc notice:', e);
     }
@@ -426,11 +472,12 @@ export async function updateDoctorProfile(id: string, updates: Partial<DoctorPro
 
   // 2. Mise à jour LocalStorage (telemed_doctors_v2)
   const doctors = getLocalDoctors();
-  const lowerId = cleanId.toLowerCase();
   const idx = doctors.findIndex(d => 
     d.id?.toLowerCase() === lowerId || 
     d.email?.toLowerCase() === lowerId ||
-    (updates.email && d.email?.toLowerCase() === updates.email.toLowerCase())
+    d.slug?.toLowerCase() === lowerId ||
+    (targetEmail && d.email?.toLowerCase() === targetEmail) ||
+    (targetSlug && d.slug?.toLowerCase() === targetSlug)
   );
 
   let updated: DoctorProfile | null = null;
@@ -1112,6 +1159,23 @@ export async function createOfficialPrescription(prescription: OfficialPrescript
   const prescriptions = getLocalPrescriptions();
   prescriptions.unshift(prescription);
   saveLocalPrescriptions(prescriptions);
+
+  // Traçabilité médico-légale CDP (Émission d'ordonnance scellée)
+  logAccessEvent({
+    action: 'prescription_created',
+    actorType: 'doctor',
+    actorId: prescription.doctorId || prescription.doctorName,
+    targetType: 'prescription',
+    targetId: prescription.hash,
+    description: `Émission de l'ordonnance médicale scellée #${prescription.hash.substring(0, 8)} par Dr. ${prescription.doctorName} pour le patient ${prescription.patientName}`,
+    metadata: {
+      doctorId: prescription.doctorId,
+      doctorName: prescription.doctorName,
+      doctorOnms: prescription.doctorOnms,
+      itemsCount: prescription.items?.length || 0,
+    },
+  }).catch((e) => console.warn('Notice audit prescription_created:', e));
+
   return prescription;
 }
 

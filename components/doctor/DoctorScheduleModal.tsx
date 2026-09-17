@@ -165,6 +165,7 @@ export function DoctorScheduleModal({ isOpen, onClose }: DoctorScheduleModalProp
 
   // Raccourci : Tout régler sur 24h/24 (7j/7)
   const handleSet24_7AllDays = () => {
+    setMode('open');
     setWeeklySchedule(prev =>
       prev.map(item => ({
         ...item,
