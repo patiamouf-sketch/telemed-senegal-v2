@@ -43,6 +43,7 @@ import {
   logAdminAction,
   purgeAllTestData,
 } from '@/lib/services/adminService';
+import { executeDataRetentionCycle } from '@/lib/services/retentionService';
 import { getPendingMedications, approvePendingMedication, rejectPendingMedication } from '@/lib/services/doctorService';
 import { DoctorProfile, AdminStats, AdminAuditLog } from '@/lib/types/doctor';
 import { PendingMedication } from '@/lib/types/prescription';
@@ -376,6 +377,8 @@ export default function AdminThiamPage() {
     }
   };
 
+  const [isRetaining, setIsRetaining] = useState(false);
+
   const handlePurgeAllTestData = async () => {
     const confirmation = prompt(
       '⚠️ ACTION IRRÉVERSIBLE : Pour confirmer la PURGE COMPLÈTE de toutes les données de test (médecins fictifs, files d\'attente, ordonnances d\'essai), tapez "PURGE" ci-dessous :'
@@ -402,6 +405,29 @@ export default function AdminThiamPage() {
       alert('Une erreur est survenue lors de la purge.');
     } finally {
       setIsPurging(false);
+    }
+  };
+
+  const handleExecuteRetentionCycle = async () => {
+    if (!confirm('Démarrer le cycle de rétention des données conforme CDP ?\n\n- Purge des messages de téléconsultation dont le délai de suivi est échu (> 24h)\n- Nettoyage des sessions WebRTC orphelines (> 2h)\n- 100% des ordonnances scellées (10 ans) seront scrupuleusement préservées.')) {
+      return;
+    }
+
+    setIsRetaining(true);
+    try {
+      const res = await executeDataRetentionCycle(user?.email || 'dr.thiam@telemed.sn');
+      await loadData(false);
+      alert(
+        `✅ Cycle de Rétention CDP terminé !\n\n` +
+        `- ${res.purgedMessagesCount} messages éphémères purgés (${res.purgedQueuesCount} dossiers clôturés)\n` +
+        `- ${res.purgedRtcCount} sessions WebRTC orphelines nettoyées\n\n` +
+        `🛡️ 100% des ordonnances médicales scellées (10 ans) ont été préservées.`
+      );
+    } catch (err) {
+      console.error('Erreur lors de la rétention:', err);
+      alert('Une erreur est survenue lors du cycle de rétention.');
+    } finally {
+      setIsRetaining(false);
     }
   };
 
@@ -443,7 +469,17 @@ export default function AdminThiamPage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={handleExecuteRetentionCycle}
+              disabled={isRetaining}
+              className="px-3 py-1.5 rounded-full bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+              title="Purger les messages temporaires des consultations échues selon la réglementation CDP"
+            >
+              <Clock className={`w-3.5 h-3.5 text-emerald-600 ${isRetaining ? 'animate-spin' : ''}`} />
+              {isRetaining ? 'Nettoyage CDP...' : 'Rétention Données (CDP)'}
+            </button>
             <button
               type="button"
               onClick={handlePurgeAllTestData}

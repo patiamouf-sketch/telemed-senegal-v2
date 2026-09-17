@@ -97,7 +97,11 @@ export function Footer() {
           </div>
           <div className="flex flex-wrap items-center justify-center gap-4 text-xs font-semibold text-slate-600">
             <Link href="/cgu" className="hover:text-blue-600 transition-colors underline underline-offset-4">
-              Conditions Générales d&apos;Utilisation & Consentement
+              CGU & Consentement Éclairé
+            </Link>
+            <span className="text-slate-300">•</span>
+            <Link href="/privacy" className="hover:text-emerald-600 transition-colors underline underline-offset-4 flex items-center gap-1">
+              <span>Politique de Confidentialité (CDP)</span>
             </Link>
             <span className="text-slate-300">•</span>
             <span className="text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">

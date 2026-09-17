@@ -126,7 +126,7 @@ export async function subscribeDoctorToPush(doctorSlug: string): Promise<{
       const applicationServerKey = urlBase64ToUint8Array(VAPID_PUBLIC_KEY);
       subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey,
+        applicationServerKey: applicationServerKey as unknown as BufferSource,
       });
     }
 
@@ -135,6 +135,13 @@ export async function subscribeDoctorToPush(doctorSlug: string): Promise<{
       return {
         success: false,
         message: 'Clés de souscription invalides générées par le navigateur.',
+      };
+    }
+
+    if (!db) {
+      return {
+        success: false,
+        message: 'Base de données non disponible.',
       };
     }
 
@@ -196,10 +203,12 @@ export async function unsubscribeDoctorFromPush(doctorSlug: string): Promise<boo
         await subscription.unsubscribe();
 
         // Supprimer l'entrée Firestore
-        try {
-          await deleteDoc(doc(db, 'push_subscriptions', docId));
-        } catch (e) {
-          console.warn('Notice suppression souscription Firestore:', e);
+        if (db) {
+          try {
+            await deleteDoc(doc(db, 'push_subscriptions', docId));
+          } catch (e) {
+            console.warn('Notice suppression souscription Firestore:', e);
+          }
         }
       }
     }

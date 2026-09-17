@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation';
 import { OfficialPrescription } from '@/lib/types/prescription';
 import { getPrescriptionByHash, dispensePrescription } from '@/lib/services/doctorService';
 import { downloadPrescriptionPDF } from '@/lib/utils/pdfGenerator';
+import { logAccessEvent } from '@/lib/services/auditService';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { GlassButton } from '@/components/ui/GlassButton';
 import { Badge } from '@/components/ui/Badge';
@@ -57,6 +58,20 @@ export default function VerifyPrescriptionPage() {
       if (presc) {
         setPrescription(presc);
         setVerified(true);
+        // Traçabilité médico-légale CDP (Scan / Consultation en lecture seule)
+        logAccessEvent({
+          action: 'prescription_verified',
+          actorType: 'pharmacy',
+          actorId: 'Scan / Consultation Officine ou Patient',
+          targetType: 'prescription',
+          targetId: presc.hash,
+          description: `Vérification d'authenticité de l'ordonnance scellée #${presc.hash.substring(0, 8)} (${presc.patientName})`,
+          metadata: {
+            doctorId: presc.doctorId,
+            doctorName: presc.doctorName,
+            dispensed: presc.dispensed || false,
+          },
+        }).catch((e) => console.warn('Notice log scan:', e));
       } else {
         setVerified(false);
       }
@@ -88,6 +103,22 @@ export default function VerifyPrescriptionPage() {
     if (updated) {
       setPrescription(updated);
       setShowDispenseForm(false);
+
+      // Traçabilité médico-légale CDP (Délivrance pharmaceutique officielle)
+      logAccessEvent({
+        action: 'prescription_dispensed',
+        actorType: 'pharmacy',
+        actorId: pharmacyName.trim(),
+        targetType: 'prescription',
+        targetId: prescription.hash,
+        description: `Délivrance de l'ordonnance #${prescription.hash.substring(0, 8)} enregistrée par ${pharmacyName.trim()}`,
+        metadata: {
+          pharmacistName: pharmacistName.trim(),
+          patientName: prescription.patientName,
+          dispensedAt: new Date().toISOString(),
+        },
+      }).catch((e) => console.warn('Notice log dispense:', e));
+
       confetti({
         particleCount: 80,
         spread: 60,

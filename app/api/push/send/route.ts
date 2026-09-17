@@ -27,6 +27,13 @@ export async function POST(request: Request) {
       );
     }
 
+    if (!db) {
+      return NextResponse.json(
+        { error: 'Base de données Firestore non disponible.' },
+        { status: 500 }
+      );
+    }
+
     // Récupération des abonnements actifs pour ce médecin
     const subsRef = collection(db, 'push_subscriptions');
     const q = query(subsRef, where('doctorSlug', '==', doctorSlug));
@@ -70,11 +77,13 @@ export async function POST(request: Request) {
       } catch (err: any) {
         // Nettoyage automatique des abonnements expirés (410 Gone ou 404 Not Found)
         if (err.statusCode === 410 || err.statusCode === 404) {
-          try {
-            await deleteDoc(doc(db, 'push_subscriptions', docSnap.id));
-            removedCount++;
-          } catch (delErr) {
-            console.warn('Erreur suppression souscription expirée:', delErr);
+          if (db) {
+            try {
+              await deleteDoc(doc(db, 'push_subscriptions', docSnap.id));
+              removedCount++;
+            } catch (delErr) {
+              console.warn('Erreur suppression souscription expirée:', delErr);
+            }
           }
         } else {
           console.warn('Erreur envoi notification push sur endpoint:', err?.message || err);

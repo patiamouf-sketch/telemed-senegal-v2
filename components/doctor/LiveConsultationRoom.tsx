@@ -48,6 +48,7 @@ import {
 import { isDoctorLicenseValid } from '@/lib/utils/license';
 import { uploadMedia } from '@/lib/services/storageService';
 import { getPrescriptionShareWhatsAppUrl } from '@/lib/utils/whatsappHelper';
+import { logAccessEvent } from '@/lib/services/auditService';
 import confetti from 'canvas-confetti';
 
 interface LiveConsultationRoomProps {
@@ -79,6 +80,24 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
   // License check & Follow-up status
   const licenseCheck = isDoctorLicenseValid(doctor);
   const followUp = getFollowUpStatus(patient);
+
+  // Traçabilité médico-légale CDP : Enregistrement de l'accès et début de téléconsultation
+  useEffect(() => {
+    logAccessEvent({
+      action: 'consultation_start',
+      actorType: 'doctor',
+      actorId: doctor.slug || doctor.id || doctor.fullName,
+      targetType: 'patient_queue',
+      targetId: patient.id,
+      description: `Début de téléconsultation médicale par Dr. ${doctor.fullName} avec le patient ${patient.patientName}`,
+      metadata: {
+        doctorSpeciality: doctor.speciality,
+        patientReason: patient.reason,
+        patientAge: patient.age,
+        isLicenseValid: licenseCheck.isValid,
+      },
+    }).catch((e) => console.warn('Notice audit consultation_start:', e));
+  }, [patient.id, doctor.id, doctor.fullName, doctor.slug, doctor.speciality, patient.age, patient.patientName, patient.reason, licenseCheck.isValid]);
 
   // Synchronisation temps réel double canal (sous-collection Firestore & document parent)
   useEffect(() => {
