@@ -4,6 +4,40 @@ export type DoctorStatus = 'pending' | 'active' | 'rejected' | 'banned' | 'block
 
 export type ServiceType = 'teleconsultation' | 'avis_medical' | 'visio_consultation';
 
+export type AvailabilityMode = 'auto' | 'open' | 'break' | 'closed';
+
+export type DayOfWeek = 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday';
+
+export interface TimeSlot {
+  start: string; // Format "HH:mm" (ex: "08:30")
+  end: string;   // Format "HH:mm" (ex: "13:00")
+}
+
+export interface DaySchedule {
+  day: DayOfWeek;
+  label: string; // "Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"
+  enabled: boolean;
+  slots: TimeSlot[];
+}
+
+export interface DoctorAvailability {
+  mode: AvailabilityMode; // 'auto' (planning), 'open' (forcé ouvert), 'break' (pause), 'closed' (fermé)
+  breakUntil?: string;    // Date ISO de fin de pause
+  customMessage?: string; // Message personnalisé (ex: "En intervention chirurgicale")
+  weeklySchedule: DaySchedule[];
+}
+
+export interface AvailabilityStatusResult {
+  isOpen: boolean;
+  status: 'open' | 'break' | 'closed';
+  label: string;
+  badgeVariant: 'emerald' | 'amber' | 'rose';
+  nextOpeningInfo?: string;
+  currentSlotInfo?: string;
+  customMessage?: string;
+  reason?: string;
+}
+
 export interface DoctorProfile {
   id: string;
   fullName: string;
@@ -33,6 +67,7 @@ export interface DoctorProfile {
   verificationDocumentUrl?: string; // Photo de la Carte ONMS ou Photo de la CNI / Passeport
   verificationDocumentType?: 'onms_card' | 'id_card'; // Type de pièce justificative
   availableForTeleconsult: boolean;
+  availability?: DoctorAvailability; // Configuration fine des horaires et disponibilités
   rating?: number;
   consultationsCount?: number;
 }
