@@ -1,0 +1,100 @@
+import { NextResponse } from 'next/server';
+import webpush from 'web-push';
+import {
+  VAPID_PUBLIC_KEY,
+  VAPID_PRIVATE_KEY,
+  VAPID_SUBJECT,
+} from '@/lib/config/vapid';
+import { db } from '@/lib/firebase';
+import { collection, query, where, getDocs, deleteDoc, doc } from 'firebase/firestore';
+
+// Initialisation globale de la configuration VAPID
+try {
+  webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+} catch (err) {
+  console.warn('Erreur initialisation VAPID webpush:', err);
+}
+
+export async function POST(request: Request) {
+  try {
+    const body = await request.json();
+    const { doctorSlug, title, body: contentText, url, tag } = body;
+
+    if (!doctorSlug || !title || !contentText) {
+      return NextResponse.json(
+        { error: 'Paramètres manquants : doctorSlug, title et body sont requis.' },
+        { status: 400 }
+      );
+    }
+
+    // Récupération des abonnements actifs pour ce médecin
+    const subsRef = collection(db, 'push_subscriptions');
+    const q = query(subsRef, where('doctorSlug', '==', doctorSlug));
+    const snapshot = await getDocs(q);
+
+    if (snapshot.empty) {
+      return NextResponse.json({
+        success: true,
+        sentCount: 0,
+        message: 'Aucun appareil abonné pour ce praticien.',
+      });
+    }
+
+    const payload = JSON.stringify({
+      title,
+      body: contentText,
+      url: url || '/dashboard',
+      tag: tag || 'telemed-alert',
+      icon: '/icons/icon-192.svg',
+      badge: '/icons/icon-192.svg',
+      vibrate: [200, 100, 200],
+      timestamp: Date.now(),
+    });
+
+    let sentCount = 0;
+    let removedCount = 0;
+
+    const promises = snapshot.docs.map(async (docSnap) => {
+      const data = docSnap.data();
+      const pushSubscription = {
+        endpoint: data.endpoint,
+        keys: {
+          p256dh: data.keys?.p256dh,
+          auth: data.keys?.auth,
+        },
+      };
+
+      try {
+        await webpush.sendNotification(pushSubscription, payload);
+        sentCount++;
+      } catch (err: any) {
+        // Nettoyage automatique des abonnements expirés (410 Gone ou 404 Not Found)
+        if (err.statusCode === 410 || err.statusCode === 404) {
+          try {
+            await deleteDoc(doc(db, 'push_subscriptions', docSnap.id));
+            removedCount++;
+          } catch (delErr) {
+            console.warn('Erreur suppression souscription expirée:', delErr);
+          }
+        } else {
+          console.warn('Erreur envoi notification push sur endpoint:', err?.message || err);
+        }
+      }
+    });
+
+    await Promise.allSettled(promises);
+
+    return NextResponse.json({
+      success: true,
+      sentCount,
+      removedCount,
+      totalDevices: snapshot.size,
+    });
+  } catch (error: any) {
+    console.error('Erreur API /api/push/send:', error);
+    return NextResponse.json(
+      { error: 'Erreur interne lors de l\'envoi push.', details: error?.message },
+      { status: 500 }
+    );
+  }
+}

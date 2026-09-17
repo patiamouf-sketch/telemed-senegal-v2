@@ -131,3 +131,68 @@ self.addEventListener('fetch', (event) => {
       })
   );
 });
+
+// =========================================================================
+// 🔔 GESTION DES NOTIFICATIONS WEB PUSH D'ARRIÈRE-PLAN (PWA)
+// =========================================================================
+
+self.addEventListener('push', (event) => {
+  let data = {
+    title: 'TéléMed Sénégal',
+    body: 'Nouvelle alerte médicale',
+    url: '/dashboard',
+    tag: 'telemed-alert',
+  };
+
+  if (event.data) {
+    try {
+      data = { ...data, ...event.data.json() };
+    } catch (e) {
+      data.body = event.data.text() || data.body;
+    }
+  }
+
+  const options = {
+    body: data.body,
+    icon: data.icon || '/icons/icon-192.svg',
+    badge: data.badge || '/icons/icon-192.svg',
+    tag: data.tag || 'telemed-alert',
+    renotify: true,
+    vibrate: data.vibrate || [200, 100, 200],
+    data: {
+      url: data.url || '/dashboard',
+      timestamp: Date.now(),
+    },
+    actions: data.actions || [
+      { action: 'open', title: 'Ouvrir' }
+    ]
+  };
+
+  event.waitUntil(
+    self.registration.showNotification(data.title, options)
+  );
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const targetUrl = (event.notification.data && event.notification.data.url) ? event.notification.data.url : '/dashboard';
+
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+      // Si un onglet TéléMed est déjà ouvert, focaliser et naviguer
+      for (const client of windowClients) {
+        if ('focus' in client) {
+          if (client.url.includes(self.location.origin)) {
+            client.navigate(targetUrl);
+            return client.focus();
+          }
+        }
+      }
+      // Sinon, ouvrir un nouvel onglet/fenêtre
+      if (clients.openWindow) {
+        return clients.openWindow(targetUrl);
+      }
+    })
+  );
+});
+

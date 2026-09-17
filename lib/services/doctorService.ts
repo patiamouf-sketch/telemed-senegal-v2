@@ -511,6 +511,37 @@ export async function getDoctorDirectPrescriptions(doctorIdOrSlug: string): Prom
 }
 
 /**
+ * Déclenchement asynchrone et non-bloquant d'une notification Web Push pour le médecin
+ */
+export async function triggerDoctorPush(
+  doctorSlug: string,
+  payload: {
+    title: string;
+    body: string;
+    url?: string;
+    tag?: string;
+  }
+): Promise<void> {
+  if (typeof window === 'undefined' || !doctorSlug) return;
+
+  try {
+    fetch('/api/push/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        doctorSlug,
+        title: payload.title,
+        body: payload.body,
+        url: payload.url || '/dashboard',
+        tag: payload.tag || 'telemed-alert',
+      }),
+    }).catch(err => {
+      console.warn('Notice push trigger non-bloquant:', err);
+    });
+  } catch (_) {}
+}
+
+/**
  * Ajout d'un patient à la file d'attente
  */
 export async function addPatientToQueue(
@@ -548,6 +579,24 @@ export async function addPatientToQueue(
   const queue = getLocalQueue();
   queue.unshift(newQueueItem);
   saveLocalQueue(queue);
+
+  // 3. Déclenchement Notification Web Push Praticien (Non-bloquant)
+  if (patientData.doctorSlug) {
+    const isPayment = Boolean(patientData.paymentDeclared);
+    const title = isPayment
+      ? '💳 Nouveau Patient & Paiement Déclaré'
+      : '🚨 Nouveau Patient en Salle d\'Attente';
+    const body = isPayment
+      ? `${patientData.patientName} (${patientData.age} ans) a déclaré son paiement de ${patientData.amountPaid || '7 000'} FCFA (${patientData.paymentMethod === 'orange_money' ? 'Orange Money' : 'Wave'}).`
+      : `${patientData.patientName} (${patientData.age} ans) est en attente : ${patientData.reason || 'Téléconsultation'}.`;
+
+    triggerDoctorPush(patientData.doctorSlug, {
+      title,
+      body,
+      url: '/dashboard',
+      tag: `patient-queue-${id}`,
+    });
+  }
 
   return newQueueItem;
 }
@@ -1006,6 +1055,22 @@ export async function sendConsultationMessage(
     if (newMsg.sender === 'patient') queue[idx].hasUnreadFollowUp = true;
     if (newMsg.sender === 'doctor') queue[idx].hasUnreadFollowUp = false;
     saveLocalQueue(queue);
+
+    // Déclenchement Push pour le médecin si le message provient du patient
+    if (newMsg.sender === 'patient' && queue[idx].doctorSlug) {
+      const summary = newMsg.type === 'voice'
+        ? `🎙️ Note vocale (${newMsg.audioDuration || 5}s)`
+        : newMsg.type === 'image'
+        ? '📷 Document / Photo transmis(e)'
+        : (newMsg.text || 'Nouveau message');
+
+      triggerDoctorPush(queue[idx].doctorSlug, {
+        title: `💬 Message de ${queue[idx].patientName}`,
+        body: summary,
+        url: `/dashboard`,
+        tag: `chat-${patientId}`,
+      });
+    }
   } else {
     const archive = getLocalArchive();
     const aIdx = archive.findIndex(p => p.id === patientId);
@@ -1019,6 +1084,16 @@ export async function sendConsultationMessage(
       if (newMsg.sender === 'patient') archive[aIdx].hasUnreadFollowUp = true;
       if (newMsg.sender === 'doctor') archive[aIdx].hasUnreadFollowUp = false;
       saveLocalArchive(archive);
+
+      // Déclenchement Push en mode suivi post-consultation
+      if (newMsg.sender === 'patient' && archive[aIdx].doctorSlug) {
+        triggerDoctorPush(archive[aIdx].doctorSlug, {
+          title: `💬 Suivi Post-Consultation : ${archive[aIdx].patientName}`,
+          body: newMsg.text || 'Nouveau message de suivi',
+          url: `/dashboard`,
+          tag: `followup-${patientId}`,
+        });
+      }
     }
   }
 

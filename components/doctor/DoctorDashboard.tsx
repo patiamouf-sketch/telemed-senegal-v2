@@ -28,6 +28,8 @@ import {
   CheckCircle2,
   Save,
   MessageSquare,
+  Bell,
+  BellOff,
   BellRing,
   Plus,
   Archive,
@@ -70,6 +72,12 @@ import { isDoctorLicenseValid } from '@/lib/utils/license';
 import Link from 'next/link';
 import confetti from 'canvas-confetti';
 
+import {
+  subscribeDoctorToPush,
+  unsubscribeDoctorFromPush,
+  checkDoctorPushStatus,
+} from '@/lib/utils/pushNotification';
+
 export function DoctorDashboard() {
   const { doctorProfile, refreshProfile } = useAuth();
   const [copied, setCopied] = useState(false);
@@ -96,6 +104,50 @@ export function DoctorDashboard() {
   const handleToggleAudioMute = () => {
     const next = toggleSoundMuted();
     setIsAudioMuted(next);
+  };
+
+  // Gestion des notifications Web Push PWA (VAPID)
+  const [pushStatus, setPushStatus] = useState<'loading' | 'granted' | 'default' | 'denied' | 'unsupported'>('loading');
+  const [isTogglingPush, setIsTogglingPush] = useState(false);
+
+  useEffect(() => {
+    if (!doctorProfile?.slug) return;
+    checkDoctorPushStatus(doctorProfile.slug).then(res => {
+      if (!res.isSupported) {
+        setPushStatus('unsupported');
+      } else if (res.permission === 'denied') {
+        setPushStatus('denied');
+      } else if (res.isSubscribed) {
+        setPushStatus('granted');
+      } else {
+        setPushStatus('default');
+      }
+    });
+  }, [doctorProfile?.slug]);
+
+  const handleTogglePush = async () => {
+    if (isTogglingPush || !doctorProfile?.slug) return;
+    setIsTogglingPush(true);
+
+    try {
+      if (pushStatus === 'granted') {
+        await unsubscribeDoctorFromPush(doctorProfile.slug);
+        setPushStatus('default');
+      } else if (pushStatus === 'denied') {
+        alert('Les notifications sont bloquées par votre navigateur. Veuillez les autoriser dans les paramètres de votre navigateur ou de votre smartphone.');
+      } else {
+        const res = await subscribeDoctorToPush(doctorProfile.slug);
+        if (res.success) {
+          setPushStatus('granted');
+        } else if (res.message) {
+          alert(res.message);
+          const current = await checkDoctorPushStatus(doctorProfile.slug);
+          if (current.permission === 'denied') setPushStatus('denied');
+        }
+      }
+    } finally {
+      setIsTogglingPush(false);
+    }
   };
 
   // Pricing & service settings state
@@ -310,6 +362,44 @@ export function DoctorDashboard() {
             {isAudioMuted ? <VolumeX className="w-4 h-4 text-rose-600" /> : <Volume2 className="w-4 h-4 text-emerald-600" />}
             <span className="hidden sm:inline">{isAudioMuted ? 'Muet' : 'Son'}</span>
           </button>
+
+          {/* Action : Notifications Web Push PWA */}
+          {pushStatus !== 'unsupported' && (
+            <button
+              type="button"
+              onClick={handleTogglePush}
+              disabled={isTogglingPush}
+              className={`px-3 py-2.5 rounded-2xl border transition-all text-xs flex items-center gap-1.5 font-semibold cursor-pointer ${
+                pushStatus === 'granted'
+                  ? 'bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100'
+                  : pushStatus === 'denied'
+                  ? 'bg-rose-50 border-rose-200 text-rose-700'
+                  : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+              }`}
+              title={
+                pushStatus === 'granted'
+                  ? 'Notifications Push actives sur cet appareil (cliquez pour désactiver)'
+                  : pushStatus === 'denied'
+                  ? 'Notifications Push bloquées par le navigateur'
+                  : 'Activer les alertes Push sur ce téléphone / PC'
+              }
+            >
+              {pushStatus === 'granted' ? (
+                <BellRing className="w-4 h-4 text-emerald-600 animate-pulse" />
+              ) : pushStatus === 'denied' ? (
+                <BellOff className="w-4 h-4 text-rose-600" />
+              ) : (
+                <Bell className="w-4 h-4 text-slate-500" />
+              )}
+              <span className="hidden sm:inline">
+                {pushStatus === 'granted'
+                  ? 'Push Actif'
+                  : pushStatus === 'denied'
+                  ? 'Push Bloqué'
+                  : 'Activer Push'}
+              </span>
+            </button>
+          )}
 
           {/* Action : Actualiser le tableau de bord */}
           <RefreshButton title="Actualiser le tableau de bord" />
