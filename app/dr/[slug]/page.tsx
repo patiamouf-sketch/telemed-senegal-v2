@@ -202,17 +202,27 @@ export default function PatientRoomPage() {
     setStep('form');
   };
 
-  // Auto-scroll systématique lors de l'arrivée ou mise à jour de messages
+  // Auto-scroll fluide lors de l'arrivée de messages ou d'un envoi patient
   useEffect(() => {
-    if (chatMessages.length > 0) {
+    if (chatMessages.length === 0) return;
+
+    const container = chatContainerRef.current;
+    const isNearBottom = container
+      ? container.scrollHeight - container.scrollTop - container.clientHeight < 250
+      : true;
+
+    const lastMessage = chatMessages[chatMessages.length - 1];
+    const isFromPatient = lastMessage?.sender === 'patient';
+
+    if (isNearBottom || isFromPatient) {
       const timer = setTimeout(() => {
         chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-      }, 60);
+      }, 50);
       return () => clearTimeout(timer);
     }
   }, [chatMessages.length]);
 
-  // Gestion ultra-robuste du viewport mobile (clavier virtuel iOS/Android)
+  // Gestion optimisée du viewport mobile sans conflit d'écouteur scroll
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
@@ -220,31 +230,34 @@ export default function PatientRoomPage() {
       document.body.style.overflow = 'hidden';
     }
 
+    let resizeTimer: any;
     const updateViewport = () => {
       if (window.visualViewport) {
         document.documentElement.style.setProperty('--vh', `${window.visualViewport.height * 0.01}px`);
+        const isKeyboardOpen = window.visualViewport.height < window.innerHeight * 0.85;
         document.documentElement.style.setProperty(
           '--keyboard-open',
-          window.visualViewport.height < window.innerHeight * 0.85 ? '1' : '0'
+          isKeyboardOpen ? '1' : '0'
         );
+        if (isKeyboardOpen && step === 'consultation') {
+          clearTimeout(resizeTimer);
+          resizeTimer = setTimeout(() => {
+            chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+          }, 100);
+        }
       }
-      if (step === 'consultation') {
-        window.scrollTo(0, 0);
-      }
-      setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
     };
 
     if (window.visualViewport) {
       window.visualViewport.addEventListener('resize', updateViewport);
-      window.visualViewport.addEventListener('scroll', updateViewport);
     }
     window.addEventListener('resize', updateViewport);
     updateViewport(); // init
 
     return () => {
+      clearTimeout(resizeTimer);
       if (window.visualViewport) {
         window.visualViewport.removeEventListener('resize', updateViewport);
-        window.visualViewport.removeEventListener('scroll', updateViewport);
       }
       window.removeEventListener('resize', updateViewport);
     };
@@ -722,9 +735,11 @@ export default function PatientRoomPage() {
           ref={chatContainerRef}
           onScroll={e => {
             const t = e.currentTarget;
-            setShowScrollBottom(t.scrollHeight - t.scrollTop - t.clientHeight > 140);
+            const isScrolledUp = t.scrollHeight - t.scrollTop - t.clientHeight > 140;
+            setShowScrollBottom(prev => (prev !== isScrolledUp ? isScrolledUp : prev));
           }}
-          className="flex-1 overflow-y-auto overscroll-contain bg-slate-50 relative flex flex-col"
+          className="flex-1 overflow-y-auto overscroll-contain bg-slate-50 relative flex flex-col scroll-smooth-gpu hardware-accelerated"
+          style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-y' }}
         >
           <div className="max-w-3xl mx-auto w-full flex-1 flex flex-col p-4 space-y-4">
             

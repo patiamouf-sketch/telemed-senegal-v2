@@ -71,6 +71,7 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
 
   const prevMessagesCountRef = useRef<number>(patient.messages?.length || 0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const voiceSecondsRef = useRef(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -181,37 +182,42 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
     setIsAudioMuted(next);
   };
 
-  // Gestion ultra-robuste du viewport mobile (clavier virtuel iOS/Android)
+  // Gestion optimisée du viewport mobile sans conflit d'écouteur scroll
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
     const originalOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
 
+    let resizeTimer: any;
     const updateViewport = () => {
       if (window.visualViewport) {
         document.documentElement.style.setProperty('--vh', `${window.visualViewport.height * 0.01}px`);
+        const isKeyboardOpen = window.visualViewport.height < window.innerHeight * 0.85;
         document.documentElement.style.setProperty(
           '--keyboard-open',
-          window.visualViewport.height < window.innerHeight * 0.85 ? '1' : '0'
+          isKeyboardOpen ? '1' : '0'
         );
+        if (isKeyboardOpen) {
+          clearTimeout(resizeTimer);
+          resizeTimer = setTimeout(() => {
+            messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+          }, 100);
+        }
       }
-      window.scrollTo(0, 0);
-      setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
     };
 
     if (window.visualViewport) {
       window.visualViewport.addEventListener('resize', updateViewport);
-      window.visualViewport.addEventListener('scroll', updateViewport);
     }
     window.addEventListener('resize', updateViewport);
     updateViewport();
 
     return () => {
+      clearTimeout(resizeTimer);
       document.body.style.overflow = originalOverflow;
       if (window.visualViewport) {
         window.visualViewport.removeEventListener('resize', updateViewport);
-        window.visualViewport.removeEventListener('scroll', updateViewport);
       }
       window.removeEventListener('resize', updateViewport);
     };
@@ -237,9 +243,19 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
     return () => clearInterval(interval);
   }, [isRecordingVoice]);
 
-  // Scroll to bottom on new message
+  // Scroll fluide vers le bas uniquement si proche du bas ou après envoi praticien
   useEffect(() => {
-    if (messages.length > 0) {
+    if (messages.length === 0) return;
+
+    const container = messagesContainerRef.current;
+    const isNearBottom = container
+      ? container.scrollHeight - container.scrollTop - container.clientHeight < 250
+      : true;
+
+    const lastMessage = messages[messages.length - 1];
+    const isFromDoctor = lastMessage?.sender === 'doctor';
+
+    if (isNearBottom || isFromDoctor) {
       const timer = setTimeout(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
       }, 50);
@@ -559,7 +575,11 @@ export function LiveConsultationRoom({ patient, doctor, onClose }: LiveConsultat
             </div>
 
             {/* Messages Feed */}
-            <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-3.5">
+            <div
+              ref={messagesContainerRef}
+              className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-3.5 scroll-smooth-gpu overscroll-contain hardware-accelerated"
+              style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-y' }}
+            >
               {messages.map(msg => (
                 <div
                   key={msg.id}
