@@ -6,6 +6,7 @@
 
 import { AccessAuditLog, AccessAuditAction, ActorType, TargetType } from '../types/audit';
 import { db as firestoreDb } from '../firebase';
+import { anonymizeIp } from '../utils/privacy';
 import {
   collection,
   doc,
@@ -33,6 +34,7 @@ export async function logAccessEvent(
     ...data,
     id,
     timestamp,
+    ipAddress: data.ipAddress ? anonymizeIp(data.ipAddress) : '127.0.0.***',
   };
 
   // 1. Sauvegarde locale immédiate (résilience hors-ligne)

@@ -23,6 +23,7 @@ export interface AccessAuditLog {
   targetType: TargetType;
   targetId: string;            // Hash ordonnance ou ID patient_queue
   description: string;         // Libellé explicite en français
+  ipAddress?: string;          // Adresse IP pseudonymisée (ex: 196.207.215.***)
   metadata?: Record<string, any>;
   timestamp: string;           // Format ISO 8601
 }
