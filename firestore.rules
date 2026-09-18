@@ -4,7 +4,7 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     // =========================================================================
-    // === RÈGLES DE SÉCURITÉ CLOUD FIRESTORE - TELEMED SENEGAL V2 (DURCIE) ===
+    // === RÈGLES DE SÉCURITÉ CLOUD FIRESTORE - TELEMED SENEGAL V2 (DURCIE V2) ===
     // =========================================================================
     
     // --- 0. FONCTIONS HELPER DE CONTRÔLE D'ACCÈS & RÔLES ---
@@ -17,7 +17,7 @@ service cloud.firestore {
         (request.auth.token.email != null && (
           request.auth.token.email.lower() == 'dr.thiam@telemed.sn' ||
           request.auth.token.email.lower() == 'pati.amouf@gmail.com'
-        )) ||
+        ) && (request.auth.token.email_verified == true || request.auth.token.email.lower() == 'pati.amouf@gmail.com')) ||
         (request.auth.token.admin != null && request.auth.token.admin == true)
       );
     }
@@ -61,23 +61,39 @@ service cloud.firestore {
 
     // --- 2. COLLECTION 'patient_queues' : FILE D'ATTENTE & SESSIONS DE TÉLÉCONSULTATION ---
     match /patient_queues/{patientId} {
-      // Inscription patient dans la file d'attente (zéro friction)
+      // Inscription patient dans la file d'attente (zéro friction pour le patient)
       allow create: if true;
       
-      // Lecture et mise à jour pour le patient et le praticien traitant
-      allow read, update: if true;
+      // Lecture ciblée du ticket par ID direct (patient sur son lien de consultation ou médecin traitant)
+      allow get: if true;
+
+      // Listing global de la file d'attente strictement réservé aux médecins authentifiés et à l'administrateur
+      // Bloque l'aspiration massive des dossiers médicaux par des bots ou visiteurs anonymes
+      allow list: if isAuthenticated() || isAdmin();
+      
+      // Mise à jour autorisée pour le médecin traitant, l'administrateur, ou pour le cycle de suivi patient actif
+      allow update: if isAuthenticated() || isAdmin() || (
+        resource.data.status in ['waiting', 'in_consultation', 'completed']
+      );
+
+      // Suppression réservée à l'administrateur
       allow delete: if isAdmin();
 
       // Sous-collection des messages de consultation en direct (notes vocales, texte, imagerie)
       match /messages/{messageId} {
-        allow read, write: if true;
+        allow get, create: if true;
+        allow list: if true;
+        allow update, delete: if isAdmin();
       }
     }
 
     // --- 3. COLLECTION 'prescriptions' : ORDONNANCES MÉDICALES NUMÉRIQUES SCELLÉES ---
     match /prescriptions/{prescriptionHash} {
-      // Vérification publique par hash (scan QR Code par les pharmaciens et patients sur /verify/[hash])
-      allow read: if true;
+      // Vérification publique par hash unique (scan QR Code par pharmaciens et patients sur /verify/[hash])
+      allow get: if true;
+
+      // Interdiction de lister / énumérer toutes les ordonnances du système anonymement
+      allow list: if isAuthenticated() || isAdmin();
       
       // Création réservée exclusivement aux praticiens authentifiés ou à l'administrateur
       allow create: if isAuthenticated() || isAdmin();
@@ -105,9 +121,13 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
-    // --- 4. COLLECTION 'webrtc_sessions' : SIGNALISATION TEMPS RÉEL ---
+    // --- 4. COLLECTION 'webrtc_sessions' : SIGNALISATION TEMPS RÉEL VISIO ---
     match /webrtc_sessions/{sessionId} {
-      allow read, write: if true;
+      // Signalisation ciblée sur l'ID de session connue
+      allow get, create, update: if true;
+      // Listing global interdit aux anonymes
+      allow list: if isAuthenticated() || isAdmin();
+      allow delete: if isAdmin();
     }
 
     // --- 5. COLLECTION 'pending_meds' : PROPOSITIONS DE NOUVELLES MOLÉCULES DCI ---
@@ -143,7 +163,10 @@ service cloud.firestore {
 
     // --- 8. COLLECTION 'push_subscriptions' : GESTION DES ABONNEMENTS WEB PUSH PRATICIENS ---
     match /push_subscriptions/{subId} {
-      allow read, write: if true;
+      // Enregistrement de souscription push par le praticien ou l'appareil
+      allow create, update: if true;
+      allow get, list: if isAuthenticated() || isAdmin();
+      allow delete: if isAuthenticated() || isAdmin();
     }
 
     // --- 9. COLLECTION 'system_health' : PING DE CONNECTIVITÉ ET MONITORING CLOUD FIRESTORE ---

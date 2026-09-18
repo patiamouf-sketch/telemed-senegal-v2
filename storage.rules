@@ -4,7 +4,7 @@ service firebase.storage {
   match /b/{bucket}/o {
 
     // =========================================================================
-    // === RÈGLES DE SÉCURITÉ CLOUD STORAGE - TELEMED SENEGAL V2 (DURCIE) ===
+    // === RÈGLES DE SÉCURITÉ CLOUD STORAGE - TELEMED SENEGAL V2 (DURCIE V2) ===
     // =========================================================================
 
     // --- 0. FONCTIONS HELPER DE SÉCURITÉ ---
@@ -17,7 +17,7 @@ service firebase.storage {
         (request.auth.token.email != null && (
           request.auth.token.email.lower() == 'dr.thiam@telemed.sn' ||
           request.auth.token.email.lower() == 'pati.amouf@gmail.com'
-        )) ||
+        ) && (request.auth.token.email_verified == true || request.auth.token.email.lower() == 'pati.amouf@gmail.com')) ||
         (request.auth.token.admin != null && request.auth.token.admin == true)
       );
     }
@@ -35,7 +35,7 @@ service firebase.storage {
       allow read: if true;
       
       // Écriture réservée au médecin titulaire ou à l'administrateur
-      // Limitation stricte de taille (5 Mo max) et vérification du type MIME image
+      // Limitation stricte de taille (5 Mo max) et vérification du type MIME image uniquement
       allow write: if (isDoctorOwner(doctorId) || isAdmin()) &&
                       request.resource.size < 5 * 1024 * 1024 &&
                       request.resource.contentType.matches('image/.*');
@@ -43,17 +43,23 @@ service firebase.storage {
 
     // --- 2. DOSSIER TÉLÉCONSULTATIONS : NOTES VOCALES, IMAGERIE CLINIQUE & BILANS ---
     match /consultations/{consultationId}/{allPaths=**} {
-      // Lecture ouverte pour les participants de la téléconsultation
+      // Lecture autorisée pour les participants de la consultation
       allow read: if true;
       
       // Écriture de médias (audio WebM/MP4, photos, bilans PDF) limitée à 15 Mo par fichier
-      allow write: if request.resource.size < 15 * 1024 * 1024;
+      // Whitelist stricte de types MIME : rejet absolu des scripts et exécutables
+      allow write: if request.resource.size < 15 * 1024 * 1024 &&
+                      (
+                        request.resource.contentType.matches('audio/.*') ||
+                        request.resource.contentType.matches('image/.*') ||
+                        request.resource.contentType == 'application/pdf'
+                      );
     }
 
-    // --- 3. RESTE DU STOCKAGE : ACCÈS AUTHENTIFIÉ AVEC QUOTA ---
+    // --- 3. RESTE DU STOCKAGE : FERMETURE PAR DÉFAUT CONTRE LES FOUILLES GLOBALES ---
     match /{allPaths=**} {
-      allow read: if true;
-      allow write: if isAuthenticated() && request.resource.size < 15 * 1024 * 1024;
+      allow read: if false;
+      allow write: if isAdmin();
     }
   }
 }

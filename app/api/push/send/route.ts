@@ -9,15 +9,48 @@ import { db } from '@/lib/firebase';
 import { collection, query, where, getDocs, deleteDoc, doc } from 'firebase/firestore';
 
 // Initialisation globale de la configuration VAPID
-try {
-  webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
-} catch (err) {
-  console.warn('Erreur initialisation VAPID webpush:', err);
+if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
+  try {
+    webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+  } catch (err) {
+    console.warn('Erreur initialisation VAPID webpush:', err);
+  }
+}
+
+/**
+ * Nettoie une chaîne de texte pour éviter toute injection dans les notifications
+ */
+function sanitizeNotificationText(input: string, maxLength: number = 200): string {
+  if (!input) return '';
+  return input
+    .replace(/[<>]/g, '')
+    .trim()
+    .slice(0, maxLength);
+}
+
+/**
+ * Valide et sécurise l'URL de redirection de la notification push
+ */
+function sanitizeRedirectUrl(url?: string): string {
+  if (!url) return '/dashboard';
+  const clean = url.trim();
+  // Autoriser uniquement les chemins relatifs internes
+  if (clean.startsWith('/') && !clean.startsWith('//') && !clean.includes('\\')) {
+    return clean;
+  }
+  return '/dashboard';
 }
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
+    if (!VAPID_PRIVATE_KEY || !VAPID_PUBLIC_KEY) {
+      return NextResponse.json(
+        { error: 'Clés VAPID non configurées sur le serveur.' },
+        { status: 503 }
+      );
+    }
+
+    const body = await request.json().catch(() => ({}));
     const { doctorSlug, title, body: contentText, url, tag } = body;
 
     if (!doctorSlug || !title || !contentText) {
@@ -26,6 +59,13 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
+
+    // Assainissement strict des entrées
+    const safeDoctorSlug = sanitizeNotificationText(doctorSlug, 100);
+    const safeTitle = sanitizeNotificationText(title, 80);
+    const safeBody = sanitizeNotificationText(contentText, 250);
+    const safeUrl = sanitizeRedirectUrl(url);
+    const safeTag = sanitizeNotificationText(tag || 'telemed-alert', 50);
 
     if (!db) {
       return NextResponse.json(
@@ -36,7 +76,7 @@ export async function POST(request: Request) {
 
     // Récupération des abonnements actifs pour ce médecin
     const subsRef = collection(db, 'push_subscriptions');
-    const q = query(subsRef, where('doctorSlug', '==', doctorSlug));
+    const q = query(subsRef, where('doctorSlug', '==', safeDoctorSlug));
     const snapshot = await getDocs(q);
 
     if (snapshot.empty) {
@@ -48,10 +88,10 @@ export async function POST(request: Request) {
     }
 
     const payload = JSON.stringify({
-      title,
-      body: contentText,
-      url: url || '/dashboard',
-      tag: tag || 'telemed-alert',
+      title: safeTitle,
+      body: safeBody,
+      url: safeUrl,
+      tag: safeTag,
       icon: '/icons/icon-192.svg',
       badge: '/icons/icon-192.svg',
       vibrate: [200, 100, 200],
@@ -63,11 +103,15 @@ export async function POST(request: Request) {
 
     const promises = snapshot.docs.map(async (docSnap) => {
       const data = docSnap.data();
+      if (!data.endpoint || !data.keys?.p256dh || !data.keys?.auth) {
+        return;
+      }
+
       const pushSubscription = {
         endpoint: data.endpoint,
         keys: {
-          p256dh: data.keys?.p256dh,
-          auth: data.keys?.auth,
+          p256dh: data.keys.p256dh,
+          auth: data.keys.auth,
         },
       };
 

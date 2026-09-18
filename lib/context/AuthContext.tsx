@@ -196,116 +196,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => unsubscribe();
   }, []);
 
-  const login = async (email: string, password: string = 'Aminata2025'): Promise<DoctorProfile | null> => {
+  const login = async (email: string, password?: string): Promise<DoctorProfile | null> => {
     setLoading(true);
     try {
       const cleanEmail = email.trim().toLowerCase();
 
-      // Profil Officiel Praticien / Admin Direction
-      const defaultAdminProfile: DoctorProfile = {
-        id: 'admin-thiam-1',
-        fullName: 'Dr. Elhadji Pathé THIAM',
-        email: 'pati.amouf@gmail.com',
-        phone: '+221 78 106 92 98',
-        nin: '1985031500001',
-        speciality: 'Médecine Générale',
-        onmsNumber: '',
-        clinicName: '',
-        city: 'Dakar',
-        consultationFee: 15000,
-        availableForTeleconsult: true,
-        slug: 'dr-elhadji-pathe-thiam',
-        status: 'active',
-        role: 'admin',
-        licenseExpiresAt: '2099-12-31T23:59:59.000Z',
-        createdAt: new Date().toISOString(),
-      };
-
-      // VÉRIFICATION MOT DE PASSE ADMIN OFFICIEL (Aminata2025)
-      if (isUserAdmin(cleanEmail)) {
-        if (password === 'Aminata2025' || password === 'admin123' || password === 'password123') {
-          const currentUser = { uid: 'admin-thiam-1', email: cleanEmail, displayName: 'Dr. Elhadji Pathé THIAM' };
-          setUser(currentUser);
-          setDoctorProfile(defaultAdminProfile);
-
-          if (typeof window !== 'undefined') {
-            localStorage.setItem('telemed_session_v2', JSON.stringify({ user: currentUser, profile: defaultAdminProfile }));
-          }
-
-          // Synchronisation Firestore Database
-          if (isFirebaseConfigured && db) {
-            try {
-              await setDoc(doc(db, 'doctors', 'admin-thiam-1'), defaultAdminProfile, { merge: true });
-              await setDoc(doc(db, 'doctors', cleanEmail), defaultAdminProfile, { merge: true });
-              await setDoc(doc(db, 'doctors', defaultAdminProfile.slug), defaultAdminProfile, { merge: true });
-            } catch (e) {}
-          }
-
-          // Synchronisation Firebase Auth
-          if (isFirebaseConfigured && auth) {
-            try {
-              const cred = await signInWithEmailAndPassword(auth, cleanEmail, password);
-              if (cred.user) {
-                currentUser.uid = cred.user.uid;
-                setUser(currentUser);
-                if (db) {
-                  await setDoc(doc(db, 'doctors', cred.user.uid), defaultAdminProfile, { merge: true });
-                }
-              }
-            } catch (e: any) {
-              try {
-                const newCred = await createUserWithEmailAndPassword(auth, cleanEmail, password);
-                if (newCred.user && db) {
-                  await setDoc(doc(db, 'doctors', newCred.user.uid), defaultAdminProfile, { merge: true });
-                }
-              } catch (err) {}
-            }
-          }
-
-          setLoading(false);
-          return defaultAdminProfile;
-        }
+      if (!password || password.trim() === '') {
+        throw new Error('Veuillez saisir votre mot de passe pour vous connecter.');
       }
 
+      // 1. Authentification Firebase Authentication stricte
       if (isFirebaseConfigured && auth) {
         let credUser: User | null = null;
         try {
           const cred = await signInWithEmailAndPassword(auth, cleanEmail, password);
           credUser = cred.user;
         } catch (firebaseErr: any) {
-          // Gestion du cas où le compte praticien a été approuvé dans Firestore mais pas encore créé dans Firebase Auth
           if (
             firebaseErr.code === 'auth/user-not-found' ||
             firebaseErr.code === 'auth/invalid-credential' ||
             firebaseErr.code === 'auth/invalid-login-credentials'
           ) {
-            const existingProfile = await getDoctorById(cleanEmail);
-            if (existingProfile) {
-              try {
-                const newCred = await createUserWithEmailAndPassword(auth, cleanEmail, password);
-                credUser = newCred.user;
-                if (db) {
-                  await setDoc(doc(db, 'doctors', newCred.user.uid), existingProfile, { merge: true });
-                  await setDoc(doc(db, 'doctors', cleanEmail), existingProfile, { merge: true });
-                }
-              } catch (createErr) {
-                // Si la création échoue mais que le profil est approuvé
-                const currentUser = { uid: existingProfile.id || cleanEmail, email: cleanEmail, displayName: existingProfile.fullName };
-                setUser(currentUser);
-                setDoctorProfile(existingProfile);
-                if (typeof window !== 'undefined') {
-                  localStorage.setItem('telemed_session_v2', JSON.stringify({ user: currentUser, profile: existingProfile }));
-                }
-                setLoading(false);
-                return existingProfile;
-              }
-            } else {
-              throw new Error('Identifiants incorrects ou dossier praticien introuvable.');
-            }
+            throw new Error('Identifiants incorrects ou compte praticien introuvable.');
           } else if (firebaseErr.code === 'auth/wrong-password') {
-            throw new Error('Mot de passe incorrect pour ce compte médecin.');
+            throw new Error('Mot de passe incorrect.');
+          } else if (firebaseErr.code === 'auth/too-many-requests') {
+            throw new Error('Trop de tentatives infructueuses. Veuillez patienter quelques instants.');
           } else {
-            throw firebaseErr;
+            throw new Error(firebaseErr?.message || 'Erreur lors de la connexion sécurisée.');
           }
         }
 
@@ -315,30 +233,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             getDoctorById(cleanEmail)
           ]);
           const rawProfile = (profileByUid?.status === 'active' ? profileByUid : profileByEmail?.status === 'active' ? profileByEmail : profileByUid || profileByEmail);
-          const profile = normalizeDoctorStatus(rawProfile);
+          let profile = normalizeDoctorStatus(rawProfile);
+
+          // Si c'est un compte administrateur accrédité sans profil Firestore
+          if (!profile && isUserAdmin(cleanEmail)) {
+            profile = {
+              id: credUser.uid,
+              fullName: credUser.displayName || 'Dr. Elhadji Pathé THIAM',
+              email: cleanEmail,
+              phone: '+221 78 106 92 98',
+              nin: '1985031500001',
+              speciality: 'Médecine Générale',
+              onmsNumber: '',
+              clinicName: '',
+              city: 'Dakar',
+              consultationFee: 15000,
+              availableForTeleconsult: true,
+              slug: 'dr-elhadji-pathe-thiam',
+              status: 'active',
+              role: 'admin',
+              licenseExpiresAt: '2099-12-31T23:59:59.000Z',
+              createdAt: new Date().toISOString(),
+            };
+          }
 
           if (!profile) {
             const localDoctors = getLocalDoctors();
             const matchedLocal = localDoctors.find(d => d.email.toLowerCase() === cleanEmail);
             if (matchedLocal) {
-              const currentUser = { uid: credUser.uid, email: cleanEmail, displayName: matchedLocal.fullName || 'Docteur' };
-              setUser(currentUser);
-              setDoctorProfile(matchedLocal);
-              if (db) {
-                try {
-                  await setDoc(doc(db, 'doctors', credUser.uid), matchedLocal, { merge: true });
-                  await setDoc(doc(db, 'doctors', cleanEmail), matchedLocal, { merge: true });
-                } catch (e) {}
-              }
-              if (typeof window !== 'undefined') {
-                localStorage.setItem('telemed_session_v2', JSON.stringify({ user: currentUser, profile: matchedLocal }));
-              }
-              setLoading(false);
-              return matchedLocal;
+              profile = matchedLocal;
             }
           }
 
-          const currentUser = { uid: credUser.uid, email: cleanEmail, displayName: profile?.fullName || 'Docteur' };
+          const currentUser = {
+            uid: credUser.uid,
+            email: cleanEmail,
+            displayName: profile?.fullName || credUser.displayName || 'Praticien',
+          };
+
           setUser(currentUser);
           setDoctorProfile(profile);
 
@@ -352,30 +284,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (typeof window !== 'undefined') {
             localStorage.setItem('telemed_session_v2', JSON.stringify({ user: currentUser, profile }));
           }
+
           setLoading(false);
           return profile;
         }
       }
 
-      // Fallback local pour autres comptes
-      const doctors = getLocalDoctors();
-      let matched = doctors.find(d => d.email.toLowerCase() === cleanEmail);
+      // 2. Fallback environnement hors-ligne / développement local (uniquement si Firebase non configuré)
+      if (!isFirebaseConfigured) {
+        const doctors = getLocalDoctors();
+        const matched = doctors.find(d => d.email.toLowerCase() === cleanEmail);
+        const currentUser = {
+          uid: matched?.id || `user-${Date.now()}`,
+          email: matched?.email || cleanEmail,
+          displayName: matched?.fullName || 'Praticien Démo',
+        };
 
-      const currentUser = {
-        uid: matched?.id || `user-${Date.now()}`,
-        email: matched?.email || cleanEmail,
-        displayName: matched?.fullName || 'Docteur',
-      };
+        setUser(currentUser);
+        setDoctorProfile(matched || null);
 
-      setUser(currentUser);
-      setDoctorProfile(matched || null);
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('telemed_session_v2', JSON.stringify({ user: currentUser, profile: matched }));
+        }
 
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('telemed_session_v2', JSON.stringify({ user: currentUser, profile: matched }));
+        setLoading(false);
+        return matched || null;
       }
 
-      setLoading(false);
-      return matched || null;
+      throw new Error('Service d\'authentification indisponible.');
     } catch (err) {
       setLoading(false);
       throw err;
@@ -384,19 +320,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signup = async (
     data: Omit<DoctorProfile, 'id' | 'status' | 'createdAt'>,
-    password: string = 'password123'
+    password?: string
   ): Promise<DoctorProfile> => {
     setLoading(true);
     try {
+      const cleanPassword = password || `Telemed@${Math.random().toString(36).slice(-8)}!`;
       let uid = `doc-${Date.now()}`;
       if (isFirebaseConfigured && auth) {
         try {
-          const cred = await createUserWithEmailAndPassword(auth, data.email, password);
+          const cred = await createUserWithEmailAndPassword(auth, data.email, cleanPassword);
           uid = cred.user.uid;
         } catch (e: any) {
           if (e.code === 'auth/email-already-in-use') {
             try {
-              const existingCred = await signInWithEmailAndPassword(auth, data.email, password);
+              const existingCred = await signInWithEmailAndPassword(auth, data.email, cleanPassword);
               uid = existingCred.user.uid;
             } catch (loginErr) {}
           } else {
