@@ -1,4 +1,4 @@
-import { DoctorProfile, DoctorStatus, PatientQueueItem, ChatMessage } from '../types/doctor';
+import { DoctorProfile, DoctorStatus, PatientQueueItem, ChatMessage, AvailabilityMode } from '../types/doctor';
 import { OfficialPrescription, PendingMedication } from '../types/prescription';
 import { sanitizeText } from '../utils/sanitizer';
 import { db, isFirebaseConfigured } from '../firebase';
@@ -483,8 +483,9 @@ export async function updateDoctorProfile(id: string, updates: Partial<DoctorPro
       targetKeys.add('dr-elhadji-pathe-thiam');
     }
 
+    const firestoreDb = db;
     const writePromises = Array.from(targetKeys).map(key =>
-      setDoc(doc(db, 'doctors', key), cleanData, { merge: true })
+      setDoc(doc(firestoreDb, 'doctors', key), cleanData, { merge: true })
     );
 
     try {
@@ -553,7 +554,7 @@ export async function updateDoctorProfile(id: string, updates: Partial<DoctorPro
 export async function setDoctorCabinetOpenStatus(
   doctorIdOrEmailOrSlug: string,
   isOpen: boolean,
-  options?: { mode?: 'open' | 'closed' | 'break'; customMessage?: string; breakUntil?: string }
+  options?: { mode?: AvailabilityMode; customMessage?: string; breakUntil?: string }
 ): Promise<DoctorProfile | null> {
   const mode = options?.mode || (isOpen ? 'open' : 'closed');
   const updates: Partial<DoctorProfile> = {

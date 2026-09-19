@@ -58,6 +58,7 @@ export interface DoctorProfile {
   banReason?: string;
   licenseExpiresAt?: string; // ISO date string (ex: +30 jours)
   createdAt: string;
+  updatedAt?: string;
   consultationFee: number; // Tarif unique de Téléconsultation (Audio, Image, Message, Ordonnance), ex: 5000 FCFA
   avisMedicalFee?: number; // Déprécié (conservé pour rétrocompatibilité)
   visioConsultationFee?: number; // Déprécié (conservé pour rétrocompatibilité)
@@ -132,6 +133,7 @@ export interface AdminStats {
 }
 
 export type AdminActionType =
+  | 'create_doctor'
   | 'approve_doctor'
   | 'reject_doctor'
   | 'ban_doctor'

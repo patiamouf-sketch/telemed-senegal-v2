@@ -28,7 +28,7 @@ interface DoctorCabinetStatusModalProps {
 export function DoctorCabinetStatusModal({ isOpen, onClose }: DoctorCabinetStatusModalProps) {
   const { doctorProfile, refreshProfile } = useAuth();
 
-  const [mode, setMode] = useState<AvailabilityMode>('open');
+  const [mode, setMode] = useState<'open' | 'closed' | 'break'>('open');
   const [customMessage, setCustomMessage] = useState<string>('');
   const [breakMinutes, setBreakMinutes] = useState<number>(30);
   const [saving, setSaving] = useState(false);
@@ -50,7 +50,7 @@ export function DoctorCabinetStatusModal({ isOpen, onClose }: DoctorCabinetStatu
 
   if (!isOpen) return null;
 
-  const handleSave = async (selectedMode?: AvailabilityMode) => {
+  const handleSave = async (selectedMode?: 'open' | 'closed' | 'break') => {
     if (!doctorProfile) return;
     const targetMode = selectedMode || mode;
     setSaving(true);
@@ -164,7 +164,7 @@ export function DoctorCabinetStatusModal({ isOpen, onClose }: DoctorCabinetStatu
                 <div>
                   <h4 className="text-sm font-black text-slate-900 flex items-center gap-2">
                     🟢 Cabinet Ouvert
-                    {mode === 'open' && <Badge variant="success" className="text-[10px]">Actif</Badge>}
+                    {mode === 'open' && <Badge variant="emerald" className="text-[10px]">Actif</Badge>}
                   </h4>
                   <p className="text-xs text-slate-500">
                     Les patients peuvent s'enregistrer et démarrer une consultation en direct.
@@ -195,7 +195,7 @@ export function DoctorCabinetStatusModal({ isOpen, onClose }: DoctorCabinetStatu
                 <div>
                   <h4 className="text-sm font-black text-slate-900 flex items-center gap-2">
                     🔴 Cabinet Fermé
-                    {mode === 'closed' && <Badge variant="danger" className="text-[10px]">Actif</Badge>}
+                    {mode === 'closed' && <Badge variant="rose" className="text-[10px]">Actif</Badge>}
                   </h4>
                   <p className="text-xs text-slate-500">
                     Les nouvelles admissions sont temporairement bloquées.
@@ -226,7 +226,7 @@ export function DoctorCabinetStatusModal({ isOpen, onClose }: DoctorCabinetStatu
                 <div>
                   <h4 className="text-sm font-black text-slate-900 flex items-center gap-2">
                     ☕ Courte Pause
-                    {mode === 'break' && <Badge variant="warning" className="text-[10px]">Actif</Badge>}
+                    {mode === 'break' && <Badge variant="amber" className="text-[10px]">Actif</Badge>}
                   </h4>
                   <p className="text-xs text-slate-500">
                     Pause repas, intervention rapide ou déplacement court.

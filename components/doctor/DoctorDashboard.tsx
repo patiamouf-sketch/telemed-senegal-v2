@@ -280,21 +280,13 @@ export function DoctorDashboard() {
   // Bascule rapide du mode de disponibilité
   const handleQuickAvailabilityMode = async (newMode: AvailabilityMode) => {
     if (!doctorProfile) return;
-    const currentAvail = doctorProfile.availability || {
-      mode: 'auto',
-      weeklySchedule: getDefaultWeeklySchedule(),
-    };
     let breakUntil: string | undefined = undefined;
     if (newMode === 'break') {
       breakUntil = new Date(Date.now() + 30 * 60 * 1000).toISOString();
     }
-    await updateDoctorProfile(doctorProfile.id, {
-      availability: {
-        ...currentAvail,
-        mode: newMode,
-        breakUntil,
-      },
-      availableForTeleconsult: newMode !== 'closed',
+    await setDoctorCabinetOpenStatus(doctorProfile.id, newMode !== 'closed', {
+      mode: newMode,
+      breakUntil,
     });
     await refreshProfile();
   };
