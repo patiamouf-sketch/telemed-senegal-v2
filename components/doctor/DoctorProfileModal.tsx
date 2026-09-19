@@ -225,6 +225,8 @@ export function DoctorProfileModal({ isOpen, onClose }: DoctorProfileModalProps)
     try {
       const updates: Partial<DoctorProfile> = {
         fullName: fullName.trim(),
+        email: doctorProfile.email,
+        slug: doctorProfile.slug,
         speciality: speciality.trim() || 'Médecine Générale',
         clinicName: clinicName.trim(),
         city: city.trim(),

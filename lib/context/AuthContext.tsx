@@ -30,6 +30,30 @@ function normalizeDoctorStatus(profile: DoctorProfile | null | undefined): Docto
   return profile;
 }
 
+function mergeDoctorProfiles(p1: DoctorProfile | null, p2: DoctorProfile | null): DoctorProfile | null {
+  if (!p1) return p2;
+  if (!p2) return p1;
+
+  const activeDoc = p1.status === 'active' ? p1 : (p2.status === 'active' ? p2 : p1);
+  const otherDoc = activeDoc === p1 ? p2 : p1;
+
+  // Préserver systématiquement le tarif personnalisé le plus pertinent
+  const fee = activeDoc.consultationFee || otherDoc.consultationFee || 5000;
+
+  return {
+    ...otherDoc,
+    ...activeDoc,
+    consultationFee: fee,
+    avisMedicalFee: fee,
+    visioConsultationFee: fee,
+    waveNumber: activeDoc.waveNumber || otherDoc.waveNumber || activeDoc.phone || otherDoc.phone,
+    omNumber: activeDoc.omNumber || otherDoc.omNumber || activeDoc.phone || otherDoc.phone,
+    avatarUrl: activeDoc.avatarUrl || otherDoc.avatarUrl,
+    signatureStampUrl: activeDoc.signatureStampUrl || otherDoc.signatureStampUrl,
+    availability: activeDoc.availability || otherDoc.availability,
+  };
+}
+
 interface AuthContextType {
   user: { uid: string; email: string; displayName?: string } | null;
   doctorProfile: DoctorProfile | null;
@@ -64,7 +88,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         getDoctorById(doctorProfile?.id || user.uid),
         user.email ? getDoctorById(user.email) : Promise.resolve(null)
       ]);
-      const rawProfile = (byId?.status === 'active' ? byId : byEmail?.status === 'active' ? byEmail : byId || byEmail);
+      const rawProfile = mergeDoctorProfiles(byId, byEmail);
       const profile = normalizeDoctorStatus(rawProfile);
       if (profile) {
         setDoctorProfile(prev => {
@@ -72,6 +96,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             prev &&
             prev.id === profile.id &&
             prev.status === profile.status &&
+            prev.consultationFee === profile.consultationFee &&
             prev.licenseExpiresAt === profile.licenseExpiresAt
           ) {
             return prev;
@@ -172,7 +197,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 getDoctorById(firebaseUser.uid),
                 firebaseUser.email ? getDoctorById(firebaseUser.email) : Promise.resolve(null)
               ]);
-              const raw = (profileById?.status === 'active' ? profileById : profileByEmail?.status === 'active' ? profileByEmail : profileById || profileByEmail);
+              const raw = mergeDoctorProfiles(profileById, profileByEmail);
               const normalized = normalizeDoctorStatus(raw);
               setDoctorProfile(normalized);
               if (typeof window !== 'undefined') {
@@ -232,28 +257,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             getDoctorById(credUser.uid),
             getDoctorById(cleanEmail)
           ]);
-          const rawProfile = (profileByUid?.status === 'active' ? profileByUid : profileByEmail?.status === 'active' ? profileByEmail : profileByUid || profileByEmail);
+          const rawProfile = mergeDoctorProfiles(profileByUid, profileByEmail);
           let profile = normalizeDoctorStatus(rawProfile);
 
           // Si c'est un compte administrateur accrédité sans profil Firestore
           if (!profile && isUserAdmin(cleanEmail)) {
+            const localDoctors = getLocalDoctors();
+            const localAdmin = localDoctors.find(d => d.email.toLowerCase() === cleanEmail || d.id === 'admin-thiam-1');
+
             profile = {
               id: credUser.uid,
-              fullName: credUser.displayName || 'Dr. Elhadji Pathé THIAM',
+              fullName: credUser.displayName || localAdmin?.fullName || 'Dr. Elhadji Pathé THIAM',
               email: cleanEmail,
-              phone: '+221 78 106 92 98',
-              nin: '1985031500001',
-              speciality: 'Médecine Générale',
-              onmsNumber: '',
-              clinicName: '',
-              city: 'Dakar',
-              consultationFee: 15000,
+              phone: localAdmin?.phone || '+221 78 106 92 98',
+              nin: localAdmin?.nin || '1985031500001',
+              speciality: localAdmin?.speciality || 'Médecine Générale',
+              onmsNumber: localAdmin?.onmsNumber || '',
+              clinicName: localAdmin?.clinicName || 'Cabinet Médical Virtuel TELEMED SENEGAL',
+              city: localAdmin?.city || 'Dakar',
+              consultationFee: localAdmin?.consultationFee || 15000,
+              avisMedicalFee: localAdmin?.consultationFee || 15000,
+              visioConsultationFee: localAdmin?.consultationFee || 15000,
               availableForTeleconsult: true,
-              slug: 'dr-elhadji-pathe-thiam',
+              slug: localAdmin?.slug || 'dr-elhadji-pathe-thiam',
               status: 'active',
               role: 'admin',
               licenseExpiresAt: '2099-12-31T23:59:59.000Z',
-              createdAt: new Date().toISOString(),
+              createdAt: localAdmin?.createdAt || new Date().toISOString(),
+              avatarUrl: localAdmin?.avatarUrl,
+              signatureStampUrl: localAdmin?.signatureStampUrl,
+              availability: localAdmin?.availability,
             };
           }
 

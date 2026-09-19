@@ -434,63 +434,100 @@ export async function getDoctorBySlug(slug: string): Promise<DoctorProfile | nul
 
 export async function updateDoctorProfile(id: string, updates: Partial<DoctorProfile>): Promise<DoctorProfile | null> {
   const cleanId = (id || '').trim();
-  const cleanData = cleanFirestoreData(updates);
+  const lowerId = cleanId.toLowerCase();
 
   // Récupérer le profil existant pour connaître le slug et l'email complets
   const currentDoctors = getLocalDoctors();
-  const lowerId = cleanId.toLowerCase();
   const existingDoc = currentDoctors.find(d => 
     d.id?.toLowerCase() === lowerId || 
     d.email?.toLowerCase() === lowerId ||
     d.slug?.toLowerCase() === lowerId ||
-    (updates.email && d.email?.toLowerCase() === updates.email.toLowerCase())
+    (updates.email && d.email?.toLowerCase() === updates.email.toLowerCase()) ||
+    (lowerId.includes('thiam') && (d.id === 'admin-thiam-1' || d.email?.toLowerCase().includes('pati.amouf')))
   );
 
   const targetEmail = (updates.email || existingDoc?.email || (cleanId.includes('@') ? cleanId : '')).trim().toLowerCase();
   const targetSlug = (updates.slug || existingDoc?.slug || '').trim().toLowerCase();
 
-  // 1. Mise à jour Firestore (Synchronisation multi-clés ID, Email et Slug pour réactivité absolue)
+  // Harmonisation complète des tarifs pour garantir la rétrocompatibilité
+  const normalizedUpdates: Partial<DoctorProfile> = {
+    ...updates,
+    updatedAt: new Date().toISOString(),
+  };
+
+  if (updates.consultationFee !== undefined) {
+    const fee = Number(updates.consultationFee) || 5000;
+    normalizedUpdates.consultationFee = fee;
+    normalizedUpdates.avisMedicalFee = fee;
+    normalizedUpdates.visioConsultationFee = fee;
+  }
+
+  const cleanData = cleanFirestoreData(normalizedUpdates);
+
+  // 1. Mise à jour Firestore (Synchronisation atomique multi-clés ID, Email, Slug et Alias connus)
   if (isFirebaseConfigured && db && cleanId) {
-    const writePromises: Promise<any>[] = [
-      setDoc(doc(db, 'doctors', cleanId), cleanData, { merge: true }),
-    ];
+    const targetKeys = new Set<string>();
+    if (cleanId) targetKeys.add(cleanId);
+    if (targetEmail) targetKeys.add(targetEmail);
+    if (targetSlug) targetKeys.add(targetSlug);
 
-    if (targetEmail && targetEmail !== cleanId) {
-      writePromises.push(setDoc(doc(db, 'doctors', targetEmail), cleanData, { merge: true }));
+    // Résilience spécifique pour le compte administrateur Dr. Pathé THIAM
+    if (
+      cleanId === 'admin-thiam-1' ||
+      targetEmail.includes('pati.amouf') ||
+      targetSlug.includes('thiam') ||
+      lowerId.includes('thiam')
+    ) {
+      targetKeys.add('admin-thiam-1');
+      targetKeys.add('pati.amouf@gmail.com');
+      targetKeys.add('dr-elhadji-pathe-thiam');
     }
 
-    if (targetSlug && targetSlug !== cleanId && targetSlug !== targetEmail) {
-      writePromises.push(setDoc(doc(db, 'doctors', targetSlug), cleanData, { merge: true }));
-    }
+    const writePromises = Array.from(targetKeys).map(key =>
+      setDoc(doc(db, 'doctors', key), cleanData, { merge: true })
+    );
 
     try {
       await Promise.allSettled(writePromises);
     } catch (e) {
-      console.warn('Firebase setDoc notice:', e);
+      console.warn('Firebase setDoc updateDoctorProfile notice:', e);
     }
   }
 
   // 2. Mise à jour LocalStorage (telemed_doctors_v2)
   const doctors = getLocalDoctors();
-  const idx = doctors.findIndex(d => 
-    d.id?.toLowerCase() === lowerId || 
-    d.email?.toLowerCase() === lowerId ||
-    d.slug?.toLowerCase() === lowerId ||
-    (targetEmail && d.email?.toLowerCase() === targetEmail) ||
-    (targetSlug && d.slug?.toLowerCase() === targetSlug)
-  );
-
   let updated: DoctorProfile | null = null;
-  if (idx >= 0) {
-    doctors[idx] = { ...doctors[idx], ...updates };
-    saveLocalDoctors(doctors);
-    updated = doctors[idx];
-  } else {
-    const newDoc = { id: cleanId, ...updates } as DoctorProfile;
-    doctors.unshift(newDoc);
-    saveLocalDoctors(doctors);
+  let found = false;
+
+  const updatedDoctors = doctors.map(d => {
+    const dLowerId = d.id?.toLowerCase();
+    const dLowerEmail = d.email?.toLowerCase();
+    const dLowerSlug = d.slug?.toLowerCase();
+
+    const isMatch =
+      dLowerId === lowerId ||
+      dLowerEmail === lowerId ||
+      dLowerSlug === lowerId ||
+      (targetEmail && dLowerEmail === targetEmail) ||
+      (targetSlug && dLowerSlug === targetSlug) ||
+      (targetEmail.includes('pati.amouf') && (d.id === 'admin-thiam-1' || dLowerEmail?.includes('pati.amouf')));
+
+    if (isMatch) {
+      found = true;
+      const merged = { ...d, ...normalizedUpdates };
+      updated = merged;
+      return merged;
+    }
+    return d;
+  });
+
+  if (!found) {
+    const newDoc = { id: cleanId, ...normalizedUpdates } as DoctorProfile;
+    updatedDoctors.unshift(newDoc);
     updated = newDoc;
   }
+
+  saveLocalDoctors(updatedDoctors);
 
   // 3. Mise à jour immédiate de la session active
   if (typeof window !== 'undefined') {
@@ -498,9 +535,9 @@ export async function updateDoctorProfile(id: string, updates: Partial<DoctorPro
       const savedSession = localStorage.getItem('telemed_session_v2');
       if (savedSession) {
         const parsed = JSON.parse(savedSession);
-        parsed.profile = { ...(parsed.profile || {}), ...updates };
-        if (parsed.user && updates.fullName) {
-          parsed.user.displayName = updates.fullName;
+        parsed.profile = { ...(parsed.profile || {}), ...normalizedUpdates };
+        if (parsed.user && normalizedUpdates.fullName) {
+          parsed.user.displayName = normalizedUpdates.fullName;
         }
         localStorage.setItem('telemed_session_v2', JSON.stringify(parsed));
       }

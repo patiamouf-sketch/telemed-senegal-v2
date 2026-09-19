@@ -273,6 +273,8 @@ export function DoctorDashboard() {
     if (!doctorProfile) return;
     setSavingPrices(true);
     await updateDoctorProfile(doctorProfile.id, {
+      email: doctorProfile.email,
+      slug: doctorProfile.slug,
       consultationFee: Number(consultationFee) || 5000,
       avisMedicalFee: Number(consultationFee) || 5000,
       visioConsultationFee: Number(consultationFee) || 5000,
