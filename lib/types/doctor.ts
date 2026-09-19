@@ -21,10 +21,10 @@ export interface DaySchedule {
 }
 
 export interface DoctorAvailability {
-  mode: AvailabilityMode; // 'auto' (planning), 'open' (forcé ouvert), 'break' (pause), 'closed' (fermé)
+  mode: AvailabilityMode; // 'open' (ouvert), 'closed' (fermé), 'break' (pause), 'auto' (rétrocompatible)
   breakUntil?: string;    // Date ISO de fin de pause
-  customMessage?: string; // Message personnalisé (ex: "En intervention chirurgicale")
-  weeklySchedule: DaySchedule[];
+  customMessage?: string; // Message personnalisé (ex: "En intervention chirurgicale", "En pause déjeuner")
+  weeklySchedule?: DaySchedule[];
 }
 
 export interface AvailabilityStatusResult {

@@ -179,7 +179,7 @@ export function findNextOpening(
 }
 
 /**
- * Moteur principal de calcul du statut de disponibilité d'un praticien
+ * Moteur principal de calcul du statut de disponibilité d'un praticien (Mode direct Ouvert / Fermé)
  */
 export function getDoctorAvailabilityStatus(
   doctor: DoctorProfile | null,
@@ -195,58 +195,33 @@ export function getDoctorAvailabilityStatus(
     };
   }
 
-  const availability: DoctorAvailability = doctor.availability || {
-    mode: doctor.availableForTeleconsult === false ? 'closed' : 'auto',
-    weeklySchedule: getDefaultWeeklySchedule(),
-  };
+  const customMessage = doctor.availability?.customMessage?.trim() || undefined;
 
-  const weeklySchedule = availability.weeklySchedule?.length
-    ? availability.weeklySchedule
-    : getDefaultWeeklySchedule();
-
-  const customMessage = availability.customMessage?.trim() || undefined;
-
-  // 1. Mode Forcé Ouvert (Permanence 24h/24 7j/7)
-  if (availability.mode === 'open') {
-    return {
-      isOpen: true,
-      status: 'open',
-      label: 'Cabinet Ouvert 24h/24 • 7j/7',
-      badgeVariant: 'emerald',
-      currentSlotInfo: 'Permanence Médicale Continue (24h/24 & 7j/7)',
-      customMessage,
-    };
-  }
-
-  // 2. Mode Forcé Fermé
-  if (availability.mode === 'closed') {
-    const nextOpening = findNextOpening(weeklySchedule, now);
+  // 1. Fermeture explicite
+  if (doctor.availableForTeleconsult === false || doctor.availability?.mode === 'closed') {
     return {
       isOpen: false,
       status: 'closed',
       label: 'Cabinet Actuellement Fermé',
       badgeVariant: 'rose',
-      nextOpeningInfo: nextOpening ? `Réouverture prévue : ${nextOpening}` : undefined,
       customMessage: customMessage || 'Le praticien n\'accepte pas de nouvelle consultation pour le moment.',
+      reason: customMessage || 'Cabinet fermé par le médecin',
     };
   }
 
-  // 3. Mode Pause
-  if (availability.mode === 'break') {
-    // Vérifier si une heure de fin est précisée et si elle est dépassée
-    if (availability.breakUntil) {
-      const breakEndDate = new Date(availability.breakUntil);
-      if (now.getTime() > breakEndDate.getTime()) {
-        // La pause est terminée, on évalue selon le mode auto
-      } else {
+  // 2. Mode Pause temporaire
+  if (doctor.availability?.mode === 'break') {
+    if (doctor.availability.breakUntil) {
+      const breakEndDate = new Date(doctor.availability.breakUntil);
+      if (now.getTime() <= breakEndDate.getTime()) {
         const breakTimeStr = `${breakEndDate.getHours().toString().padStart(2, '0')}h${breakEndDate.getMinutes().toString().padStart(2, '0')}`;
         return {
           isOpen: false,
           status: 'break',
           label: 'Praticien en Pause',
           badgeVariant: 'amber',
-          nextOpeningInfo: `Reprise prévue à ${breakTimeStr}`,
-          customMessage: customMessage || 'Le médecin prend une courte pause entre deux consultations.',
+          nextOpeningInfo: `Reprise prévue vers ${breakTimeStr}`,
+          customMessage: customMessage || 'Le médecin prend une courte pause.',
         };
       }
     } else {
@@ -255,47 +230,18 @@ export function getDoctorAvailabilityStatus(
         status: 'break',
         label: 'Praticien en Pause',
         badgeVariant: 'amber',
-        customMessage: customMessage || 'Le médecin est momentanément indisponible.',
+        customMessage: customMessage || 'Le médecin prend une courte pause.',
       };
     }
   }
 
-  // 4. Mode Automatique selon le planning hebdomadaire
-  const currentJsDay = now.getDay();
-  const dayConfig = DAYS_CONFIG.find(d => d.jsIndex === currentJsDay);
-  const currentDaySchedule = dayConfig
-    ? weeklySchedule.find(s => s.day === dayConfig.day)
-    : undefined;
-
-  const currentMinutes = now.getHours() * 60 + now.getMinutes();
-
-  if (currentDaySchedule && currentDaySchedule.enabled && currentDaySchedule.slots.length > 0) {
-    const activeSlot = currentDaySchedule.slots.find(slot =>
-      isMinutesInSlot(currentMinutes, slot)
-    );
-
-    if (activeSlot) {
-      const is24h = activeSlot.start === '00:00' && (activeSlot.end === '23:59' || activeSlot.end === '24:00');
-      return {
-        isOpen: true,
-        status: 'open',
-        label: is24h ? 'Cabinet Ouvert 24h/24' : 'Cabinet Ouvert • En service',
-        badgeVariant: 'emerald',
-        currentSlotInfo: is24h ? 'Permanence Médicale 24h/24' : `Plage de consultation : ${activeSlot.start} - ${activeSlot.end}`,
-        customMessage,
-      };
-    }
-  }
-
-  // Si en dehors des plages d'ouverture
-  const nextOpening = findNextOpening(weeklySchedule, now);
-
+  // 3. Par défaut : Cabinet Ouvert et en service
   return {
-    isOpen: false,
-    status: 'closed',
-    label: 'Cabinet Actuellement Fermé',
-    badgeVariant: 'rose',
-    nextOpeningInfo: nextOpening ? `Réouverture : ${nextOpening}` : undefined,
-    customMessage: customMessage || 'En dehors des horaires de consultation.',
+    isOpen: true,
+    status: 'open',
+    label: 'Cabinet Ouvert • En service',
+    badgeVariant: 'emerald',
+    currentSlotInfo: 'Consultations en direct disponibles',
+    customMessage,
   };
 }

@@ -548,6 +548,26 @@ export async function updateDoctorProfile(id: string, updates: Partial<DoctorPro
 }
 
 /**
+ * Modifie le statut direct d'ouverture du cabinet (Ouvert / Fermé / Pause) en 1-clic
+ */
+export async function setDoctorCabinetOpenStatus(
+  doctorIdOrEmailOrSlug: string,
+  isOpen: boolean,
+  options?: { mode?: 'open' | 'closed' | 'break'; customMessage?: string; breakUntil?: string }
+): Promise<DoctorProfile | null> {
+  const mode = options?.mode || (isOpen ? 'open' : 'closed');
+  const updates: Partial<DoctorProfile> = {
+    availableForTeleconsult: isOpen,
+    availability: {
+      mode,
+      customMessage: options?.customMessage || '',
+      breakUntil: options?.breakUntil,
+    },
+  };
+  return updateDoctorProfile(doctorIdOrEmailOrSlug, updates);
+}
+
+/**
  * Récupère l'ensemble des ordonnances directes émises par un médecin
  */
 export async function getDoctorDirectPrescriptions(doctorIdOrSlug: string): Promise<OfficialPrescription[]> {

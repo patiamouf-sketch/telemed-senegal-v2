@@ -45,22 +45,25 @@ import {
   Settings,
   ArrowUpRight,
   X,
+  Power,
+  PowerOff,
 } from 'lucide-react';
 import { DoctorProfileModal } from './DoctorProfileModal';
-import { DoctorScheduleModal } from './DoctorScheduleModal';
+import { DoctorCabinetStatusModal } from './DoctorCabinetStatusModal';
 import { getDoctorInviteWhatsAppUrl } from '@/lib/utils/whatsappHelper';
 import {
   getDoctorQueue,
   addPatientToQueue,
   confirmPatientPayment,
   updateDoctorProfile,
+  setDoctorCabinetOpenStatus,
   getDoctorArchive,
   listenToDoctorQueue,
   getFollowUpStatus,
   getDoctorDirectPrescriptions,
 } from '@/lib/services/doctorService';
 import { PatientQueueItem, DoctorProfile, AvailabilityMode } from '@/lib/types/doctor';
-import { getDoctorAvailabilityStatus, getDefaultWeeklySchedule } from '@/lib/utils/availability';
+import { getDoctorAvailabilityStatus } from '@/lib/utils/availability';
 import { OfficialPrescription } from '@/lib/types/prescription';
 import { downloadPrescriptionPDF } from '@/lib/utils/pdfGenerator';
 import { differenceInDays } from 'date-fns';
@@ -90,10 +93,39 @@ export function DoctorDashboard() {
   const [showQRModal, setShowQRModal] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showTarifsModal, setShowTarifsModal] = useState(false);
-  const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [showCabinetStatusModal, setShowCabinetStatusModal] = useState(false);
   const [showDirectPrescription, setShowDirectPrescription] = useState(false);
   const [origin, setOrigin] = useState('');
   const [newPaymentAlert, setNewPaymentAlert] = useState<PatientQueueItem | null>(null);
+  const [togglingCabinet, setTogglingCabinet] = useState(false);
+
+  // Bascule instantanée en 1 clic Cabinet Ouvert / Cabinet Fermé
+  const handleQuickToggleCabinet = async () => {
+    if (!doctorProfile || togglingCabinet) return;
+    setTogglingCabinet(true);
+    try {
+      const nextIsOpen = !availStatus.isOpen;
+      await setDoctorCabinetOpenStatus(
+        doctorProfile.id || doctorProfile.email,
+        nextIsOpen,
+        { mode: nextIsOpen ? 'open' : 'closed' }
+      );
+      await refreshProfile();
+      if (nextIsOpen) {
+        try {
+          confetti({
+            particleCount: 35,
+            spread: 60,
+            origin: { y: 0.5 },
+          });
+        } catch (e) {}
+      }
+    } catch (err) {
+      console.error('Erreur bascule cabinet:', err);
+    } finally {
+      setTogglingCabinet(false);
+    }
+  };
 
   // État de montage client (prévention des erreurs d'hydratation SSR)
   const [mounted, setMounted] = useState(false);
@@ -374,24 +406,35 @@ export function DoctorDashboard() {
             <span>Rédiger une Ordonnance</span>
           </button>
 
-          {/* Action Secondaire : Horaires & Disponibilité */}
-          <button
-            type="button"
-            onClick={() => setShowScheduleModal(true)}
-            className={`px-3.5 py-2.5 rounded-2xl border transition-all text-xs flex items-center gap-1.5 font-semibold cursor-pointer ${
-              availStatus.isOpen
-                ? 'bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100'
-                : availStatus.status === 'break'
-                ? 'bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100'
-                : 'bg-rose-50 border-rose-200 text-rose-800 hover:bg-rose-100'
-            }`}
-            title="Gérer mes horaires et mon statut d'ouverture"
-          >
-            <Clock className={`w-4 h-4 ${
-              availStatus.isOpen ? 'text-emerald-600' : availStatus.status === 'break' ? 'text-amber-600' : 'text-rose-600'
-            }`} />
-            <span className="hidden sm:inline">Horaires</span>
-          </button>
+          {/* Action Secondaire : Statut Cabinet Toggle 1-Clic */}
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={handleQuickToggleCabinet}
+              disabled={togglingCabinet}
+              className={`px-3.5 py-2.5 rounded-2xl border transition-all text-xs flex items-center gap-2 font-bold cursor-pointer shadow-sm active:scale-95 ${
+                availStatus.isOpen
+                  ? 'bg-emerald-600 hover:bg-emerald-700 border-emerald-700 text-white'
+                  : 'bg-rose-600 hover:bg-rose-700 border-rose-700 text-white'
+              }`}
+              title="Cliquez pour basculer instantanément : Cabinet Ouvert / Cabinet Fermé"
+            >
+              <span className={`w-2 h-2 rounded-full bg-white ${availStatus.isOpen ? 'animate-pulse' : ''}`} />
+              <span>{togglingCabinet ? 'Modification...' : availStatus.isOpen ? 'Cabinet Ouvert' : 'Cabinet Fermé'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowCabinetStatusModal(true)}
+              className={`p-2.5 rounded-2xl border transition-all text-xs flex items-center justify-center cursor-pointer ${
+                availStatus.isOpen
+                  ? 'bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100'
+                  : 'bg-rose-50 border-rose-200 text-rose-800 hover:bg-rose-100'
+              }`}
+              title="Options avancées de disponibilité (Message, pause)"
+            >
+              <Settings className="w-3.5 h-3.5" />
+            </button>
+          </div>
 
           {/* Action Secondaire : Profil & Cachet */}
           <button
@@ -545,7 +588,7 @@ export function DoctorDashboard() {
               <span className="text-xs font-bold text-slate-800">Lien direct d'accès pour vos patients</span>
               <button
                 type="button"
-                onClick={() => setShowScheduleModal(true)}
+                onClick={() => setShowCabinetStatusModal(true)}
                 className={`inline-flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-0.5 rounded-full border transition-all cursor-pointer ${
                   availStatus.badgeVariant === 'emerald'
                     ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
@@ -553,7 +596,7 @@ export function DoctorDashboard() {
                     ? 'bg-amber-50 text-amber-900 border-amber-200 hover:bg-amber-100'
                     : 'bg-rose-50 text-rose-800 border-rose-200 hover:bg-rose-100'
                 }`}
-                title="Cliquez pour modifier vos horaires et statut d'ouverture"
+                title="Cliquez pour modifier votre statut d'ouverture"
               >
                 <span className={`w-1.5 h-1.5 rounded-full ${
                   availStatus.badgeVariant === 'emerald'
@@ -661,25 +704,30 @@ export function DoctorDashboard() {
             </span>
           </a>
 
-          {/* Volet 4 : Horaires & Statut */}
+          {/* Volet 4 : Statut Cabinet (Ouvert / Fermé) */}
           <button
             type="button"
-            onClick={() => setShowScheduleModal(true)}
-            className="px-3.5 py-2.5 rounded-2xl bg-indigo-50/80 hover:bg-indigo-100/80 text-indigo-900 text-xs font-bold transition-all flex items-center justify-between border border-indigo-200/70 shadow-sm active:scale-98 group cursor-pointer"
-            title="Gérer mes horaires de consultation et le statut d'ouverture"
+            onClick={handleQuickToggleCabinet}
+            disabled={togglingCabinet}
+            className={`px-3.5 py-2.5 rounded-2xl text-xs font-bold transition-all flex items-center justify-between border shadow-sm active:scale-98 group cursor-pointer ${
+              availStatus.isOpen
+                ? 'bg-emerald-50/90 hover:bg-emerald-100/90 text-emerald-950 border-emerald-200/90'
+                : 'bg-rose-50/90 hover:bg-rose-100/90 text-rose-950 border-rose-200/90'
+            }`}
+            title="Cliquez pour basculer en 1-clic l'état du cabinet"
           >
             <div className="flex items-center gap-2 min-w-0">
-              <Clock className="w-4 h-4 text-indigo-600 flex-shrink-0 group-hover:scale-110 transition-transform" />
-              <span className="truncate">Horaires</span>
+              <Power className={`w-4 h-4 flex-shrink-0 group-hover:scale-110 transition-transform ${
+                availStatus.isOpen ? 'text-emerald-600' : 'text-rose-600'
+              }`} />
+              <span className="truncate">Cabinet</span>
             </div>
             <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full border ${
               availStatus.isOpen
-                ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
-                : availStatus.status === 'break'
-                ? 'bg-amber-100 text-amber-800 border-amber-200'
-                : 'bg-rose-100 text-rose-800 border-rose-200'
+                ? 'bg-emerald-600 text-white border-emerald-700 shadow-sm'
+                : 'bg-rose-600 text-white border-rose-700 shadow-sm'
             }`}>
-              {availStatus.isOpen ? 'Ouvert' : availStatus.status === 'break' ? 'Pause' : 'Fermé'}
+              {togglingCabinet ? '...' : availStatus.isOpen ? 'Ouvert' : 'Fermé'}
             </span>
           </button>
 
@@ -1320,12 +1368,12 @@ export function DoctorDashboard() {
           </div>
         </div>
       )}
-      {/* MODALE 6 : Modale Dédiée Horaires & Disponibilités */}
-      {showScheduleModal && (
-        <DoctorScheduleModal
-          isOpen={showScheduleModal}
+      {/* MODALE 6 : Modale Dédiée Disponibilité & Statut Cabinet */}
+      {showCabinetStatusModal && (
+        <DoctorCabinetStatusModal
+          isOpen={showCabinetStatusModal}
           onClose={() => {
-            setShowScheduleModal(false);
+            setShowCabinetStatusModal(false);
             refreshProfile();
           }}
         />
