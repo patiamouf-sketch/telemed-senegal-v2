@@ -1,5 +1,7 @@
 import { DoctorProfile, AdminStats, AdminAuditLog, AdminActionType } from '../types/doctor';
-import { db, isFirebaseConfigured } from '../firebase';
+import { db, auth, isFirebaseConfigured } from '../firebase';
+import { createUserWithEmailAndPassword } from 'firebase/auth';
+import { createDoctorProfile } from './doctorService';
 import { INITIAL_DOCTORS, getLocalDoctors, saveLocalDoctors, getLocalQueue } from './mockData';
 import { doc, getDoc, getDocs, collection, query, where, setDoc, deleteDoc, orderBy, limit } from 'firebase/firestore';
 import { addDays } from 'date-fns';
@@ -908,3 +910,106 @@ export async function purgeAllTestData(adminEmail: string = 'dr.thiam@telemed.sn
     deletedMeds,
   };
 }
+
+export interface AdminCreateDoctorInput {
+  firstName: string;
+  lastName: string;
+  speciality: string;
+  email: string;
+  phone: string;
+  city?: string;
+  clinicName?: string;
+  nin?: string;
+  onmsStatus?: 'registered' | 'unregistered';
+  onmsNumber?: string;
+  consultationFee?: number;
+  status?: 'active' | 'pending';
+  password?: string;
+  licenseDays?: number;
+}
+
+/**
+ * Création directe d'un praticien depuis le tableau de bord administrateur
+ */
+export async function createDoctorFromAdmin(
+  input: AdminCreateDoctorInput,
+  adminEmail: string
+): Promise<{ doctor: DoctorProfile; rawPassword: string }> {
+  const cleanFirst = input.firstName.trim();
+  const cleanLast = input.lastName.trim();
+  const fullName = `Dr. ${cleanFirst} ${cleanLast}`.replace(/\s+/g, ' ').trim();
+  const cleanEmail = input.email.trim().toLowerCase();
+  const cleanPassword = input.password && input.password.trim().length >= 6
+    ? input.password.trim()
+    : `Telemed@${Math.random().toString(36).slice(-6)}!`;
+
+  const fee = Number(input.consultationFee) || 5000;
+  const status = input.status || 'active';
+  const licenseDays = input.licenseDays || 90;
+  const licenseExpiresAt = addDays(new Date(), licenseDays).toISOString();
+
+  const slug = fullName
+    .toLowerCase()
+    .trim()
+    .replace(/^dr[\s.-]*/i, 'dr-')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '') || `dr-${Date.now()}`;
+
+  let uid = `doc-${Date.now()}`;
+
+  // 1. Création dans Firebase Authentication si configuré
+  if (isFirebaseConfigured && auth) {
+    try {
+      const cred = await createUserWithEmailAndPassword(auth, cleanEmail, cleanPassword);
+      uid = cred.user.uid;
+    } catch (authErr: any) {
+      if (authErr.code === 'auth/email-already-in-use') {
+        console.warn('Compte Firebase Auth existant pour cet email');
+      } else {
+        console.warn('Erreur création Firebase Auth dans createDoctorFromAdmin:', authErr);
+      }
+    }
+  }
+
+  // 2. Création du profil praticien dans Firestore & LocalStorage
+  const doctorData: Omit<DoctorProfile, 'id' | 'createdAt'> = {
+    fullName,
+    email: cleanEmail,
+    speciality: input.speciality.trim() || 'Médecine Générale',
+    onmsStatus: input.onmsStatus || (input.onmsNumber?.trim() ? 'registered' : 'unregistered'),
+    onmsNumber: input.onmsNumber?.trim() ? input.onmsNumber.trim().toUpperCase() : undefined,
+    nin: input.nin?.trim() || '',
+    phone: input.phone.trim(),
+    waveNumber: input.phone.trim(),
+    omNumber: input.phone.trim(),
+    clinicName: input.clinicName?.trim() || 'Cabinet Médical',
+    city: input.city?.trim() || 'Dakar',
+    slug,
+    consultationFee: fee,
+    avisMedicalFee: fee,
+    visioConsultationFee: fee,
+    bio: `Médecin spécialiste en ${input.speciality.trim() || 'Médecine Générale'}`,
+    status,
+    licenseExpiresAt,
+    availableForTeleconsult: true,
+  };
+
+  const createdDoctor = await createDoctorProfile(doctorData, uid);
+
+  // 3. Journalisation médico-légale
+  await logAdminAction({
+    action: 'create_doctor',
+    adminEmail,
+    targetId: createdDoctor.id,
+    targetName: fullName,
+    targetType: 'doctor',
+    details: `Création directe du compte praticien ${fullName} (${cleanEmail}) avec statut initial '${status}' et licence de ${licenseDays} jours.`,
+  });
+
+  return {
+    doctor: createdDoctor,
+    rawPassword: cleanPassword,
+  };
+}
+

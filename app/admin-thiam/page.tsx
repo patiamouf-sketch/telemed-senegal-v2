@@ -28,7 +28,8 @@ import {
   ScrollText,
   FileText,
   Search,
-  Filter
+  Filter,
+  UserPlus
 } from 'lucide-react';
 import {
   getAllDoctors,
@@ -43,6 +44,7 @@ import {
   logAdminAction,
   purgeAllTestData,
 } from '@/lib/services/adminService';
+import { AdminCreateDoctorModal } from '@/components/admin/AdminCreateDoctorModal';
 import { executeDataRetentionCycle } from '@/lib/services/retentionService';
 import { getPendingMedications, approvePendingMedication, rejectPendingMedication } from '@/lib/services/doctorService';
 import { DoctorProfile, AdminStats, AdminAuditLog } from '@/lib/types/doctor';
@@ -64,6 +66,7 @@ export default function AdminThiamPage() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'pending' | 'active' | 'banned' | 'medications' | 'audit' | 'all'>('pending');
   const [authSafetyPassed, setAuthSafetyPassed] = useState(false);
+  const [showCreateDoctorModal, setShowCreateDoctorModal] = useState(false);
 
   // Modal d'approbation d'un médicament
   const [selectedMedToApprove, setSelectedMedToApprove] = useState<PendingMedication | null>(null);
@@ -470,6 +473,15 @@ export default function AdminThiamPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowCreateDoctorModal(true)}
+              className="px-3.5 py-1.5 rounded-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all flex items-center gap-1.5 shadow-md shadow-blue-500/20 cursor-pointer hover:scale-105 active:scale-95"
+              title="Créer directement un profil praticien et lui attribuer une licence"
+            >
+              <UserPlus className="w-3.5 h-3.5 text-white" />
+              <span>+ Créer un Praticien</span>
+            </button>
             <button
               type="button"
               onClick={handleExecuteRetentionCycle}
@@ -1416,6 +1428,17 @@ export default function AdminThiamPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Modal Création Directe Praticien */}
+      {showCreateDoctorModal && (
+        <AdminCreateDoctorModal
+          onClose={() => setShowCreateDoctorModal(false)}
+          onSuccess={() => {
+            loadData(true);
+          }}
+          adminEmail={user?.email || 'dr.thiam@telemed.sn'}
+        />
       )}
     </div>
   );
