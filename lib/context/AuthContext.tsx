@@ -327,17 +327,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const cleanPassword = password || `Telemed@${Math.random().toString(36).slice(-8)}!`;
       let uid = `doc-${Date.now()}`;
       if (isFirebaseConfigured && auth) {
+        const cleanEmail = data.email.trim().toLowerCase();
         try {
-          const cred = await createUserWithEmailAndPassword(auth, data.email, cleanPassword);
+          const cred = await createUserWithEmailAndPassword(auth, cleanEmail, cleanPassword);
           uid = cred.user.uid;
         } catch (e: any) {
           if (e.code === 'auth/email-already-in-use') {
             try {
-              const existingCred = await signInWithEmailAndPassword(auth, data.email, cleanPassword);
+              const existingCred = await signInWithEmailAndPassword(auth, cleanEmail, cleanPassword);
               uid = existingCred.user.uid;
-            } catch (loginErr) {}
+            } catch (loginErr) {
+              throw new Error('Un compte praticien existe déjà avec cette adresse email. Veuillez vous connecter ou utiliser une autre adresse.');
+            }
+          } else if (e.code === 'auth/weak-password') {
+            throw new Error('Le mot de passe doit comporter au moins 6 caractères pour des raisons de sécurité.');
+          } else if (e.code === 'auth/invalid-email') {
+            throw new Error('L’adresse email professionnelle renseignée n’est pas valide.');
           } else {
             console.warn('Firebase signup notice:', e);
+            throw new Error(e?.message || 'Erreur lors de la création sécurisée du compte.');
           }
         }
       }

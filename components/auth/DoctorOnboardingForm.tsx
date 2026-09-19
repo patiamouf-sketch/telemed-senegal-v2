@@ -452,6 +452,16 @@ export function DoctorOnboardingForm({ onClose, onSuccess, initialData }: Doctor
       return;
     }
 
+    if (!formData.email || !formData.email.includes('@')) {
+      setError('Veuillez renseigner une adresse email professionnelle valide (ex: dr.nom@telemed.sn ou email@gmail.com).');
+      return;
+    }
+
+    if (!formData.password || formData.password.trim().length < 6) {
+      setError('Le mot de passe doit contenir au moins 6 caractères pour sécuriser votre compte praticien.');
+      return;
+    }
+
     setLoading(true);
     try {
       const slug = generateSlug(formData.fullName) || `dr-${Date.now()}`;
@@ -779,11 +789,15 @@ export function DoctorOnboardingForm({ onClose, onSuccess, initialData }: Doctor
                 id="telemed_registration_password_clean"
                 autoComplete="new-password"
                 required
-                placeholder="Créer un mot de passe sécurisé"
+                minLength={6}
+                placeholder="6 caractères minimum"
                 value={formData.password}
                 onChange={e => setFormData({ ...formData, password: e.target.value })}
                 className="w-full px-4 py-2.5 rounded-[20px] bg-white border border-slate-200/80 focus:border-[#3B82F6] focus:outline-none focus:ring-4 focus:ring-blue-500/10 text-[#0F172A] shadow-sm"
               />
+              <p className="text-[11px] text-slate-500 mt-1">
+                🔒 6 caractères minimum requis pour la sécurité de votre compte.
+              </p>
             </div>
           </div>
 
